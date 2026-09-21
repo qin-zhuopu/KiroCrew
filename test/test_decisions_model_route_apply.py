@@ -355,6 +355,67 @@ class TestOnlyANormalChatTurn:
         assert _switched_to(client) == []
 
 
+class TestWhatTextIsClassified:
+    @pytest.mark.asyncio
+    async def test_app_injected_context_is_not_part_of_the_routed_text(
+        self, tmp_path, answers, monkeypatch
+    ):
+        """The question carries the TYPED message, never the drained context prefix.
+
+        ``_run_chat`` prepends whatever ``drain_pending_context`` returns onto the
+        variable holding the turn's text, so by the routing hook that variable is
+        app-authored in part. Two separate things are wrong if the hook reads it: the
+        tier is decided on bytes nobody typed, and silent background context an app
+        injected leaves the machine on a send whose consent names the person's own
+        message. ``_user_msg_for_mirror`` is the pre-drain text, and the Slack mirror
+        already takes it for the second of those reasons.
+
+        The drain only runs on the context-builder path, so this test supplies a real
+        builder rather than the file's default state -- without one the prefix is
+        never prepended and the assertion would hold no matter which variable the
+        hook read.
+
+        The assertion is on the FIRST argument of ``routed_model``, because that is
+        the whole egress: the point derives the excerpt it sends from it. Both
+        directions are held -- the typed text is present and the injected marker is
+        absent -- so a hook that sent the prefix alone fails as loudly as one that
+        sent both.
+        """
+        from kiro_crew.context import ContextBuilder
+        from kiro_crew.memory import MemoryStore
+        from kiro_crew.skills import SkillsLoader
+
+        answers("complex")
+        seen: list[str] = []
+        real = mr.routed_model
+
+        async def _capture(message, **kwargs):
+            seen.append(message)
+            return await real(message, **kwargs)
+
+        monkeypatch.setattr(mr, "routed_model", _capture)
+        state, client = _runner_state(tmp_path)
+        _turn_client(state, client)
+        state.context_builder = ContextBuilder(
+            memory=MemoryStore(workspace=tmp_path / "ws"),
+            skills=SkillsLoader(skills_path=tmp_path / "skills", install_builtins=False),
+        )
+        client.mcp_session_report = MagicMock(return_value=None)
+        client.client = MagicMock(pop_pending_oauth_requests=MagicMock(return_value=[]))
+        slot = _routed_slot()
+        slot._pending_context = [{"content": "INJECTED-BYTES", "source": "an app"}]
+        with _quiet_sel():
+            await chat_runner._run_chat(
+                state, slot, "please redesign the scheduler", _directive_user_origin=True
+            )
+        await _settle(slot)
+
+        assert seen == ["please redesign the scheduler"]
+        assert "INJECTED-BYTES" not in seen[0]
+        # The turn still routes on the typed text; the guard is about WHAT was sent.
+        assert _switched_to(client) == ["model-c"]
+
+
 # ---------------------------------------------------------------------------
 # The flag itself
 # ---------------------------------------------------------------------------

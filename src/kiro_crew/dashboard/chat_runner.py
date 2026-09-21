@@ -10443,6 +10443,11 @@ async def _run_chat(
         # derived from -- and routing spends the owner's credential, so it asks
         # for authenticated-human provenance and keeps the actor check beside it
         # for the wakes that do declare themselves.
+        # The text sent is ``_user_msg_for_mirror``, not ``message``: Jev classifies
+        # the difficulty of what the PERSON asked, and by here ``message`` carries
+        # whatever ``drain_pending_context`` prepended. That is the same pre-drain
+        # text the Slack mirror takes, for the same reason -- app-injected context
+        # never leaves the machine on the routing send.
         if (
             slot.jev_route
             and _directive_user_origin
@@ -10451,7 +10456,7 @@ async def _run_chat(
             and not is_slash
             and message not in _SYNTHETIC_RECOVERY_MSGS
         ):
-            await _route_model_for_turn(state, slot, client, message, session_key)
+            await _route_model_for_turn(state, slot, client, _user_msg_for_mirror, session_key)
 
         state.broadcast_ws("chat_status", {"slot": slot.key, "status": "Thinking…"})
         state.broadcast_ws(
