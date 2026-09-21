@@ -51,13 +51,15 @@ import hashlib
 import logging
 import os
 import tempfile
+import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 from kiro_crew.atomic_write import replace_with_retry
 from kiro_crew.config.paths import config_dir
+from kiro_crew.stt import telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -104,29 +106,79 @@ class WhisperModel:
     ``size_bytes`` is carried for two reasons: the UI states the download cost
     before asking for it, and a file whose size does not match cannot be the
     pinned artifact, which is a free pre-check before any expensive work.
+
+    ``quantization`` names the weight format, empty for the full-precision
+    conversions. Carried as its own field rather than parsed back out of ``name``
+    because it is what a status payload and a diagnostic report, and because the
+    thing it must never become is ambiguous: a quantized build is a DIFFERENT
+    artifact with different accuracy, so it gets its own catalog row and its own
+    digest, and is never served under a full-precision model's name.
+
+    KEYWORD-ONLY, and that is not stylistic. Another open PR adds a fourth field of
+    its own to this class and constructs it positionally, so two additive changes
+    that each look safe would silently feed one field's value into the other's
+    depending on merge order -- a URL landing in ``quantization`` produces no error,
+    just a wrong label on a model. A keyword-only field cannot be reached that way
+    from either side.
     """
 
     name: str
     size_bytes: int
     sha256: str
+    quantization: str = field(default="", kw_only=True)
 
     @property
     def filename(self) -> str:
         return f"ggml-{self.name}.bin"
 
 
-#: The offered models, smallest first. Deliberately short. Every extra row is a
-#: choice the user has to make before they can dictate a sentence, and the
-#: accuracy ladder here already spans the useful range: ``tiny`` for a slow
-#: machine, ``base`` for everyone, ``small`` when accents or jargon need it, and
-#: ``large-v3-turbo`` for the accuracy ceiling. The English-only (``.en``)
-#: variants are left out because they are a trap for a multilingual user and buy
-#: little for an English one.
+#: The offered models, smallest first, ONE PER TIER. Deliberately four: every extra
+#: row is a choice a user has to make before they can dictate a sentence, and two
+#: rows in the same size class are a choice with no useful answer.
+#:
+#: The tiers, and why each survived a measured cull (60 clips over ten language
+#: buckets, WER for space-delimited languages and CER for zh/ko, on a CPU build):
+#:
+#: - ``base-q8_0`` -- fastest useful. 0.40 s for an 11 s clip, and identical accuracy
+#:   to ``base`` on five of ten buckets.
+#: - ``base`` -- the default, unchanged.
+#: - ``small-q5_1`` -- the multilingual step up, and the largest single accuracy jump
+#:   in the ladder: Italian 0.250 against ``base``'s 0.489, Portuguese 0.165 against
+#:   0.443.
+#: - ``large-v3-turbo`` -- the ceiling, and NOT removable despite being slower than
+#:   real time on a CPU build (RTF 1.24). It is the best model by a wide margin for
+#:   exactly the users who need one: German 0.063 against ``small``'s 0.180, Italian
+#:   0.114, Portuguese 0.113, and code-switched Mandarin-English 0.282 -- the best
+#:   reading any model produced on that bucket. Dropping it would remove the only
+#:   good option for multilingual and mixed-language dictation. Its cost is made
+#:   visible instead: `GET /api/stt/status` reports the backend and the measured
+#:   real-time factor.
+#:
+#: EVERY speed figure below was measured on a CPU build, and the speed half of each
+#: trade is worth much less on an accelerated one. Reported from a reviewer's Apple
+#: M5 Pro over Metal: full-precision ``small`` decodes 5.5 s of audio in 195 ms
+#: (RTF 0.036), so the 2.6x download it costs buys nothing there while its accuracy
+#: advantage over ``small-q5_1`` (Chinese CER 0.349 against 0.413) still applies. The
+#: ``base-q8_0`` promotion holds on x86 as well but by a smaller margin than the
+#: aarch64 number quoted below: a reviewer measured 1.39x on Windows Server 2025 x64
+#: over 40 clips, with identical WER and 40 of 40 transcripts byte-identical.
+#:
+#: Culled, with the evidence: ``tiny`` is the same size class as ``base-q8_0`` and
+#: only 0.09 s faster while being far worse (Portuguese 0.826 against 0.409, Italian
+#: 0.761 against 0.477), so it was dominated outright. ``base-q5_1`` is slower than
+#: ``base-q8_0`` AND less accurate on most buckets, its only advantage being 22 MB.
+#: ``small`` is 2.6x the download of ``small-q5_1`` for a gain that appears on
+#: Mandarin alone (0.349 against 0.413), which ``large-v3-turbo`` covers better
+#: (0.367) for a user who wants it.
+#:
+#: The English-only (``.en``) variants are left out because they are a trap for a
+#: multilingual user and buy little for an English one.
 CATALOG: tuple[WhisperModel, ...] = (
     WhisperModel(
-        "tiny",
-        77_691_713,
-        "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+        "base-q8_0",
+        81_768_585,
+        "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9",
+        quantization="q8_0",
     ),
     WhisperModel(
         "base",
@@ -134,9 +186,10 @@ CATALOG: tuple[WhisperModel, ...] = (
         "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
     ),
     WhisperModel(
-        "small",
-        487_601_967,
-        "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+        "small-q5_1",
+        190_085_487,
+        "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+        quantization="q5_1",
     ),
     WhisperModel(
         "large-v3-turbo",
@@ -180,10 +233,54 @@ _ALIASES: dict[str, str] = {
     "large-v3-turbo-q8_0": "large-v3-turbo",
     "medium": "large-v3-turbo",
     "medium.en": "large-v3-turbo",
-    "small.en": "small",
+    "small.en": "small-q5_1",
     "base.en": "base",
-    "tiny.en": "tiny",
+    "tiny.en": "base-q8_0",
+    # `tiny` is the one row this release drops, and it maps to `base-q8_0` rather
+    # than to the default so a stored value keeps the trade it was choosing: both
+    # are roughly 80 MB, and on a 60-clip ten-language set `base-q8_0` is ahead
+    # everywhere it differs (Portuguese 0.409 against 0.826 WER, Italian 0.477
+    # against 0.761), for 4 MB more and 0.09 s of decode.
+    "tiny": "base-q8_0",
+    # Upstream quantisation spellings, accepted for the same reason the
+    # `large-v3-turbo-q*` rows above are: whisper.cpp publishes these names, so a
+    # hand-edited config can hold one. Each lands on the survivor in its own size
+    # tier, never on the default.
+    "base-q5_0": "base-q8_0",
+    "base-q5_1": "base-q8_0",
+    "small-q5_0": "small-q5_1",
+    # `small` is the other row this release drops: 2.6x the download of
+    # `small-q5_1` for a gain that appears on one bucket of a ten-language set
+    # (Chinese CER 0.349 against 0.413) and is already beaten there by
+    # `large-v3-turbo` (0.367) at the tier above. A stored value keeps its size
+    # class rather than falling back to the default.
+    "small": "small-q5_1",
 }
+
+
+def canonical_name(name: str) -> str | None:
+    """The catalog name *name* selects, or ``None`` when it names nothing.
+
+    The distinction :func:`resolve` deliberately cannot make. ``resolve`` exists for
+    a value already stored in ``config.json`` and must always answer with a usable
+    model, so an unrecognised name degrades to the default. A WRITE path needs the
+    opposite: an unknown name must leave the stored field alone, because silently
+    replacing a good stored value with the default is worse than ignoring a bad
+    request.
+
+    Accepts both catalog names and the alias table, which is what makes a retired
+    name still settable: after a catalog cull a name like ``small`` is an alias
+    rather than a row, and a membership test against the catalog alone would reject
+    the value a user already has -- so the panel they never edited could not be
+    saved at all.
+    """
+    if not isinstance(name, str):
+        return None
+    candidate = name.strip()
+    if not candidate:
+        return None
+    canonical = _ALIASES.get(candidate, candidate)
+    return canonical if canonical in _BY_NAME else None
 
 
 def resolve(name: str) -> WhisperModel:
@@ -571,7 +668,16 @@ class ModelStore:
         path = model_path(model)
         if not path.is_file():
             return False
+        # Timed because this is the phase most often mistaken for a slow model. The
+        # digest is over the WHOLE file, so it scales with size: measured at 0.11 s
+        # for the 148 MB `base` and 5.48 s for the 1.6 GB `large-v3-turbo` on a
+        # 32-core aarch64 host, i.e. more than a quarter of that model's ~19.5 s cold
+        # start. Recording it is what lets a user tell "hashing 1.6 GB" apart from
+        # "the recogniser is slow", which have completely different remedies. The
+        # check itself is unchanged: it still runs on every load, with no cache.
+        started = time.monotonic()
         actual = await asyncio.to_thread(_sha256_file, path)
+        telemetry.recorder().record_hash(model.name, (time.monotonic() - started) * 1000.0)
         if actual == model.sha256:
             return True
         logger.error(

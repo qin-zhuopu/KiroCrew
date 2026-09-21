@@ -4947,10 +4947,14 @@ class SttConfig:
         default=_STT_DEFAULT_MODEL,
         metadata=_meta(
             "Model",
-            "Which speech model the local provider downloads and runs. Bigger is "
-            "more accurate and a longer first-time download: `tiny` on a machine "
-            "short of memory, `base` for everyone, `small` when accents or jargon "
-            "are being misheard, `large-v3-turbo` for the best accuracy available.",
+            "Which speech model the local provider downloads and runs, one per size "
+            "class: `base-q8_0` is the fastest useful one (82 MB), `base` is the "
+            "default, `small-q5_1` is the step up for non-English speech (190 MB), "
+            "and `large-v3-turbo` is the most accurate and the best choice for "
+            "multilingual or mixed-language dictation (1.6 GB) -- though without "
+            "native acceleration it recognises slower than you speak. A superseded "
+            "name such as `tiny` or `small` still works and loads the survivor in "
+            "its own size class.",
             enum=list(_VALID_STT_MODELS),
         ),
     )
@@ -4960,6 +4964,18 @@ class SttConfig:
             "Language Code",
             "Language for speech recognition (e.g. zh-CN, en-US). The local provider "
             "defaults to auto-detect; choosing a language can improve short dictation.",
+        ),
+    )
+    polish: bool = field(
+        default=False,
+        metadata=_meta(
+            "AI Cleanup",
+            "After dictation finishes, have a fast model fix punctuation, "
+            "capitalisation and obvious mis-hearings. The corrected text replaces "
+            "what you dictated a moment later and one click puts the original "
+            "back. Off by default because it sends the TRANSCRIPT (never the "
+            "audio) to your configured model, so a local-only setup stays "
+            "local-only until you turn this on.",
         ),
     )
     streaming: bool = field(

@@ -4934,7 +4934,7 @@ class TestDoctorStt:
         an operator can see which weights a dictation will actually use."""
         import kiro_crew.cli_doctor as _doc
 
-        self._stt(monkeypatch, provider="local", model="small")
+        self._stt(monkeypatch, provider="local", model="small-q5_1")
         self._engine(monkeypatch, _doc.stt.Availability(True))
         self._model_on_disk(monkeypatch, True)
 
@@ -4943,8 +4943,8 @@ class TestDoctorStt:
         section = self._stt_section(out)
         assert "provider:    ✅ local" in section
         assert "engine:      ✅ local recogniser loadable (whisper.cpp, in-process)" in section
-        expected = _doc.stt.models_dir() / "ggml-small.bin"
-        assert f"model:       ✅ small at {expected}" in section
+        expected = _doc.stt.models_dir() / "ggml-small-q5_1.bin"
+        assert f"model:       ✅ small-q5_1 at {expected}" in section
         assert "ffmpeg:      ✅ available" in section
         assert code == 0
 

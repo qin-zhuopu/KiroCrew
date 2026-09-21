@@ -2666,7 +2666,7 @@ def _loaded_stt(tmp_path: Path, section: dict) -> SttConfig:
 #: guarding are the ones that look like substitutions and are not. ``medium`` and
 #: the whole full-size ``large`` lineage land on ``large-v3-turbo``, which is at
 #: least as accurate as what was asked for and decodes faster; the English-only
-#: names drop to the multilingual model of the SAME size rather than to the
+#: names drop to the multilingual model of the same size CLASS rather than to the
 #: default, which is the difference between losing a little English accuracy and
 #: silently demoting someone from the accuracy ceiling to the second-smallest model.
 _SUPERSEDED_STT_MODELS: dict[str, str] = {
@@ -2679,9 +2679,19 @@ _SUPERSEDED_STT_MODELS: dict[str, str] = {
     "large-v3-turbo-q8_0": "large-v3-turbo",
     "medium": "large-v3-turbo",
     "medium.en": "large-v3-turbo",
-    "small.en": "small",
+    "small.en": "small-q5_1",
     "base.en": "base",
-    "tiny.en": "tiny",
+    "tiny.en": "base-q8_0",
+    # `tiny` is the one row culled from the catalog, and it lands on `base-q8_0`
+    # rather than the default so a stored value keeps the trade it was choosing:
+    # both are roughly 80 MB, and `base-q8_0` is ahead everywhere the two differ.
+    "tiny": "base-q8_0",
+    # Upstream quantisation spellings a hand-edited config can hold, each landing in
+    # its own size tier rather than on the default.
+    "base-q5_1": "base-q8_0",
+    "base-q5_0": "base-q8_0",
+    "small-q5_0": "small-q5_1",
+    "small": "small-q5_1",
 }
 
 #: Fields ``stt`` carried while each retired provider needed its own out-of-band

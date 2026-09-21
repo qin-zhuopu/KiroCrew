@@ -679,7 +679,7 @@ class TestSttConfigEndpoint:
                 json={
                     "enabled": True,
                     "provider": "local",
-                    "model": "small",
+                    "model": "small-q5_1",
                     "transcribe_region": "us-west-2",
                     "transcribe_profile": "default",
                     "language_code": "en-US",
@@ -697,7 +697,7 @@ class TestSttConfigEndpoint:
         stt = json.loads(seeded_config.read_text(encoding="utf-8"))["stt"]
         assert stt["enabled"] is True
         assert stt["provider"] == "local"
-        assert stt["model"] == "small"
+        assert stt["model"] == "small-q5_1"
         assert stt["transcribe_region"] == "us-west-2"
         assert stt["language_code"] == "en-US"
         assert stt["streaming"] is True
@@ -748,14 +748,50 @@ class TestSttConfigEndpoint:
         this endpoint cannot state."""
         assert "turbo" not in core_mod._STT_MODEL_SIZES
         async with TestClient(TestServer(_stt_app())) as client:
-            assert (await client.put("/api/config/stt", json={"model": "small"})).status == 200
-            refused = await client.put("/api/config/stt", json={"model": "turbo"})
+            assert (await client.put("/api/config/stt", json={"model": "small-q5_1"})).status == 200
+            # An ALIAS is accepted and canonicalised. It has to be: a catalog cull
+            # turns a retired name into an alias, and refusing those meant someone
+            # whose stored model was retired could not save this panel at all --
+            # a field they never edited was rejected on every write.
+            aliased = await client.put("/api/config/stt", json={"model": "turbo"})
+            assert (await aliased.json())["model"] == "large-v3-turbo"
+            # A name that resolves to NOTHING leaves the stored value alone. The
+            # distinction matters: answering the default here would let one junk
+            # request replace a model the user deliberately chose.
+            refused = await client.put("/api/config/stt", json={"model": "no-such-model"})
             assert refused.status == 200
-            assert (await refused.json())["model"] == "small"
-            accepted = await client.put("/api/config/stt", json={"model": "large-v3-turbo"})
-            assert (await accepted.json())["model"] == "large-v3-turbo"
+            assert (await refused.json())["model"] == "large-v3-turbo"
+            accepted = await client.put("/api/config/stt", json={"model": "base-q8_0"})
+            assert (await accepted.json())["model"] == "base-q8_0"
         stt = json.loads(seeded_config.read_text(encoding="utf-8"))["stt"]
-        assert stt["model"] == "large-v3-turbo"
+        assert stt["model"] == "base-q8_0"
+
+    @pytest.mark.asyncio
+    async def test_put_round_trips_the_cleanup_consent(self, seeded_config) -> None:
+        """The whole feature hangs off this round trip, and it was broken.
+
+        `polish` sends the finished transcript to a model, so it is the one CONSENT
+        setting on this surface. The PUT branch never read it and the GET response
+        never returned it, so the toggle wrote nothing and a reload read the default
+        back -- and because `api_stt_polish` refuses while the flag is False, the
+        endpoint, the hook and the panel were each correct while the feature was
+        dead. Nothing in the UI said so, which is why this asserts the value on
+        DISK rather than only the response.
+        """
+        async with TestClient(TestServer(_stt_app())) as client:
+            assert (await (await client.get("/api/config/stt")).json())["polish"] is False
+            enabled = await client.put("/api/config/stt", json={"polish": True})
+            assert enabled.status == 200
+            assert (await enabled.json())["polish"] is True
+            assert json.loads(seeded_config.read_text(encoding="utf-8"))["stt"]["polish"] is True
+            # And back off again -- a consent setting that cannot be withdrawn is
+            # worse than one that cannot be given.
+            disabled = await client.put("/api/config/stt", json={"polish": False})
+            assert (await disabled.json())["polish"] is False
+            assert json.loads(seeded_config.read_text(encoding="utf-8"))["stt"]["polish"] is False
+            # A non-bool is ignored rather than coerced: "on" must not read as consent.
+            await client.put("/api/config/stt", json={"polish": "yes"})
+            assert json.loads(seeded_config.read_text(encoding="utf-8"))["stt"]["polish"] is False
 
     @pytest.mark.asyncio
     async def test_put_persists_the_millisecond_knobs_at_their_floors(self, seeded_config) -> None:
@@ -1150,11 +1186,11 @@ class TestSttPrepare:
     async def test_prepare_honours_a_requested_model(self, seeded_config, model_store) -> None:
         """The picker can offer the weights BEFORE the selection is committed, so
         the operator is not asked to save a setting to find out what it costs."""
-        resp = await core_mod.api_stt_prepare(_json_req({"model": "tiny"}))
+        resp = await core_mod.api_stt_prepare(_json_req({"model": "base-q8_0"}))
         assert resp.status == 202
-        assert json.loads(resp.body)["model"] == "tiny"
+        assert json.loads(resp.body)["model"] == "base-q8_0"
         await _drain_stt_background()
-        assert self.requested == ["tiny"]
+        assert self.requested == ["base-q8_0"]
 
     @pytest.mark.asyncio
     async def test_prepare_degrades_an_unknown_model_to_the_catalog_default(
@@ -1178,23 +1214,23 @@ class TestSttPrepare:
         """A JSON array, or anything else that is not an object, carries no model
         name. The configured one is the only reading that leaves the endpoint
         useful to a caller sending no body at all."""
-        _seed_stt(seeded_config, model="small")
-        resp = await core_mod.api_stt_prepare(_json_req(["tiny"]))
+        _seed_stt(seeded_config, model="small-q5_1")
+        resp = await core_mod.api_stt_prepare(_json_req(["base-q8_0"]))
         assert resp.status == 202
-        assert json.loads(resp.body)["model"] == "small"
+        assert json.loads(resp.body)["model"] == "small-q5_1"
         await _drain_stt_background()
-        assert self.requested == ["small"]
+        assert self.requested == ["small-q5_1"]
 
     @pytest.mark.asyncio
     async def test_prepare_with_a_blank_model_uses_the_configured_one(
         self, seeded_config, model_store
     ) -> None:
-        _seed_stt(seeded_config, model="small")
+        _seed_stt(seeded_config, model="small-q5_1")
         resp = await core_mod.api_stt_prepare(_json_req({"model": ""}))
         assert resp.status == 202
-        assert json.loads(resp.body)["model"] == "small"
+        assert json.loads(resp.body)["model"] == "small-q5_1"
         await _drain_stt_background()
-        assert self.requested == ["small"]
+        assert self.requested == ["small-q5_1"]
 
     @pytest.mark.asyncio
     async def test_prepare_joins_a_transfer_already_running(
@@ -1365,7 +1401,7 @@ class TestSttPrewarm:
         Both configured values are non-default, so this also proves the warm-up
         targets the operator's selection rather than the catalog default.
         """
-        _seed_stt(seeded_config, model="small", language_code="fr-FR")
+        _seed_stt(seeded_config, model="small-q5_1", language_code="fr-FR")
         seen: dict = {}
         release = asyncio.Event()
 
@@ -1380,7 +1416,7 @@ class TestSttPrewarm:
         assert json.loads(resp.body) == {"ok": True}
         release.set()
         await _drain_stt_background()
-        assert seen["model_name"] == "small"
+        assert seen["model_name"] == "small-q5_1"
         # The BCP-47 config value is reduced to the bare language code the
         # recogniser names its languages by.
         assert seen["language"] == "fr"

@@ -3007,6 +3007,7 @@
         "provider": "local",
         "model": "base",
         "language_code": "auto",
+        "polish": false,
         "streaming": true,
         "silence_ms": 700,
         "partial_interval_ms": 400,
@@ -3059,12 +3060,12 @@
       "sensitive": false,
       "tags": [],
       "label": "Model",
-      "help": "Which speech model the local provider downloads and runs. Bigger is more accurate and a longer first-time download: `tiny` on a machine short of memory, `base` for everyone, `small` when accents or jargon are being misheard, `large-v3-turbo` for the best accuracy available.",
+      "help": "Which speech model the local provider downloads and runs, one per size class: `base-q8_0` is the fastest useful one (82 MB), `base` is the default, `small-q5_1` is the step up for non-English speech (190 MB), and `large-v3-turbo` is the most accurate and the best choice for multilingual or mixed-language dictation (1.6 GB) -- though without native acceleration it recognises slower than you speak. A superseded name such as `tiny` or `small` still works and loads the survivor in its own size class.",
       "hasChildren": false,
       "enumValues": [
-        "tiny",
+        "base-q8_0",
         "base",
-        "small",
+        "small-q5_1",
         "large-v3-turbo"
       ],
       "defaultValue": "base"
@@ -3082,6 +3083,20 @@
       "hasChildren": false,
       "enumValues": null,
       "defaultValue": "auto"
+    },
+    {
+      "path": "stt.polish",
+      "kind": "core",
+      "type": "boolean",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "AI Cleanup",
+      "help": "After dictation finishes, have a fast model fix punctuation, capitalisation and obvious mis-hearings. The corrected text replaces what you dictated a moment later and one click puts the original back. Off by default because it sends the TRANSCRIPT (never the audio) to your configured model, so a local-only setup stays local-only until you turn this on.",
+      "hasChildren": false,
+      "enumValues": null,
+      "defaultValue": false
     },
     {
       "path": "stt.streaming",

@@ -147,9 +147,9 @@ def test_default_model_is_in_the_catalog():
         ("large-v3-turbo-q5_0", "large-v3-turbo"),
         ("medium", "large-v3-turbo"),
         ("medium.en", "large-v3-turbo"),
-        ("small.en", "small"),
+        ("small.en", "small-q5_1"),
         ("base.en", "base"),
-        ("tiny.en", "tiny"),
+        ("tiny.en", "base-q8_0"),
     ],
 )
 def test_a_superseded_model_name_keeps_what_the_user_asked_for(stored, expected):
