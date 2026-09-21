@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,6 +19,7 @@ from kiro_crew.effort import (
     model_supports_effort,
     resolve_effort_for_model,
 )
+from kiro_crew.providers import acp as acp_provider
 from kiro_crew.providers.acp import (
     _clear_cli_overlay_effort,
     _read_cli_overlay,
@@ -201,6 +203,33 @@ class TestCliOverlay:
     def test_clear_missing_file_noop(self, tmp_path):
         _clear_cli_overlay_effort(tmp_path, "claude-opus-4.7")  # must not raise
         assert _read_cli_overlay(tmp_path) == {}
+
+    def test_clear_reports_success_only_when_the_file_stops_naming_the_model(self, tmp_path):
+        # The postcondition is about the FILE, so an absent file and an absent
+        # entry are both successes -- there is nothing left to re-seed from.
+        assert _clear_cli_overlay_effort(tmp_path, "claude-opus-4.7") is True
+        _write_cli_overlay(tmp_path, "claude-opus-4.7", "max")
+        assert _clear_cli_overlay_effort(tmp_path, "claude-opus-4.7") is True
+        assert _read_cli_overlay(tmp_path) == {}
+
+    def test_clear_reports_failure_when_the_shared_settings_lock_is_busy(self, tmp_path, monkeypatch):
+        # The shared lock has a startup-bounded ceiling, and the native skill
+        # projection holds it from its settings read through every alias and
+        # ownership write to the settings commit, so losing it is a
+        # designed-for outcome rather than a freak event. The
+        # level stays on disk, and provider construction re-seeds from there --
+        # so answering True would promise a clear the next spawn undoes.
+        _write_cli_overlay(tmp_path, "claude-opus-4.7", "max")
+
+        @contextmanager
+        def _busy(_work_dir):
+            raise OSError("lock busy")
+            yield  # pragma: no cover - unreachable, keeps the generator shape
+
+        monkeypatch.setattr(acp_provider, "workspace_cli_settings_lock", _busy)
+        assert _clear_cli_overlay_effort(tmp_path, "claude-opus-4.7") is False
+        monkeypatch.undo()
+        assert _read_cli_overlay(tmp_path) == {"claude-opus-4.7": "max"}
 
     def test_gpt_write_uses_reasoning_key_and_roundtrips(self, tmp_path):
         # kiro-cli persists GPT effort under `reasoning`, not `output_config`;
