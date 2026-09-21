@@ -12,6 +12,7 @@ system is built, see [../architecture/](../architecture/README.md).
 | [docker.md](docker.md) | Running Kiro Crew as a container. |
 | [docker-troubleshooting.md](docker-troubleshooting.md) | Diagnosing common Docker deployment issues. |
 | [remote-and-mobile.md](remote-and-mobile.md) | Running 24/7 on a remote host, keeping it alive as a service, and reaching it from a phone over a tunnel. |
+| [linux-server-ops.md](linux-server-ops.md) | Operating the dev stack on a shared Linux server behind a container reverse proxy: the bind/CSRF/proxy-domain wiring, the Vite `allowedHosts` overlay, the per-app AppArmor `userns` profile the sandbox needs on Ubuntu >= 23.10, token-based dashboard login over the domain, and the claude-backend route for hosts without a Kiro account. |
 | [cloud-instance-ssm-vs-ssh.md](cloud-instance-ssm-vs-ssh.md) | How a cloud-launched instance is reached through the Instances hub: the native AWS SSM transport vs the legacy SSH-over-`ProxyCommand` path. |
 | [remote-crew-on-ec2.md](remote-crew-on-ec2.md) | Reaching a Remote Instance gateway on EC2 over SSH or AWS SSM, plus the common EC2 setup gotchas (sandbox backend, linger, port/tunnel matching). |
 | [adding-a-remote-provisioner.md](adding-a-remote-provisioner.md) | Contributing a SECOND way to create a remote instance: the `remote_provisioners` seam, the five-method `LaunchEngine`, which launch machinery is inherited rather than reimplemented, and two worked lanes (a container task, a managed dev-environment service over SSH). |
