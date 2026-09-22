@@ -25,6 +25,24 @@ export interface StudioDoc {
   content: string
 }
 
+/** One autosaved draft record since the last commit (ACP-720 contract:
+ * drafts/<doc>/<timestamp>.md). `time` is epoch seconds from the record's
+ * timestamp filename. */
+export interface StudioDraftVersion {
+  name: string
+  time: number
+  content: string
+}
+
+/** One committed version (ACP-720 contract: versions/<doc>/<timestamp>.md).
+ * `diff` is the unified diff against the previous version; the earliest
+ * version carries the whole document as additions. */
+export interface StudioVersion {
+  name: string
+  time: number
+  diff: string
+}
+
 export class StudioApiError extends Error {
   readonly code: string
   readonly status: number
@@ -72,4 +90,20 @@ export const studioApi = {
       method: 'POST',
       body: JSON.stringify({ name, content }),
     }),
+  // Autosave one draft (ACP-721: overwrites drafts/<doc>.md and appends a
+  // record unless identical to the last one). Best-effort from the editor's
+  // debounce — a failed autosave is not user-visible, the next tick retries.
+  saveDraft: (id: string, name: string, content: string) =>
+    request<{ ok: boolean }>(`/projects/${encodeURIComponent(id)}/docs/draft`, {
+      method: 'POST',
+      body: JSON.stringify({ name, content }),
+    }),
+  listDraftVersions: (id: string, name: string) =>
+    request<{ versions: StudioDraftVersion[] }>(
+      `/projects/${encodeURIComponent(id)}/docs/${encodeURIComponent(name)}/draft-versions`,
+    ),
+  listVersions: (id: string, name: string) =>
+    request<{ versions: StudioVersion[] }>(
+      `/projects/${encodeURIComponent(id)}/docs/${encodeURIComponent(name)}/versions`,
+    ),
 }

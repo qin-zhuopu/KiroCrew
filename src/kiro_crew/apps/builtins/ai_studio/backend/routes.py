@@ -99,6 +99,9 @@ async def _handle_project_create(request: web.Request) -> web.StreamResponse:
 
 
 async def _handle_doc_save(request: web.Request) -> web.StreamResponse:
+    # Semantics since the draft layer: this is COMMIT, not overwrite — the
+    # store snapshots the committed content into versions/ and clears the
+    # doc's drafts (see projects.save_doc).
     project_id = request.match_info["project_id"]
     body = await _body(request)
     name = body.get("name")
@@ -115,6 +118,45 @@ async def _handle_doc_save(request: web.Request) -> web.StreamResponse:
     return web.json_response({"doc": doc})
 
 
+async def _handle_doc_draft(request: web.Request) -> web.StreamResponse:
+    project_id = request.match_info["project_id"]
+    body = await _body(request)
+    name = body.get("name")
+    content = body.get("content")
+    if not isinstance(name, str) or not isinstance(content, str):
+        return _error("name and content are required", "invalid_doc", 400)
+    try:
+        draft = await asyncio.to_thread(projects.save_draft, project_id, name, content)
+    except projects.ProjectError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError:
+        logger.exception("ai-studio draft save failed")
+        return _error("could not write the draft", "store_write_failed", 503)
+    return web.json_response({"draft": draft})
+
+
+async def _handle_doc_draft_versions(request: web.Request) -> web.StreamResponse:
+    project_id = request.match_info["project_id"]
+    name = request.match_info["doc_name"]
+    try:
+        records = await asyncio.to_thread(projects.list_draft_versions, project_id, name)
+    except projects.ProjectError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    # Key ``versions`` (not ``draftVersions``): the editor client types both
+    # history reads the same shape, one key name for both endpoints.
+    return web.json_response({"versions": records})
+
+
+async def _handle_doc_versions(request: web.Request) -> web.StreamResponse:
+    project_id = request.match_info["project_id"]
+    name = request.match_info["doc_name"]
+    try:
+        versions = await asyncio.to_thread(projects.list_versions, project_id, name)
+    except projects.ProjectError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response({"versions": versions})
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -123,4 +165,18 @@ def register_routes(app: web.Application) -> None:
     )
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/docs", _require_enabled(_handle_doc_save)
+    )
+    # The literal ``docs/draft`` segment cannot collide with the
+    # ``docs/{doc_name}/…`` history routes: those carry a further segment.
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/docs/draft",
+        _require_enabled(_handle_doc_draft),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/docs/{{doc_name}}/draft-versions",
+        _require_enabled(_handle_doc_draft_versions),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/docs/{{doc_name}}/versions",
+        _require_enabled(_handle_doc_versions),
     )

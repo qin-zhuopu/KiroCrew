@@ -7,6 +7,21 @@ Layout (all paths under ``config_dir()``, which honours ``KIROCREW_HOME``)::
         docs/requirements.md  # seeded at creation, edited by the workbench
         docs/workflow.md
         docs/ui-spec.md
+        drafts/requirements.md.md            # current autosave draft
+        drafts/requirements.md/…ts.md        # per-record draft history
+        versions/requirements.md/…ts.md      # full snapshot per commit
+
+Two layers sit beside ``docs/`` because they answer two different questions.
+``drafts/`` is the uncommitted scratch: one current file the autosave
+overwrites, plus a record per distinct content since the last commit, so the
+editor can show "what did I change since I committed" and roll back to any of
+it. It is throwaway by construction — committing deletes it. ``versions/`` is
+the committed trail: each save writes the content it is committing as a
+timestamped snapshot, so the history is a plain ascending list whose row N
+diffs against row N-1, and the first row has no predecessor and therefore
+reads as wholly added. ``docs/<name>.md`` keeps its existing meaning as the
+committed content, so every reader that is not about history (the sidebar,
+the chat's context, the next project GET) is untouched by this layer.
 
 A directory that parses as ``project.json`` IS a project — listing reads the
 per-project files and nothing else, so a stray directory (a half-finished
@@ -25,8 +40,10 @@ sidebar lying about what exists.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -151,14 +168,14 @@ def list_docs(project_id: str) -> list[dict[str, str]]:
     return out
 
 
-def save_doc(project_id: str, name: str, content: str) -> dict[str, str]:
-    """Write one doc file, creating or replacing it.
+def _checked_doc_name(project_id: str, name: str) -> str:
+    """Validate a caller-supplied doc name against a stored project.
 
-    ``name`` is constrained to a bare ``*.md`` basename: a stored project id
-    already came from ``create`` or the list, but the doc name is free caller
-    input, and the one place that keeps it from becoming a traversal is this
-    check — reject any path separator, any leading dot, anything that is not
-    ``name.md``.
+    The doc name is free caller input, and the one place that keeps it from
+    becoming a traversal is this check — reject any path separator, any
+    leading dot, anything that is not ``name.md``. Every entry point below
+    (save, draft, the two history reads) routes through here so a new caller
+    cannot forget the fence.
     """
     if get_project(project_id) is None:
         raise ProjectError("project not found", "project_not_found", 404)
@@ -172,10 +189,190 @@ def save_doc(project_id: str, name: str, content: str) -> dict[str, str]:
         or len(base) > 80
     ):
         raise ProjectError("doc name must be a bare .md file name", "invalid_doc_name", 400)
-    docs_dir = projects_root() / project_id / "docs"
+    return base
+
+
+def _stamp(now: float) -> str:
+    """Sortable filename stamp for a snapshot (UTC, second + ms granularity).
+
+    UTC and fixed-width so lexical order IS chronological order regardless of
+    the operator's locale or timezone; the milliseconds separate autosave
+    records written within one second (the store has no clock to make that
+    collision impossible, so the filename carries the tie-break).
+    """
+    return time.strftime("%Y%m%d-%H%M%S", time.gmtime(now)) + f"-{int(now % 1 * 1000):03d}"
+
+
+def _snapshot_path(base: Path, doc_base: str, now: float) -> Path:
+    """A collision-free snapshot path under ``base/<doc name>/``.
+
+    One directory per doc; an existing stamp gets ``-1``, ``-2`` appended
+    (retry until free) so two writes landing in the same millisecond both
+    survive, and the suffix sorts after the bare stamp, keeping the tie
+    order stable.
+    """
+    doc_dir = base / doc_base
+    doc_dir.mkdir(parents=True, exist_ok=True)
+    stem = _stamp(now)
+    path = doc_dir / f"{stem}.md"
+    n = 1
+    while path.exists():
+        path = doc_dir / f"{stem}-{n}.md"
+        n += 1
+    return path
+
+
+def _read_snapshots(base: Path, doc_base: str) -> list[dict[str, Any]]:
+    """Snapshots of one doc as ``{name, content, ts}``, oldest first.
+
+    ``ts`` is the file's mtime — the wall-clock truth even when a collision
+    suffix pushed the filename's stamp a step behind. Reads tolerate a half-
+    written file by skipping it: a history list missing one entry beats a
+    500 on the whole panel.
+    """
+    doc_dir = base / doc_base
+    if not doc_dir.is_dir():
+        return []
+    out: list[dict[str, Any]] = []
+    for path in sorted(doc_dir.iterdir()):
+        if not path.is_file() or path.suffix.lower() != ".md":
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+            ts = path.stat().st_mtime
+        except OSError:
+            continue
+        out.append({"name": path.name, "content": content, "ts": ts})
+    out.sort(key=lambda s: s["ts"])
+    return out
+
+
+def _unified_diff(old: str, new: str) -> str:
+    """Unified diff of two whole-document contents (possibly empty)."""
+    return "".join(
+        difflib.unified_diff(
+            old.splitlines(keepends=True),
+            new.splitlines(keepends=True),
+            fromfile="previous",
+            tofile="current",
+        )
+    )
+
+
+def save_doc(project_id: str, name: str, content: str) -> dict[str, str]:
+    """Commit one doc: write the buffer, snapshot it, clear its drafts.
+
+    The semantics the editor's Commit button carries. The request body IS
+    the buffer at click time — newer than or equal to anything the ~2s
+    autosave debounce managed to persist — so it is authoritative and the
+    draft file is not consulted for content. The committed content lands in
+    ``versions/`` as a full-text snapshot (only when it actually differs from
+    what ``docs/`` held: a same-content re-commit would store a row whose
+    diff-vs-predecessor is empty, the same dedup the draft record applies),
+    so the trail lists every change, row N diffs against row N-1, and the
+    first row reads as a whole-document addition. Finally the doc's whole
+    drafts layer — the current file and its per-record trail — is deleted:
+    since the last commit, nothing is uncommitted.
+    """
+    base = _checked_doc_name(project_id, name)
+    project_dir = projects_root() / project_id
+    docs_dir = project_dir / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
-    (docs_dir / base).write_text(content, encoding="utf-8")
+    doc_path = docs_dir / base
+
+    old_content = ""
+    try:
+        old_content = doc_path.read_text(encoding="utf-8")
+    except OSError:
+        pass
+
+    doc_path.write_text(content, encoding="utf-8")
+
+    if content != old_content:
+        _snapshot_path(project_dir / "versions", base, time.time()).write_text(
+            content, encoding="utf-8"
+        )
+
+    shutil.rmtree(project_dir / "drafts" / base, ignore_errors=True)
+    try:
+        (project_dir / "drafts" / f"{base}.md").unlink(missing_ok=True)
+    except OSError:
+        pass
     return {"name": base, "content": content}
+
+
+def save_draft(project_id: str, name: str, content: str) -> dict[str, Any]:
+    """Autosave the buffer: overwrite the current draft, append a record.
+
+    Two files answer two questions. ``drafts/<doc>.md`` is what a reopen
+    restores — always the latest word, so the autosave overwrites it. The
+    timestamped record under ``drafts/<doc-stem>/`` is the change history
+    since the last commit, and it deduplicates: content identical to the
+    newest record writes no file (the autosave fires on a ~2s debounce, and
+    a caret that keeps moving would otherwise fill the disk with the same
+    buffer — the footer count must mean "the text changed", not "a tick
+    passed"). A first draft for a doc is always recorded, even when it
+    equals the committed content, so the panel has a row to show.
+    """
+    base = _checked_doc_name(project_id, name)
+    drafts_dir = projects_root() / project_id / "drafts"
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    current = drafts_dir / f"{base}.md"
+    current.write_text(content, encoding="utf-8")
+
+    records = _read_snapshots(drafts_dir, base)
+    deduped = bool(records) and records[-1]["content"] == content
+    record: dict[str, Any] | None = None
+    if not deduped:
+        path = _snapshot_path(drafts_dir, base, time.time())
+        path.write_text(content, encoding="utf-8")
+        record = {"name": path.name, "content": content, "ts": path.stat().st_mtime}
+    return {"name": base, "content": content, "deduped": deduped, "record": record}
+
+
+def list_draft_versions(project_id: str, name: str) -> list[dict[str, Any]]:
+    """Draft records since the last commit, newest first.
+
+    The panel wants the most recent on top, so the store's oldest-first read
+    is reversed at the boundary; the content rides along because the diff
+    view needs the old buffer and a second round trip per row would be a
+    fetch storm for a three-row panel. ``time`` is epoch seconds (the key
+    name the editor's StudioDraftVersion type reads).
+    """
+    base = _checked_doc_name(project_id, name)
+    drafts_dir = projects_root() / project_id / "drafts"
+    return [
+        {"name": r["name"], "content": r["content"], "time": r["ts"]}
+        for r in reversed(_read_snapshots(drafts_dir, base))
+    ]
+
+
+def list_versions(project_id: str, name: str) -> list[dict[str, Any]]:
+    """Committed versions with the diff against their predecessor.
+
+    Each row's diff is that version vs the one committed before it (empty
+    baseline for the first, which reads as a whole-document addition — the
+    honest shape, not an error). Newest first, matching the draft-history
+    list and what the editor's version panel renders top-down; ``time`` is
+    epoch seconds (the editor keys and labels rows by it, and its commit
+    order is the display order).
+    """
+    base = _checked_doc_name(project_id, name)
+    versions_dir = projects_root() / project_id / "versions"
+    snapshots = _read_snapshots(versions_dir, base)
+    out: list[dict[str, Any]] = []
+    previous = ""
+    for snap in snapshots:
+        out.append(
+            {
+                "name": snap["name"],
+                "time": snap["ts"],
+                "size": len(snap["content"]),
+                "diff": _unified_diff(previous, snap["content"]),
+            }
+        )
+        previous = snap["content"]
+    return list(reversed(out))
 
 
 def create_project(name: str, description: str) -> dict[str, Any]:

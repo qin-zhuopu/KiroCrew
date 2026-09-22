@@ -113,6 +113,99 @@ def test_save_doc_roundtrip_and_validation(home):
     assert exc.value.code == "project_not_found"
 
 
+def test_draft_save_dedupes_and_lists_newest_first(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+
+    # the first draft is recorded even when it equals the committed content
+    first = projects.save_draft(pid, "workflow.md", "a\n")
+    assert first["deduped"] is False
+    assert first["record"] is not None
+
+    # identical content writes no new record, but the current draft is current
+    again = projects.save_draft(pid, "workflow.md", "a\n")
+    assert again["deduped"] is True
+    assert again["record"] is None
+
+    second = projects.save_draft(pid, "workflow.md", "b\n")
+    assert second["deduped"] is False
+
+    drafts = projects.list_draft_versions(pid, "workflow.md")
+    assert [d["content"] for d in drafts] == ["b\n", "a\n"]  # newest first
+    assert all(d["time"] and d["name"] for d in drafts)
+
+    # the current-draft file is the latest word, overwritten in place
+    cur = projects.projects_root() / pid / "drafts" / "workflow.md.md"
+    assert cur.read_text(encoding="utf-8") == "b\n"
+
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.save_draft(pid, "../evil.md", "x")
+    assert exc.value.code == "invalid_doc_name"
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.list_draft_versions("nope", "a.md")
+    assert exc.value.code == "project_not_found"
+
+
+def test_commit_snapshots_versions_and_clears_drafts(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+
+    # first commit: with no prior version its diff reads as a whole-document
+    # addition (every content line carries a +)
+    doc = projects.save_doc(pid, "workflow.md", "# v1\n")
+    assert doc["content"] == "# v1\n"
+    versions = projects.list_versions(pid, "workflow.md")
+    assert len(versions) == 1
+    assert "+# v1" in versions[0]["diff"]
+    assert not [
+        ln for ln in versions[0]["diff"].splitlines() if ln.startswith("-") and not ln.startswith("---")
+    ]
+
+    # draft, then commit: the request buffer is authoritative (it is newer
+    # than or equal to what the debounced autosave persisted), and the whole
+    # drafts layer clears with the commit
+    projects.save_draft(pid, "workflow.md", "# v2 draft\n")
+    projects.save_draft(pid, "workflow.md", "# v2 draft more\n")
+    assert len(projects.list_draft_versions(pid, "workflow.md")) == 2
+    committed = projects.save_doc(pid, "workflow.md", "# v2 committed\n")
+    assert committed["content"] == "# v2 committed\n"
+    assert projects.list_draft_versions(pid, "workflow.md") == []
+    cur = projects.projects_root() / pid / "drafts" / "workflow.md.md"
+    assert not cur.exists()
+
+    # the trail lists every change, newest first; each row diffs against the
+    # version committed before it
+    versions = projects.list_versions(pid, "workflow.md")
+    assert len(versions) == 2
+    assert "+# v2 committed" in versions[0]["diff"]
+    assert "-# v1" in versions[0]["diff"]
+
+    # a commit without a draft writes the request body
+    projects.save_doc(pid, "workflow.md", "# v3\n")
+    assert projects.list_docs(pid)  # docs still readable
+    content = next(d for d in projects.list_docs(pid) if d["name"] == "workflow.md")
+    assert content["content"] == "# v3\n"
+    assert len(projects.list_versions(pid, "workflow.md")) == 3
+
+    # an unchanged re-commit stores no new version row: nothing was superseded
+    versions = projects.list_versions(pid, "workflow.md")
+    projects.save_doc(pid, "workflow.md", "# v3\n")
+    assert len(projects.list_versions(pid, "workflow.md")) == len(versions)
+
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.list_versions("nope", "a.md")
+    assert exc.value.code == "project_not_found"
+
+
+def test_version_snapshots_never_collide(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+    # same-second commits must each keep their own snapshot file
+    for i in range(5):
+        projects.save_doc(pid, "workflow.md", f"# v{i}\n")
+    assert len(projects.list_versions(pid, "workflow.md")) == 5
+
+
 # ---------------------------------------------------------------------------
 # routes
 # ---------------------------------------------------------------------------
@@ -165,6 +258,72 @@ async def test_routes_create_list_get_save(home, monkeypatch):
         resp = await client.get(f"/api/apps/ai-studio/projects/{record['id']}")
         docs = (await resp.json())["docs"]
         assert next(d for d in docs if d["name"] == "requirements.md")["content"] == "# changed"
+
+
+@pytest.mark.asyncio
+async def test_routes_draft_and_histories(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post(
+            "/api/apps/ai-studio/projects",
+            json={"name": "历史", "description": ""},
+        )
+        pid = (await resp.json())["project"]["id"]
+
+        # empty until a draft exists; both history reads key ``versions``
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        assert resp.status == 200
+        assert (await resp.json())["versions"] == []
+
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs/draft",
+            json={"name": "workflow.md", "content": "编辑中\n"},
+        )
+        assert resp.status == 200
+        body = (await resp.json())["draft"]
+        assert body["deduped"] is False and body["record"] is not None
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        drafts = (await resp.json())["versions"]
+        assert [d["content"] for d in drafts] == ["编辑中\n"]
+        assert "time" in drafts[0]
+
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs",
+            json={"name": "workflow.md", "content": "编辑中\n"},
+        )
+        assert (await resp.json())["doc"]["content"] == "编辑中\n"
+
+        # committing clears the draft history
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        assert (await resp.json())["versions"] == []
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/versions")
+        assert resp.status == 200
+        versions = (await resp.json())["versions"]
+        assert len(versions) == 1 and "+编辑中" in versions[0]["diff"]
+        assert "time" in versions[0]
+
+
+@pytest.mark.asyncio
+async def test_routes_draft_and_history_errors(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/missing/docs/draft",
+            json={"name": "a.md", "content": "x"},
+        )
+        assert resp.status == 404
+        assert (await resp.json())["code"] == "project_not_found"
+
+        resp = await client.post(
+            "/api/apps/ai-studio/projects/missing/docs/draft",
+            json={"name": "a.md"},
+        )
+        assert resp.status == 400
+
+        resp = await client.get("/api/apps/ai-studio/projects/missing/docs/a.md/versions")
+        assert resp.status == 404
+        resp = await client.get("/api/apps/ai-studio/projects/missing/docs/a.md/draft-versions")
+        assert resp.status == 404
 
 
 @pytest.mark.asyncio
