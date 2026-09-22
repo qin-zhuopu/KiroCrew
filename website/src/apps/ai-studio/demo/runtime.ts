@@ -166,6 +166,11 @@ export interface DemoController {
   /** the previous step's buffer (undefined at step 0) — the live-act replay
    * seeds the editor with it before performing the step's real business act */
   prevBuffer: string | undefined
+  /** for live-act steps that LAND on a new snapshot (main-10's release): the
+   * fixture named by step.afterFix — the workbench shows its payload (the
+   * release cut + generated files) once the real click lands. Null when the
+   * step lands where it entered. */
+  afterFixFixture: DemoFixture | null
   api: DemoApi
   /** 'open' = the overlay is still replaying this step's guidance acts;
    * 'settled' = done — autoplay's dwell timer starts only from here, which
@@ -219,6 +224,12 @@ export function useDemoRuntime(
     if (!prevStep) return undefined
     return FIXTURE_FILES[`./fixtures/state-${prevStep.fixture}.json`]?.default?.buffer
   }, [script, index])
+  const afterFixFixture = useMemo(
+    () => (step?.afterFix
+      ? FIXTURE_FILES[`./fixtures/state-${step.afterFix}.json`]?.default ?? null
+      : null),
+    [step],
+  )
 
   const next = useCallback(() => {
     if (!script) return
@@ -271,6 +282,7 @@ export function useDemoRuntime(
       stepIndex: index,
       fixture,
       prevBuffer,
+      afterFixFixture,
       api,
       phase,
       playing,

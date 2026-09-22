@@ -98,6 +98,16 @@ export const LOCATORS: Record<string, DemoLocator> = {
   // from the snapshot's graph; the script rings it and the added nodes it
   // highlights are the snapshot diff, not a claim
   graph_view: { find: () => byTestid('graph-view') },
+  // the release cut + generated-code panel (ACP-730), same snapshot-driven
+  // doctrine; the release button waits for its enabled state like
+  // commit_all_btn (a synthetic click on a disabled button fires but no-ops)
+  release_btn: {
+    find: () => {
+      const el = byTestid('release-btn')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
+  codegen_view: { find: () => byTestid('codegen-view') },
 
   // row picks inside an open popover / dialog
   version_row: { find: (arg) => popoverRows('version-history-list', arg) },

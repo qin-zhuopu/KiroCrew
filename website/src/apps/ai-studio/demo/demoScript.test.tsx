@@ -56,6 +56,14 @@ function readState(): Record<string, boolean | number> {
   if (graph) {
     out.graphNodes = graph.querySelectorAll('[data-graph-node]').length
     out.graphAddedNodes = graph.querySelectorAll('[data-graph-added="true"]').length
+    // the release read-backs (ACP-730) ride the graph wrapper, not the code
+    // panel: derive() emits released/generatedFiles for EVERY step of a graph
+    // world (the derive gate keys on graph presence), but the code panel only
+    // mounts once the cut lands — so the mirrored reading must be available
+    // for the pre-release steps too, or the mirror could never compare them.
+    const frame = graph.parentElement
+    out.released = frame?.dataset.demoReleased === 'true'
+    out.generatedFiles = Number(frame?.dataset.demoGeneratedFiles)
   }
   return out
 }
@@ -73,6 +81,8 @@ function declared(s: DemoState): Record<string, boolean | number> {
   if (s.graphNodes !== undefined) {
     out.graphNodes = s.graphNodes
     out.graphAddedNodes = s.graphAddedNodes ?? 0
+    out.released = s.released ?? false
+    out.generatedFiles = s.generatedFiles ?? 0
   }
   return out
 }
@@ -271,24 +281,36 @@ describe('assertion 4: 回退恢复 — back to a mid step matches its snapshot'
   }, 60000)
 })
 
+/** Walk the demo forward by clicking next until the named step settles. */
+async function walkTo(script: DemoScript, stepId: string) {
+  if (script.steps[0].id === stepId) {
+    await settleFor(stepId)
+    return
+  }
+  await settleFor(script.steps[0].id)
+  for (let i = 1; i < script.steps.length; i++) {
+    await clickTestId('demo-next')
+    await settleFor(script.steps[i].id)
+    if (script.steps[i].id === stepId) return
+  }
+  throw new Error(`step ${stepId} never reached`)
+}
+
 describe('the graph step (ACP-729): replay-consistent and back-recoverable', () => {
   // the four assertions cover every step through the loops above; this one
-  // pins the NEW last step of the main line explicitly — the graph delta is
-  // the step's whole payload, so replaying it must always light the same
-  // added nodes, and stepping away and back must land the same picture.
+  // pins the graph-delta step explicitly — the delta is the step's whole
+  // payload, so replaying it must always light the same added nodes, and
+  // stepping away and back must land the same picture. It names main-9 by id
+  // (not by position) so appending the release step after it cannot retarget
+  // these assertions onto the wrong step.
   it('manual and autoplay both land the graph delta identically at main-9', async () => {
     const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
-    const last = script.steps.length - 1
-    expect(script.steps[last].id).toBe('main-9')
+    const graphStep = script.steps.find((s) => s.id === 'main-9')!
 
     const mr = mountDemo(name)
-    await settleFor(script.steps[0].id)
-    for (let i = 0; i < last; i++) {
-      await clickTestId('demo-next')
-      await settleFor(script.steps[i + 1].id)
-    }
+    await walkTo(script, 'main-9')
     await waitFor(
-      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      () => expect(readState()).toEqual(declared(graphStep.after)),
       { timeout: 4000, interval: 50 },
     )
     const manual = readState()
@@ -308,7 +330,7 @@ describe('the graph step (ACP-729): replay-consistent and back-recoverable', () 
       { timeout: 20000, interval: 50 },
     )
     await waitFor(
-      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      () => expect(readState()).toEqual(declared(graphStep.after)),
       { timeout: 4000, interval: 50 },
     )
     expect(readState()).toEqual(manual)
@@ -317,27 +339,82 @@ describe('the graph step (ACP-729): replay-consistent and back-recoverable', () 
 
   it('stepping off main-9 and back re-derives the same graph picture', async () => {
     const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
-    const last = script.steps.length - 1
+    const graphStep = script.steps.find((s) => s.id === 'main-9')!
+    const prevId = script.steps[script.steps.indexOf(graphStep) - 1].id
     mountDemo(name)
-    await settleFor(script.steps[0].id)
-    for (let i = 0; i < last; i++) {
-      await clickTestId('demo-next')
-      await settleFor(script.steps[i + 1].id)
-    }
+    await walkTo(script, 'main-9')
     await waitFor(
-      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      () => expect(readState()).toEqual(declared(graphStep.after)),
       { timeout: 4000, interval: 50 },
     )
     const forward = readState()
     // back to the commit step, then forward again: main-9's picture must be
     // re-derived from its snapshot — same 8 nodes, same 2 added
     await clickTestId('demo-prev')
-    await settleFor(script.steps[last - 1].id)
+    await settleFor(prevId)
     await clickTestId('demo-next')
-    await settleFor(script.steps[last].id)
+    await settleFor('main-9')
     await waitFor(
-      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      () => expect(readState()).toEqual(declared(graphStep.after)),
       { timeout: 4000, interval: 50 },
+    )
+    expect(readState()).toEqual(forward)
+  }, 90000)
+})
+
+describe('the release step (ACP-730): replay-consistent and back-recoverable', () => {
+  // main-10 is a LIVE-ACT step: entering it offers the release button, the
+  // overlay's open act clicks it for real, and the click lands on the after-
+  // fix snapshot (released:true, 4 generated files). The traceability payload
+  // — each generated file badged with its source graph node — is what the
+  // whole journey closes on, so replaying must always produce the same code
+  // panel, and stepping away and back must re-derive it, never leave a
+  // half-landed release behind.
+  it('manual walk lands the release + code panel at main-10', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    const rel = script.steps.find((s) => s.id === 'main-10')!
+    mountDemo(name)
+    await walkTo(script, 'main-10')
+    // released + generatedFiles land when the real click resolves (~phase walk)
+    await waitFor(
+      () => expect(readState()).toEqual(declared(rel.after)),
+      { timeout: 6000, interval: 50 },
+    )
+    const state = readState()
+    expect(state.released).toBe(true)
+    expect(state.generatedFiles).toBe(4)
+    // the code panel is mounted with all four files in the tree, and the
+    // selected file's preview carries its graph-source badges — the
+    // requirement→graph→code trace is on screen, not just in the data
+    const panel = document.querySelector<HTMLElement>('[data-testid="codegen-view"]')
+    expect(panel).not.toBeNull()
+    expect(Number(panel!.dataset.codegenFiles)).toBe(4)
+    expect(document.querySelectorAll('[data-testid^="codegen-file-"][role="option"]')).toHaveLength(4)
+    const badges = panel!.querySelectorAll('[data-graph-source]')
+    expect(badges.length).toBeGreaterThanOrEqual(1)
+  }, 90000)
+
+  it('stepping off main-10 and back re-derives the same release picture', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    const rel = script.steps.find((s) => s.id === 'main-10')!
+    const prevId = script.steps[script.steps.indexOf(rel) - 1].id
+    mountDemo(name)
+    await walkTo(script, 'main-10')
+    await waitFor(
+      () => expect(readState()).toEqual(declared(rel.after)),
+      { timeout: 6000, interval: 50 },
+    )
+    const forward = readState()
+    // back to the graph step (release button gone, live flag discarded with
+    // the step), then forward again — the release must fully re-land
+    await clickTestId('demo-prev')
+    await settleFor(prevId)
+    expect(readState().released).toBe(false)
+    await clickTestId('demo-next')
+    await settleFor('main-10')
+    await waitFor(
+      () => expect(readState()).toEqual(declared(rel.after)),
+      { timeout: 6000, interval: 50 },
     )
     expect(readState()).toEqual(forward)
   }, 90000)

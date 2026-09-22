@@ -11,9 +11,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -22,9 +24,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -47,9 +51,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -58,9 +64,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -86,9 +94,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -97,9 +107,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -125,9 +137,11 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -136,9 +150,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -164,9 +180,11 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -175,9 +193,11 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -204,9 +224,11 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -215,9 +237,11 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -244,9 +268,11 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -255,9 +281,11 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -283,20 +311,25 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 3,
         "versionsIcon": "list"
       },
+      "afterFix": "main-008",
       "before": {
         "diffIcon": "active",
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "list",
+        "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -324,9 +357,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 2,
         "graphNodes": 8,
         "historyIcon": "gray",
+        "released": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -335,9 +370,11 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphNodes": 6,
         "historyIcon": "gray",
+        "released": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -350,6 +387,54 @@
       },
       "id": "main-9",
       "title": "提交喂图谱：两个新需求节点亮起"
+    },
+    {
+      "action": {
+        "event": "点顶栏「发版」——解析图谱 → 生成文件清单 → v3 就绪；每个文件标注它实现图谱里的哪条需求"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphNodes": 8,
+        "historyIcon": "gray",
+        "released": true,
+        "versions": 3,
+        "versionsIcon": "list"
+      },
+      "afterFix": "main-010",
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 0,
+        "graphAddedNodes": 2,
+        "graphNodes": 8,
+        "historyIcon": "gray",
+        "released": false,
+        "versions": 3,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-009",
+      "highlight": {
+        "hint": "当前：v3 已发布，4 个生成文件就位——coupon/refund 实现「优惠券 7 天有效期」、pay/schema 实现「积分不可抵现」。每个文件的来源都是图谱节点，且生成器已校验它们全部落在本次提交带来的图谱增量里：需求→图谱→代码的追溯链在这里合龙，这就是全旅程的收官镜头。",
+        "open": [
+          "release_btn"
+        ],
+        "target": "codegen_view"
+      },
+      "id": "main-10",
+      "releasePhases": [
+        "解析需求图谱…",
+        "按图谱生成文件清单…",
+        "生成完成，v3 就绪"
+      ],
+      "title": "点「发版」：AI 按图谱生成代码，需求→图谱→代码收官"
     }
   ],
   "title": "会员积分系统：编辑 → 自动保存 → 提交闭环"

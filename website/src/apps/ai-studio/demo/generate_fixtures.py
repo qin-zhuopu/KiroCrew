@@ -95,13 +95,20 @@ class Project:
         drafts: list[tuple[int, str]],
         graph: "dict[str, Any] | None" = None,
         graph_delta: "dict[str, list[str]] | None" = None,
+        release: "dict[str, Any] | None" = None,
+        generated_files: "list[dict[str, str]] | None" = None,
+        generated_from: "str | None" = None,
     ) -> dict[str, Any]:
         """One replayable state: every doc's committed content, the focused
         doc's editor buffer, and its draft records (newest first). `graph`
         (ACP-729) carries the requirement graph as the snapshot froze it;
         `graph_delta` names what this snapshot's STORY added — the step
         generator cross-checks it against the previous snapshot, so the
-        "new in this commit" highlight is a derived fact, never a wish."""
+        "new in this commit" highlight is a derived fact, never a wish.
+        `release` + `generated_files` (ACP-730) carry a cut version and the
+        code it generated; `generated_from` names the snapshot whose
+        graphDelta those files must trace back to, so "generated code matches
+        the graph change" is checked against data, not asserted in prose."""
         snap: dict[str, Any] = {
             "project": {
                 "id": self.id,
@@ -121,6 +128,15 @@ class Project:
             snap["graph"] = graph
             if graph_delta is not None:
                 snap["graphDelta"] = graph_delta
+        if release is not None:
+            snap["release"] = release
+        if generated_files is not None:
+            snap["generatedFiles"] = generated_files
+            # the audit anchor: which snapshot's graphDelta these files must
+            # trace back to. Carried in the fixture so a future reader sees
+            # the claim, and check_codegen() below proves it.
+            if generated_from is not None:
+                snap["generatedFrom"] = generated_from
         return snap
 
 
@@ -227,6 +243,74 @@ GRAPH_AFTER: dict[str, Any] = {
     ],
 }
 
+# ---- the release and the code it generated (ACP-730) ------------------------
+# v3 froze the two lines the story typed, and the graph grew the two matching
+# requirement nodes (main-009's delta). The release generates code FOR those
+# two requirements — every file's derivedFrom is a subset of that delta, so
+# the release's whole output traces back to the commit's own graph change.
+# The story's endpoint: 需求 → 图谱 → 代码.
+
+RELEASE_V3: dict[str, Any] = {
+    "version": "v3",
+    "time": T0 + 172800 + 1800,
+    "notes": "冻结 v3：优惠券有效期与积分抵现排除项",
+}
+
+GENERATED_FILES: list[dict[str, Any]] = [
+    {
+        "path": "points/coupon.py",
+        "language": "python",
+        "derivedFrom": ["req-coupon-expiry"],
+        "content": (
+            "# generated from 需求图谱 · 优惠券 7 天有效期\n"
+            "from datetime import timedelta\n"
+            "\n"
+            "COUPON_TTL = timedelta(days=7)\n"
+            "\n"
+            "def is_expired(coupon, now):\n"
+            "    return now - coupon.issued_at > COUPON_TTL\n"
+        ),
+    },
+    {
+        "path": "points/refund.py",
+        "language": "python",
+        "derivedFrom": ["req-coupon-expiry"],
+        "content": (
+            "# generated from 需求图谱 · 优惠券 7 天有效期\n"
+            "from points.coupon import is_expired\n"
+            "\n"
+            "def settle_expired(coupon, now):\n"
+            "    if not is_expired(coupon, now):\n"
+            "        return 0\n"
+            "    refund_points(coupon.cost_points)  # 过期自动退回积分\n"
+            "    return coupon.cost_points\n"
+        ),
+    },
+    {
+        "path": "points/pay.py",
+        "language": "python",
+        "derivedFrom": ["req-no-cash-offset"],
+        "content": (
+            "# generated from 需求图谱 · 积分不可抵现\n"
+            "PAYMENT_METHODS = (\"cash\", \"card\")  # 不含 points：积分抵现不在范围\n"
+        ),
+    },
+    {
+        "path": "points/schema.sql",
+        "language": "sql",
+        "derivedFrom": ["req-coupon-expiry", "req-no-cash-offset"],
+        "content": (
+            "-- generated from 需求图谱 · 优惠券 7 天有效期 / 积分不可抵现\n"
+            "CREATE TABLE coupon (\n"
+            "    id INTEGER PRIMARY KEY,\n"
+            "    cost_points INTEGER NOT NULL,\n"
+            "    issued_at TIMESTAMP NOT NULL,\n"
+            "    expires_at TIMESTAMP AS (issued_at + INTERVAL 7 DAY)\n"
+            ");\n"
+        ),
+    },
+]
+
 # ---- branch A: App 官网改版 (half-done draft, restore branch) ---------------
 
 site = Project("demo-website-revamp", "App 官网改版", "品牌升级：官网首屏与信息架构重做", T0 - 3 * 86400)
@@ -324,6 +408,26 @@ add(
         },
     ),
 )
+# main-010: the release cut from v3 and the code it generated from the graph
+# (ACP-730 — the journey's endpoint: 需求 → 图谱 → 代码). The graph stands at
+# GRAPH_AFTER (no new delta — the release reads the graph, it does not grow
+# it); the release carries v3, and the four generated files each name which
+# requirement node they implement. generatedFrom="main-009" pins that every
+# file traces to main-009's graph delta — checked at generation, never in
+# prose. This is one landed snapshot: the finished generation is the frame,
+# not a fake timer counting up inside a business component (§6).
+add(
+    "main-010",
+    main.snapshot(
+        "requirements.md",
+        REQ_EDIT,
+        [],
+        graph=GRAPH_AFTER,
+        release=RELEASE_V3,
+        generated_files=GENERATED_FILES,
+        generated_from="main-009",
+    ),
+)
 
 # branch A --------------------------------------------------------------------
 # The honest chain (same rhythm as the main line): enter clean → type draft
@@ -389,6 +493,11 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
     if "graph" in snap:
         state["graphNodes"] = len(snap["graph"]["nodes"])
         state["graphAddedNodes"] = len(snap.get("graphDelta", {}).get("nodes", []))
+        # the release vocabulary (ACP-730) rides the same gate: the release
+        # story lives wherever there is a graph to cut from, so every step of
+        # that world states released/generatedFiles (false/0 until the cut).
+        state["released"] = snap.get("release") is not None
+        state["generatedFiles"] = len(snap.get("generatedFiles", []))
     return state
 
 
@@ -403,6 +512,7 @@ def step(
     branch: str | None = None,
     prev: str | None = None,
     after_fix: str | None = None,
+    release_phases: "list[str] | None" = None,
 ) -> dict[str, Any]:
     """One script step. `fixture` is the state the step LANDS on (after);
     `prev` is the one it starts from — the script can never claim a before
@@ -452,6 +562,15 @@ def step(
         "title": title,
         "branch": branch,
         "fixture": fixture,
+        # the live-act steps carry their landing snapshot forward, so the
+        # runtime can resolve the after-state's payload (main-10's release +
+        # generated files) when the real click lands; absent = the step lands
+        # where it entered.
+        **({"afterFix": after_fix} if after_fix else {}),
+        # a release step names the labels its control walks while the real
+        # click lands — presentation data the workbench forwards, never a
+        # hardcoded timer inside the button.
+        **({"releasePhases": release_phases} if release_phases else {}),
         "before": before,
         "action": {"event": event},
         "after": after,
@@ -555,6 +674,18 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 "当前：图谱 8 个节点，绿框的两个（优惠券 7 天有效期、积分不可抵现）是刚才那次提交新增的——正是 v3 新加的两行。提交不是终点：旧内容进版本快照，新需求进图谱，这才是完整的闭环。",
                 None,
                 prev="main-008",
+            ),
+            step(
+                "main-10",
+                "点「发版」：AI 按图谱生成代码，需求→图谱→代码收官",
+                "main-009",
+                "点顶栏「发版」——解析图谱 → 生成文件清单 → v3 就绪；每个文件标注它实现图谱里的哪条需求",
+                "codegen_view",
+                "当前：v3 已发布，4 个生成文件就位——coupon/refund 实现「优惠券 7 天有效期」、pay/schema 实现「积分不可抵现」。每个文件的来源都是图谱节点，且生成器已校验它们全部落在本次提交带来的图谱增量里：需求→图谱→代码的追溯链在这里合龙，这就是全旅程的收官镜头。",
+                ["release_btn"],
+                prev="main-009",
+                after_fix="main-010",
+                release_phases=["解析需求图谱…", "按图谱生成文件清单…", "生成完成，v3 就绪"],
             ),
         ],
     },
@@ -717,6 +848,33 @@ def check_graph_shape(key: str, snap: dict[str, Any]) -> None:
         assert set(delta["edges"]) <= known, f"{key}: delta names unknown edges"
 
 
+def check_generated_traceability(key: str, snap: dict[str, Any]) -> None:
+    """ACP-730 — the release's generated code must trace to the graph, as
+    DATA. A snapshot that carries generated files also names the snapshot
+    (generatedFrom) whose graph delta they implement; every file's
+    derivedFrom must be a subset of THAT delta's nodes, and each file's
+    source nodes must exist in the released graph. This is the traceability
+    the closing shot claims — checked here, never in prose (the hint text
+    describing it is only honest because this function runs)."""
+    files = snap.get("generatedFiles")
+    if files is None:
+        return
+    anchor = snap.get("generatedFrom")
+    assert anchor in SNAPS, f"{key}: generatedFrom {anchor!r} names no snapshot"
+    delta = SNAPS[anchor].get("graphDelta") or {}
+    delta_nodes = set(delta.get("nodes", []))
+    graph = snap.get("graph") or {}
+    graph_nodes = {n["id"] for n in graph.get("nodes", [])}
+    for f in files:
+        src = set(f["derivedFrom"])
+        assert src, f"{key}: file {f['path']} names no source node"
+        assert src <= graph_nodes, f"{key}: file {f['path']} derives from a node absent from the released graph"
+        assert src <= delta_nodes, (
+            f"{key}: file {f['path']} derives from {sorted(src - delta_nodes)}, "
+            f"not in {anchor}'s graph delta — generated code must trace to this release's new requirements"
+        )
+
+
 def dump(path: Path, data: Any) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -729,6 +887,7 @@ def main_run() -> None:
     STEPS.mkdir(parents=True, exist_ok=True)
     for key, snap in SNAPS.items():
         check_graph_shape(key, snap)
+        check_generated_traceability(key, snap)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)

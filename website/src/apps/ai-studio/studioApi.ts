@@ -79,6 +79,28 @@ export interface StudioGraph {
   edges: StudioGraphEdge[]
 }
 
+/** One release cut from the committed docs (ACP-730). Same doctrine as
+ * StudioGraph: no endpoint yet, the type is written first so the demo
+ * snapshot and the future release API agree on one shape. */
+export interface StudioRelease {
+  version: string
+  time: number
+  /** what this release froze, in one line — the panel's caption */
+  notes: string
+}
+
+/** One source file a release generated (ACP-730). `derivedFrom` names the
+ * graph nodes (requirements) the file implements — the demo generator
+ * cross-checks that set against the graph delta, so "generated code matches
+ * the graph change" is a derived fact of the snapshots. `content` is the
+ * whole (short, demonstrative) file so the preview needs no second read. */
+export interface StudioGeneratedFile {
+  path: string
+  language: 'python' | 'sql'
+  content: string
+  derivedFrom: string[]
+}
+
 export class StudioApiError extends Error {
   readonly code: string
   readonly status: number
