@@ -70,6 +70,10 @@ function readState(): Record<string, boolean | number | string> {
     out.graphRemovedNodes = Number(frame?.dataset.demoGraphRemoved)
     out.distillStatus = frame?.dataset.demoDistillStatus ?? 'none'
     out.distillCandidates = Number(frame?.dataset.demoDistillCandidates)
+    // the regeneration read-backs (ACP-734) ride the same wrapper: whether
+    // the docs were regenerated, and the paired-diff group count
+    out.regenVersion = frame?.dataset.demoRegen === 'true'
+    out.diffGroups = Number(frame?.dataset.demoDiffGroups)
   }
   return out
 }
@@ -93,6 +97,8 @@ function declared(s: DemoState): Record<string, boolean | number | string> {
     out.graphRemovedNodes = s.graphRemovedNodes ?? 0
     out.distillStatus = s.distillStatus ?? 'none'
     out.distillCandidates = s.distillCandidates ?? 0
+    out.regenVersion = s.regenVersion ?? false
+    out.diffGroups = s.diffGroups ?? 0
   }
   return out
 }
@@ -501,5 +507,100 @@ describe('the distillation beats (ACP-733): running → candidates → applied g
       { timeout: 4000, interval: 50 },
     )
     expect(readState().distillCandidates).toBe(3)
+  }, 90000)
+})
+
+describe('the regeneration beats (ACP-734): reverse link + three-segment pairing', () => {
+  // 验收文档步骤 10-11: after the distillation is applied, the structured
+  // facts flow BACK into a new document version (badged with its source),
+  // and the review shows 用户改动 / 结构化变化 / 重生成差异 grouped by
+  // business point. main-15/16/17 walk the three segments of the SAME point,
+  // so each segment carries its own 引导落位 assertion (the loop test checks
+  // ring targets for all steps; this pins the payload beside them).
+  it('main-14 lands the regenerated version; back re-derives the pre-regen frame', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    const regenStep = script.steps.find((s) => s.id === 'main-14')!
+    const prevId = script.steps[script.steps.indexOf(regenStep) - 1].id
+    mountDemo(name)
+    await walkTo(script, 'main-14')
+    await waitFor(
+      () => expect(readState()).toEqual(declared(regenStep.after)),
+      { timeout: 4000, interval: 50 },
+    )
+    // the reverse link is on screen: the version count grew, the regen doc
+    // panel shows the content badged with the distillation that produced it
+    expect(readState().versions).toBe(4)
+    expect(readState().regenVersion).toBe(true)
+    expect(document.querySelector('[data-testid="regen-doc-view"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="regen-badge-distill-v3"]')).not.toBeNull()
+    // and the business 版本历史 carries it as a REAL row the step's own open
+    // acts already picked: the version view of the newest row is on screen
+    // (the regen's unified diff, rendered by the real DocEditor) — "new
+    // version" is store data, not a demo badge
+    const versionView = document.querySelector('[data-testid^="version-view-"]')
+    expect(versionView).not.toBeNull()
+    expect(versionView!.textContent).toContain('设计事实')
+    // back to main-13: the regen frame's data re-derives away (no leftover
+    // v4, no leftover badge) — the same back-recovery discipline as the wave
+    await clickTestId('demo-prev')
+    await settleFor(prevId)
+    await waitFor(
+      () => expect(readState().regenVersion).toBe(false),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(readState().versions).toBe(3)
+    expect(document.querySelector('[data-testid="regen-doc-view"]')).toBeNull()
+  }, 90000)
+
+  it('main-15/16/17 ring the three segments of one business point, payloads land', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    mountDemo(name)
+    await walkTo(script, 'main-15')
+    await waitFor(
+      () => expect(readState().diffGroups).toBe(3),
+      { timeout: 4000, interval: 50 },
+    )
+    const pair = document.querySelector<HTMLElement>('[data-testid="regen-diff-pair"]')
+    expect(pair).not.toBeNull()
+    expect(pair!.dataset.diffGroupCount).toBe('3')
+    // three groups = three candidates, one per business point
+    expect(pair!.querySelectorAll('[data-testid^="diff-group-row-"]')).toHaveLength(3)
+    // the linkage row (all three segments carry content) is the point with
+    // both user and regen lines — and its middle shows the candidate row
+    const linkage = pair!.querySelector('[data-group-primary="true"]')
+    expect(linkage).not.toBeNull()
+    expect(linkage!.getAttribute('data-group-point')).toBe('兑换券 7 天有效')
+    expect(pair!.querySelector('[data-testid="diff-group-change-dc-modify-redeem"]')).not.toBeNull()
+
+    // the segment walk: each step rings ONE segment of the linkage row, in
+    // order user → structured → regen (引导落位 per segment, the ticket's
+    // 三段都有引导落位断言)
+    const ringOn = (target: string) =>
+      waitFor(
+        () =>
+          expect(screen.getByTestId('demo-ring').getAttribute('data-demo-ring-target')).toBe(target),
+        { timeout: 4000, interval: 50 },
+      )
+    await ringOn('diff_group:user')
+    const userCell = linkage!.querySelector('[data-group-segment="user"]')
+    expect(userCell!.textContent).toContain('优惠券 7 天内有效')
+
+    await clickTestId('demo-next')
+    await settleFor('main-16')
+    await ringOn('diff_group:structured')
+    const structCell = linkage!.querySelector('[data-group-segment="structured"]')
+    expect(structCell!.textContent).toContain('积分兑换优惠券')
+
+    await clickTestId('demo-next')
+    await settleFor('main-17')
+    await ringOn('diff_group:regen')
+    const regenCell = linkage!.querySelector('[data-group-segment="regen"]')
+    expect(regenCell!.textContent).toContain('7 天有效')
+
+    // an empty side is honest: the pure-addition group has no user lines and
+    // says so instead of pretending
+    const addRow = pair!.querySelector('[data-testid="diff-group-row-dc-add-coupon-service"]')
+    expect(addRow!.getAttribute('data-group-primary')).toBe('false')
+    expect(addRow!.querySelector('[data-group-segment="user"] [data-diff-group-empty]')).not.toBeNull()
   }, 90000)
 })

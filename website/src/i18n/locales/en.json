@@ -191,7 +191,13 @@
       "distill_group_add": "Add",
       "distill_group_modify": "Modify",
       "distill_group_remove": "Remove",
-      "graph_removed": "Removed:"
+      "graph_removed": "Removed:",
+      "regen_badge": "regenerated {{version}} · from {{from}}",
+      "diff_group_title": "Paired diff review",
+      "diff_group_user": "Your changes",
+      "diff_group_structured": "Structured changes",
+      "diff_group_regen": "Regeneration diff",
+      "diff_group_empty": "no lines for this point"
     },
     "autoImprovement": {
       "findingDetail": {

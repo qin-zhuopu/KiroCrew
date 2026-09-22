@@ -111,6 +111,19 @@ export const LOCATORS: Record<string, DemoLocator> = {
   // the AI-distillation panel + its top-bar button (ACP-733), same snapshot-
   // driven doctrine; the button waits for enabled like the commit/release ones
   distill_panel: { find: () => byTestid('distill-panel') },
+  // the regenerated document + the three-segment paired diff (ACP-734).
+  // `diff_group:<segment>` rings ONE segment cell of the row where all three
+  // segments carry content (the point's linkage row) — so main-15/16/17 walk
+  // 用户改动 → 结构化变化 → 重生成差异 over the same business point, and each
+  // segment gets its own 引导落位 assertion.
+  regen_doc_view: { find: () => byTestid('regen-doc-view') },
+  regen_diff_pair: { find: () => byTestid('regen-diff-pair') },
+  diff_group: {
+    find: (arg) =>
+      document.querySelector<HTMLElement>(
+        `[data-group-primary="true"] [data-group-segment="${arg ?? 'user'}"]`,
+      ),
+  },
   distill_btn: {
     find: () => {
       const el = byTestid('distill-btn')

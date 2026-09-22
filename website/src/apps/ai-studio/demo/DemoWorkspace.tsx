@@ -27,6 +27,7 @@ import { i18nT } from '../../../i18n/t'
 import CodeGenView from '../CodeGenView'
 import DistillPanel from '../DistillPanel'
 import GraphView from '../GraphView'
+import { RegenDiffPair, RegenDocView } from '../RegenDiffView'
 import ProjectCommitBar from '../ProjectCommitBar'
 import ReleaseControl from '../ReleaseControl'
 import WorkArea, { type WorkTab } from '../WorkArea'
@@ -207,6 +208,13 @@ export default function DemoWorkspace({ params }: {
           data-demo-graph-removed={String(landed.graphDelta?.removed?.length ?? 0)}
           data-demo-distill-status={landed.distillation?.status ?? 'none'}
           data-demo-distill-candidates={String(landed.distillation?.candidates.length ?? 0)}
+          // the regeneration read-backs (ACP-734) ride the same always-mounted
+          // wrapper: derive() emits regenVersion/diffGroups for EVERY step of a
+          // graph world, but the regen panels only mount once the doc is
+          // regenerated — so the mirror reads them off the wrapper, present for
+          // the pre-regen steps too
+          data-demo-regen={landed.regeneration !== undefined ? 'true' : 'false'}
+          data-demo-diff-groups={String(landed.diffGroups?.length ?? 0)}
         >
           <GraphView
             graph={landed.graph}
@@ -249,6 +257,28 @@ export default function DemoWorkspace({ params }: {
       {landed.distillation && (
         <div className="shrink-0 max-h-[280px] overflow-auto border-t border-border bg-bg">
           <DistillPanel distillation={landed.distillation} />
+        </div>
+      )}
+      {/* the regenerated document (ACP-734, step 10): the applied distillation
+       * flowed back into a new doc version, badged with the run that produced
+       * it. Snapshot-driven like every panel here — it exists exactly where the
+       * loaded frame carries a regeneration, and what it shows (the content,
+       * the generatedFrom source) is that frame's own data. The version row's
+       * real diff is the business 版本历史 view above; this panel is the demo-
+       * layer annotation of where the version came from (§4: the business
+       * component stays free of any demo/origin concept). */}
+      {landed.regeneration && (
+        <div className="shrink-0 max-h-[320px] overflow-auto border-t border-border bg-bg">
+          <RegenDocView regen={landed.regeneration} />
+        </div>
+      )}
+      {/* the three-segment paired diff (step 11): one row per business point,
+       * 用户改动 / 结构化变化 / 重生成差异 side by side. Every line here was
+       * sliced out of the fixture's own version rows (the generator proved it),
+       * so the review shows the snapshots' difference, never a claim. */}
+      {landed.diffGroups && landed.diffGroups.length > 0 && (
+        <div className="shrink-0 max-h-[360px] overflow-auto border-t border-border bg-bg">
+          <RegenDiffPair groups={landed.diffGroups} />
         </div>
       )}
       <DemoOverlay ctl={ctl} />

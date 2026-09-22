@@ -7,6 +7,7 @@
         "event": "打开「会员积分系统」，requirements.md 已在编辑器打开"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -19,12 +20,14 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-001）：状态层无变化，仅展示层落位",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -37,6 +40,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -77,6 +81,7 @@
         "event": "点开工具栏「版本历史」，选最新一行"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -89,12 +94,14 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-002）：状态层无变化，仅展示层落位",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -107,6 +114,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -150,6 +158,7 @@
         "event": "（返回编辑）再开「版本历史」选最早一行"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -162,12 +171,14 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-003）：状态层无变化，仅展示层落位",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -180,6 +191,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -223,6 +235,7 @@
         "event": "在编辑器追加两行验收标准——首次变更立即落一条草稿记录"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -235,12 +248,14 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-004）：编辑器脏态（有未提交修改） 否→是；草稿记录数 0→1；diff 图标置灰 是→否；修改历史图标置灰 是→否",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -253,6 +268,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -301,6 +317,7 @@
         "event": "停手 2 秒，防抖到期——内容与最新记录相同，不落新条"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -313,12 +330,14 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-005）：状态层无变化，仅展示层落位",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -331,6 +350,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -375,6 +395,7 @@
         "event": "点亮 diff 图标，点开「与最近提交对比」"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -387,12 +408,14 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-006）：状态层无变化，仅展示层落位",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -405,6 +428,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -449,6 +473,7 @@
         "event": "确认红绿无误，看顶栏的待提交汇总（ACP-727 后提交是项目级操作）"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -461,12 +486,14 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-007）：状态层无变化，仅展示层落位",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -479,6 +506,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -522,6 +550,7 @@
         "event": "点顶栏「提交全部」——旧内容进版本快照、草稿记录整体清空、编辑器重挂到已提交基线"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -534,6 +563,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 3,
         "versionsIcon": "list"
@@ -541,6 +571,7 @@
       "afterFix": "main-008",
       "backendFact": "后台（快照 main-008）：编辑器脏态（有未提交修改） 是→否；草稿记录数 1→0；已提交版本数 2→3；diff 图标置灰 否→是；修改历史图标置灰 否→是",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
         "distillCandidates": 0,
@@ -553,6 +584,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "list",
+        "regenVersion": false,
         "released": false,
         "versions": 2,
         "versionsIcon": "list"
@@ -608,6 +640,7 @@
         "event": "提交完成的同一时刻，需求图谱收到 v3 的两条新需求——闭环在开头承诺的地方合上"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -620,12 +653,14 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 3,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-009）：图谱节点总数 6→8；本次新增图谱节点数 0→2",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -638,6 +673,7 @@
         "graphNodes": 6,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 3,
         "versionsIcon": "list"
@@ -673,6 +709,7 @@
         "event": "点顶栏「发版」——解析图谱 → 生成文件清单 → v3 就绪；每个文件标注它实现图谱里的哪条需求"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -685,6 +722,7 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": true,
         "versions": 3,
         "versionsIcon": "list"
@@ -692,6 +730,7 @@
       "afterFix": "main-010",
       "backendFact": "后台（快照 main-010）：本次新增图谱节点数 2→0；已发版 否→是；生成代码文件数 0→4",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -704,6 +743,7 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": false,
         "versions": 3,
         "versionsIcon": "list"
@@ -751,6 +791,7 @@
         "event": "点顶栏「开始沉淀」——AI 从 v3 冻结的文档提炼结构化设计事实，任务进入进行中"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -763,6 +804,7 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": true,
         "versions": 3,
         "versionsIcon": "list"
@@ -770,6 +812,7 @@
       "afterFix": "main-011",
       "backendFact": "后台（快照 main-011）：沉淀任务状态 无任务→进行中",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -782,6 +825,7 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": true,
         "versions": 3,
         "versionsIcon": "list"
@@ -814,6 +858,7 @@
         "event": "沉淀完成——候选清单按新增/修改/删除分组，每条带来源文档段落（可追溯，不是黑盒）"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 3,
@@ -826,12 +871,14 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": true,
         "versions": 3,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-012）：沉淀任务状态 进行中→已完成；沉淀候选变化数 0→3",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 0,
@@ -844,6 +891,7 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": true,
         "versions": 3,
         "versionsIcon": "list"
@@ -879,6 +927,7 @@
         "event": "候选被采纳、图谱吸收——新节点实线亮框、修改节点虚线亮框、孤儿节点消失"
       },
       "after": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 3,
@@ -891,12 +940,14 @@
         "graphNodes": 8,
         "graphRemovedNodes": 1,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": true,
         "versions": 3,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-013）：本次新增图谱节点数 0→1；本次修改图谱节点数 0→1；本次移除图谱节点数 0→1",
       "before": {
+        "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
         "distillCandidates": 3,
@@ -909,6 +960,7 @@
         "graphNodes": 8,
         "graphRemovedNodes": 0,
         "historyIcon": "gray",
+        "regenVersion": false,
         "released": true,
         "versions": 3,
         "versionsIcon": "list"
@@ -943,6 +995,320 @@
       "title": "看最新结构化设计：图谱亮起本轮沉淀的新增/修改/移除",
       "userAction": "候选被采纳、图谱吸收——新节点实线亮框、修改节点虚线亮框、孤儿节点消失",
       "userSees": "当前：图谱 8 节点——绿框实线是新增的「优惠券服务模块」，绿框虚线是被细化的「积分兑换优惠券」，workflow.md 已被移除。新增/修改/移除三个数都由前后快照的图谱差机器校验，且与候选清单一一对应：发版→沉淀→结构化设计的因果链完整了。"
+    },
+    {
+      "action": {
+        "event": "沉淀应用后，AI 从结构化设计事实反向重生成文档——版本历史出现 v4，快照标注它由哪次沉淀生成"
+      },
+      "after": {
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "backendFact": "后台（快照 main-014）：已提交版本数 3→4；本次新增图谱节点数 1→0；本次修改图谱节点数 1→0；本次移除图谱节点数 1→0；文档已由结构化事实重生成 否→是；成组 Diff 业务点数 0→3",
+      "before": {
+        "diffGroups": 0,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 1,
+        "graphModifiedNodes": 1,
+        "graphNodes": 8,
+        "graphRemovedNodes": 1,
+        "historyIcon": "gray",
+        "regenVersion": false,
+        "released": true,
+        "versions": 3,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-014",
+      "goesTo": "重新生成的文档视图",
+      "highlight": {
+        "hint": "当前：版本历史 4 版，最新一版（v4）是 AI 重生成的——细化行带着沉淀后的节点标签，「设计事实」段落逐字复用新增候选的 summary。反向链路通了：文档→图谱→代码之外，结构化事实还能反向产出文档版本；这版是否可信，下一步成组 Diff 逐点核对。",
+        "open": [
+          "versions_btn",
+          "version_row:newest"
+        ],
+        "target": "regen_doc_view"
+      },
+      "id": "main-14",
+      "passCriteria": [
+        {
+          "eq": 4,
+          "field": "versions",
+          "note": "已提交版本数"
+        },
+        {
+          "eq": 0,
+          "field": "graphAddedNodes",
+          "note": "本次新增图谱节点数"
+        },
+        {
+          "eq": 0,
+          "field": "graphModifiedNodes",
+          "note": "本次修改图谱节点数"
+        },
+        {
+          "eq": 0,
+          "field": "graphRemovedNodes",
+          "note": "本次移除图谱节点数"
+        },
+        {
+          "eq": true,
+          "field": "regenVersion",
+          "note": "文档已由结构化事实重生成"
+        },
+        {
+          "eq": 3,
+          "field": "diffGroups",
+          "note": "成组 Diff 业务点数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 3 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）",
+      "title": "看重生成的文档：结构化事实反向产出 v4",
+      "userAction": "沉淀应用后，AI 从结构化设计事实反向重生成文档——版本历史出现 v4，快照标注它由哪次沉淀生成",
+      "userSees": "当前：版本历史 4 版，最新一版（v4）是 AI 重生成的——细化行带着沉淀后的节点标签，「设计事实」段落逐字复用新增候选的 summary。反向链路通了：文档→图谱→代码之外，结构化事实还能反向产出文档版本；这版是否可信，下一步成组 Diff 逐点核对。"
+    },
+    {
+      "action": {
+        "event": "成组 Diff 按业务点分组（一组一个沉淀候选），先看闭环最完整的「兑换券 7 天有效」——左段高亮"
+      },
+      "after": {
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "backendFact": "后台（快照 main-014）：状态层无变化，仅展示层落位",
+      "before": {
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-014",
+      "goesTo": "三段成组 Diff 视图",
+      "highlight": {
+        "hint": "当前：左段是你在 v3 里亲手写下的那一行「优惠券 7 天内有效，过期自动退回积分」——它是这一点的全部用户来源。行是从版本行的 unified diff 里按关键词切出来的，预检逐字节校验：这一段显示什么，快照里就得有什么。",
+        "open": [],
+        "target": "diff_group:user"
+      },
+      "id": "main-15",
+      "passCriteria": [
+        {
+          "eq": false,
+          "field": "dirty",
+          "note": "编辑器脏态（有未提交修改）"
+        },
+        {
+          "eq": 0,
+          "field": "draftRecords",
+          "note": "草稿记录数"
+        },
+        {
+          "eq": 4,
+          "field": "versions",
+          "note": "已提交版本数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "核对①用户改动：左段是你为这点亲手写的行",
+      "userAction": "成组 Diff 按业务点分组（一组一个沉淀候选），先看闭环最完整的「兑换券 7 天有效」——左段高亮",
+      "userSees": "当前：左段是你在 v3 里亲手写下的那一行「优惠券 7 天内有效，过期自动退回积分」——它是这一点的全部用户来源。行是从版本行的 unified diff 里按关键词切出来的，预检逐字节校验：这一段显示什么，快照里就得有什么。"
+    },
+    {
+      "action": {
+        "event": "同一点的中段高亮——沉淀对这一点产出的结构化变化（候选 + 来源段落）"
+      },
+      "after": {
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "backendFact": "后台（快照 main-014）：状态层无变化，仅展示层落位",
+      "before": {
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-014",
+      "goesTo": "三段成组 Diff 视图",
+      "highlight": {
+        "hint": "当前：中段是「兑换券 7 天有效」这个业务点的结构化形态：细化候选「积分兑换优惠券（7 天有效）」，注明提炼自 requirements.md 哪一段。左右是文档的行、中间是图谱的事实——三段同点联动，核对的就是 AI 把你写的行理解成了什么。",
+        "open": [],
+        "target": "diff_group:structured"
+      },
+      "id": "main-16",
+      "passCriteria": [
+        {
+          "eq": false,
+          "field": "dirty",
+          "note": "编辑器脏态（有未提交修改）"
+        },
+        {
+          "eq": 0,
+          "field": "draftRecords",
+          "note": "草稿记录数"
+        },
+        {
+          "eq": 4,
+          "field": "versions",
+          "note": "已提交版本数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "核对②结构化变化：中段是 AI 沉淀出的事实",
+      "userAction": "同一点的中段高亮——沉淀对这一点产出的结构化变化（候选 + 来源段落）",
+      "userSees": "当前：中段是「兑换券 7 天有效」这个业务点的结构化形态：细化候选「积分兑换优惠券（7 天有效）」，注明提炼自 requirements.md 哪一段。左右是文档的行、中间是图谱的事实——三段同点联动，核对的就是 AI 把你写的行理解成了什么。"
+    },
+    {
+      "action": {
+        "event": "同一点的右段高亮——v4 相对 v3 为这点带来的行，回扣左段你的原话"
+      },
+      "after": {
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "backendFact": "后台（快照 main-014）：状态层无变化，仅展示层落位",
+      "before": {
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-014",
+      "goesTo": "三段成组 Diff 视图",
+      "highlight": {
+        "hint": "当前：右段是重生成 v4 为这一点带出的行——「积分满 100 可兑换 5 元优惠券」被细化成带 7 天标签的写法。左段你写的、中段沉淀的、右段重生成的，三段同点摆在一起：系统理解得对不对，用户一眼可核对。其余组同样展示：纯沉淀新增的组左段为空（你没写过它），图谱移除组左右皆空（移除的是挂靠不是文档行）——空也是数据，不是缺憾。",
+        "open": [],
+        "target": "diff_group:regen"
+      },
+      "id": "main-17",
+      "passCriteria": [
+        {
+          "eq": false,
+          "field": "dirty",
+          "note": "编辑器脏态（有未提交修改）"
+        },
+        {
+          "eq": 0,
+          "field": "draftRecords",
+          "note": "草稿记录数"
+        },
+        {
+          "eq": 4,
+          "field": "versions",
+          "note": "已提交版本数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "核对③重生成差异：右段是结构化事实反向产出的行",
+      "userAction": "同一点的右段高亮——v4 相对 v3 为这点带来的行，回扣左段你的原话",
+      "userSees": "当前：右段是重生成 v4 为这一点带出的行——「积分满 100 可兑换 5 元优惠券」被细化成带 7 天标签的写法。左段你写的、中段沉淀的、右段重生成的，三段同点摆在一起：系统理解得对不对，用户一眼可核对。其余组同样展示：纯沉淀新增的组左段为空（你没写过它），图谱移除组左右皆空（移除的是挂靠不是文档行）——空也是数据，不是缺憾。"
     }
   ],
   "title": "会员积分系统：编辑 → 自动保存 → 提交闭环"

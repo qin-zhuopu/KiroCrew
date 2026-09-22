@@ -399,7 +399,13 @@
       "distill_group_add": "新增",
       "distill_group_modify": "修改",
       "distill_group_remove": "移除",
-      "graph_removed": "已移除："
+      "graph_removed": "已移除：",
+      "regen_badge": "重生成 {{version}} · 源自 {{from}}",
+      "diff_group_title": "成组 Diff 核对",
+      "diff_group_user": "用户改动",
+      "diff_group_structured": "结构化变化",
+      "diff_group_regen": "重生成差异",
+      "diff_group_empty": "该业务点在此无改动行"
     },
     "autoImprovement": {
       "findingDetail": {

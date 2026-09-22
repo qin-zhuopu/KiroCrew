@@ -120,6 +120,45 @@ export interface StudioDistillation {
   appliedAt?: number
 }
 
+/** A document version the system regenerated FROM the distilled structured
+ * facts (ACP-734) — the acceptance doc's reverse link: docs → graph is not a
+ * one-way street, the applied distillation flows back into a new document
+ * version. Same "type written first" doctrine: no endpoint yet, the demo
+ * snapshot and the future regeneration API share one shape. `generatedFrom`
+ * names the distillation run whose facts produced `content`. */
+export interface StudioRegeneration {
+  /** the version label this regen produced (the new row in the history) */
+  version: string
+  /** the StudioDistillation.id whose applied facts generated this content */
+  generatedFrom: string
+  docName: string
+  /** the full regenerated document — the "new version" is content, not a
+   * badge: the version row's own diff speaks the change */
+  content: string
+}
+
+/** One business point in the paired-diff review (ACP-734): the three views
+ * of the SAME change shown side by side so the user can check whether the
+ * system understood them — left what the USER changed (lines sliced from the
+ * user's own version-row diff), middle the structured candidate the
+ * distillation produced for this point (with its evidence paragraph), right
+ * what the REGENERATION changed for it (lines sliced from the regen's row).
+ * An empty side is data, not a gap: a purely distilled point has no user
+ * lines, a graph-only removal has none on either side. The generator proves
+ * every line shown here is a line its version rows' diffs carry. */
+export interface StudioDiffGroup {
+  /** the business point, e.g. 「兑换券 7 天有效」 — one per candidate */
+  point: string
+  /** the StudioDistillCandidate.id this group pairs against */
+  candidateId: string
+  /** the structured change(s) for this point (the candidate list's own rows) */
+  structuredChanges: StudioDistillCandidate[]
+  /** unified-diff lines from the user's commit for this point (may be empty) */
+  userDiff: string
+  /** unified-diff lines from the regeneration for this point (may be empty) */
+  regenDiff: string
+}
+
 /** One source file a release generated (ACP-730). `derivedFrom` names the
  * graph nodes (requirements) the file implements — the demo generator
  * cross-checks that set against the graph delta, so "generated code matches

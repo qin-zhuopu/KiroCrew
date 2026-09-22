@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +100,8 @@ class Project:
         generated_files: "list[dict[str, str]] | None" = None,
         generated_from: "str | None" = None,
         distillation: "dict[str, Any] | None" = None,
+        regeneration: "dict[str, Any] | None" = None,
+        diff_groups: "list[dict[str, Any]] | None" = None,
     ) -> dict[str, Any]:
         """One replayable state: every doc's committed content, the focused
         doc's editor buffer, and its draft records (newest first). `graph`
@@ -133,6 +136,10 @@ class Project:
             snap["release"] = release
         if distillation is not None:
             snap["distillation"] = distillation
+        if regeneration is not None:
+            snap["regeneration"] = regeneration
+        if diff_groups is not None:
+            snap["diffGroups"] = diff_groups
         if generated_files is not None:
             snap["generatedFiles"] = generated_files
             # the audit anchor: which snapshot's graphDelta these files must
@@ -387,6 +394,83 @@ DISTILL_DONE: dict[str, Any] = {
 # claiming appliedAt)
 DISTILL_APPLIED: dict[str, Any] = {**DISTILL_DONE, "appliedAt": RELEASE_V3["time"] + 600}
 
+# ---- the regeneration the applied distillation feeds (ACP-734 / T12) --------
+# 验收文档口径：沉淀成结构化事实之后，系统能【从结构化数据反向重生成文档】
+# （新文档版本出现并标注来自哪次沉淀），再把「用户改动 Diff + 结构化变化 +
+# 重生成 Diff」按业务点成组展示——用户核对「系统理解得对不对」的关键一步。
+# REQ_REGEN 是机器派生，不是第三份手写事实：细化行带着被修改节点的新标签，
+# 「设计事实」段落的每一行就是新增候选的 summary——重生成内容是沉淀数据的
+# 函数，check_regen() 再把成组 Diff 的行逐字节对回版本行的 diff。
+
+REGEN_TS = DISTILL_APPLIED["appliedAt"] + 1200
+
+_DISTILL_CAND_BY_ID = {c["id"]: c for c in DISTILL_CANDIDATES}
+
+# the three business points the pairing shows — one per distillation
+# candidate (candidateId is the traceability link; check_regen resolves each
+# one and re-slices the diff texts from the snapshot's own version rows).
+# keyword = the phrase that identifies the point inside a diff line.
+REGEN_POINTS: list[dict[str, str]] = [
+    {"candidate": "dc-add-coupon-service", "point": "优惠券服务模块", "keyword": "优惠券服务"},
+    {"candidate": "dc-modify-redeem", "point": "兑换券 7 天有效", "keyword": "7 天"},
+    {"candidate": "dc-remove-workflow", "point": "workflow 孤儿移除", "keyword": "workflow"},
+]
+
+_REDEEM_SUFFIX = _DISTILL_REDEEM["label"].removeprefix("积分兑换优惠券")  # （7 天有效）
+
+REQ_REGEN = REQ_EDIT.replace(
+    "- [ ] 积分满 100 可兑换 5 元优惠券\n",
+    f"- [ ] 积分满 100 可兑换 5 元优惠券{_REDEEM_SUFFIX}\n",
+) + (
+    f"\n## 设计事实（发版沉淀 · {RELEASE_V3['version']}）\n\n"
+    + "".join(
+        f"- {c['summary']}\n" for c in DISTILL_CANDIDATES if c["kind"] == "add"
+    )
+)
+
+REGEN: dict[str, Any] = {
+    "version": "v4",
+    "generatedFrom": DISTILL_APPLIED["id"],
+    "docName": "requirements.md",
+    "content": REQ_REGEN,
+}
+
+
+def _diff_lines(diff: str, keyword: str) -> str:
+    """The +/- lines of a unified diff that carry one business point (file
+    headers never match: they hold the previous/current labels, not content).
+    The slicing IS the pairing — the same lines stay in the group, no line
+    enters that the row's own diff does not carry."""
+    return "".join(
+        line + "\n"
+        for line in diff.splitlines()
+        if (line.startswith("+") or line.startswith("-"))
+        and not line.startswith(("+++", "---"))
+        and keyword in line
+    )
+
+
+def build_diff_groups(user_diff: str, regen_diff: str) -> list[dict[str, Any]]:
+    """The three-segment pairing (T12): per business point, the user's own
+    diff lines (sliced from the committed row BEFORE the regen), the
+    structured candidate that point produced, and the regen's diff lines
+    (sliced from the regen's row). An honest slice can be empty — a point the
+    user never wrote (the distilled module, the removed orphan) shows nothing
+    on the sides it has no lines for."""
+    groups = []
+    for p in REGEN_POINTS:
+        cand = _DISTILL_CAND_BY_ID[p["candidate"]]
+        groups.append(
+            {
+                "point": p["point"],
+                "candidateId": cand["id"],
+                "structuredChanges": [cand],
+                "userDiff": _diff_lines(user_diff, p["keyword"]),
+                "regenDiff": _diff_lines(regen_diff, p["keyword"]),
+            }
+        )
+    return groups
+
 # ---- branch A: App 官网改版 (half-done draft, restore branch) ---------------
 
 site = Project("demo-website-revamp", "App 官网改版", "品牌升级：官网首屏与信息架构重做", T0 - 3 * 86400)
@@ -561,6 +645,32 @@ add(
         distillation=DISTILL_APPLIED,
     ),
 )
+# main-014: the regeneration frame (T12, 验收文档步骤 10-11). The applied
+# distillation flows BACK into the documents: REQ_REGEN is committed as a new
+# version (v4) whose row names no human author — the snapshot carries a
+# `regeneration` naming the distillation that generated it. The graph does NOT
+# move here (the wave was main-013's shot); what lands instead is the three-
+# segment pairing data, built by slicing the two version rows' own diffs by
+# business point — check_regen re-slices them from the emitted rows, so the
+# pairing view cannot show a line the snapshots do not hold.
+req.commit(REQ_REGEN, REGEN_TS)
+add(
+    "main-014",
+    main.snapshot(
+        "requirements.md",
+        REQ_REGEN,
+        [],
+        graph=GRAPH_DISTILLED,
+        release=RELEASE_V3,
+        generated_files=GENERATED_FILES,
+        generated_from="main-009",
+        distillation=DISTILL_APPLIED,
+        regeneration=REGEN,
+        diff_groups=build_diff_groups(
+            unified_diff(REQ_V2, REQ_EDIT), unified_diff(REQ_EDIT, REQ_REGEN)
+        ),
+    ),
+)
 
 # branch A --------------------------------------------------------------------
 # The honest chain (same rhythm as the main line): enter clean → type draft
@@ -644,6 +754,12 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
         dist = snap.get("distillation")
         state["distillStatus"] = dist["status"] if dist else "none"
         state["distillCandidates"] = len(dist["candidates"]) if dist else 0
+        # the regeneration vocabulary (T12) rides the same gate: every step of
+        # a graph world states whether the docs were regenerated from the
+        # distilled facts and how many business points the paired-diff view
+        # groups (0 until the regen lands).
+        state["regenVersion"] = snap.get("regeneration") is not None
+        state["diffGroups"] = len(snap.get("diffGroups", []))
     return state
 
 
@@ -668,6 +784,8 @@ TARGET_VIEW: dict[str, str] = {
     "graph_view": "页底需求图谱面板",
     "codegen_view": "发版徽章与生成代码面板",
     "distill_panel": "AI 沉淀面板",
+    "regen_doc_view": "重新生成的文档视图",
+    "diff_group": "三段成组 Diff 视图",
     "toolbar_trio": "工具栏三图标",
 }
 OBS_LABELS: dict[str, str] = {
@@ -684,6 +802,8 @@ OBS_LABELS: dict[str, str] = {
     "generatedFiles": "生成代码文件数",
     "distillStatus": "沉淀任务状态",
     "distillCandidates": "沉淀候选变化数",
+    "regenVersion": "文档已由结构化事实重生成",
+    "diffGroups": "成组 Diff 业务点数",
 }
 # the observable reading of a declared state — exactly the keys the script
 # test's readState() mirrors, so a criterion is always checkable on the DOM
@@ -711,6 +831,8 @@ def observables(state: dict[str, Any]) -> dict[str, Any]:
         out["generatedFiles"] = state["generatedFiles"]
         out["distillStatus"] = state["distillStatus"]
         out["distillCandidates"] = state["distillCandidates"]
+        out["regenVersion"] = state["regenVersion"]
+        out["diffGroups"] = state["diffGroups"]
     return out
 
 
@@ -859,8 +981,9 @@ def step(
         "startFrom": _start_from(before),
         # 用户做什么：既有事件描述，逐字复用，不另写一份
         "userAction": event,
-        # 去了哪里：本步高亮目标所属的视图（goes_to 可覆写，默认按 target 查表）
-        "goesTo": goes_to or TARGET_VIEW[target],
+        # 去了哪里：本步高亮目标所属的视图（goes_to 可覆写，默认按 target 查表；
+        # 带参数的 target —— 如 "diff_group:structured" —— 查基名）
+        "goesTo": goes_to or TARGET_VIEW[target.split(":")[0]],
         # 用户看到什么：既有提示文案，逐字复用
         "userSees": hint,
         # 后台发生什么：前后快照观测差（派生）
@@ -884,6 +1007,8 @@ def _start_from(state: dict[str, Any]) -> str:
             bits.append(f"已发版（生成 {ob['generatedFiles']} 文件）")
         if ob["distillStatus"] != "none":
             bits.append(f"沉淀{'已完成' if ob['distillStatus'] == 'done' else '进行中'}（候选 {ob['distillCandidates']} 条）")
+        if ob["regenVersion"]:
+            bits.append(f"文档已重生成（成组 Diff {ob['diffGroups']} 组）")
     return f"{state['doc']}：" + "、".join(bits)
 
 
@@ -1026,6 +1151,46 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 "当前：图谱 8 节点——绿框实线是新增的「优惠券服务模块」，绿框虚线是被细化的「积分兑换优惠券」，workflow.md 已被移除。新增/修改/移除三个数都由前后快照的图谱差机器校验，且与候选清单一一对应：发版→沉淀→结构化设计的因果链完整了。",
                 None,
                 prev="main-012",
+            ),
+            step(
+                "main-14",
+                "看重生成的文档：结构化事实反向产出 v4",
+                "main-014",
+                "沉淀应用后，AI 从结构化设计事实反向重生成文档——版本历史出现 v4，快照标注它由哪次沉淀生成",
+                "regen_doc_view",
+                "当前：版本历史 4 版，最新一版（v4）是 AI 重生成的——细化行带着沉淀后的节点标签，「设计事实」段落逐字复用新增候选的 summary。反向链路通了：文档→图谱→代码之外，结构化事实还能反向产出文档版本；这版是否可信，下一步成组 Diff 逐点核对。",
+                ["versions_btn", "version_row:newest"],
+                prev="main-013",
+            ),
+            step(
+                "main-15",
+                "核对①用户改动：左段是你为这点亲手写的行",
+                "main-014",
+                "成组 Diff 按业务点分组（一组一个沉淀候选），先看闭环最完整的「兑换券 7 天有效」——左段高亮",
+                "diff_group:user",
+                "当前：左段是你在 v3 里亲手写下的那一行「优惠券 7 天内有效，过期自动退回积分」——它是这一点的全部用户来源。行是从版本行的 unified diff 里按关键词切出来的，预检逐字节校验：这一段显示什么，快照里就得有什么。",
+                None,
+                prev="main-014",
+            ),
+            step(
+                "main-16",
+                "核对②结构化变化：中段是 AI 沉淀出的事实",
+                "main-014",
+                "同一点的中段高亮——沉淀对这一点产出的结构化变化（候选 + 来源段落）",
+                "diff_group:structured",
+                "当前：中段是「兑换券 7 天有效」这个业务点的结构化形态：细化候选「积分兑换优惠券（7 天有效）」，注明提炼自 requirements.md 哪一段。左右是文档的行、中间是图谱的事实——三段同点联动，核对的就是 AI 把你写的行理解成了什么。",
+                None,
+                prev="main-014",
+            ),
+            step(
+                "main-17",
+                "核对③重生成差异：右段是结构化事实反向产出的行",
+                "main-014",
+                "同一点的右段高亮——v4 相对 v3 为这点带来的行，回扣左段你的原话",
+                "diff_group:regen",
+                "当前：右段是重生成 v4 为这一点带出的行——「积分满 100 可兑换 5 元优惠券」被细化成带 7 天标签的写法。左段你写的、中段沉淀的、右段重生成的，三段同点摆在一起：系统理解得对不对，用户一眼可核对。其余组同样展示：纯沉淀新增的组左段为空（你没写过它），图谱移除组左右皆空（移除的是挂靠不是文档行）——空也是数据，不是缺憾。",
+                None,
+                prev="main-014",
             ),
         ],
     },
@@ -1243,6 +1408,14 @@ def check_distillation(key: str, snap: dict[str, Any]) -> None:
         )
         return
     delta = snap.get("graphDelta")
+    if delta is None and snap.get("regeneration") is not None:
+        # a frame the wave merely PERSISTS through (T12's regeneration frame
+        # still carries the applied run): the wave's landing story was the
+        # applying snapshot's shot, and this frame's graph stands at exactly
+        # that absorbed shape — check_regen's modified-candidate probe checks
+        # the persistence against the facts. Only a REGEN frame earns this:
+        # the applying frame itself must move the graph.
+        return
     assert delta is not None, (
         f"{key}: distillation done+appliedAt but the graph never moved — "
         "the wave must land in the same frame that marks it applied"
@@ -1262,6 +1435,92 @@ def check_distillation(key: str, snap: dict[str, Any]) -> None:
         )
 
 
+def check_regen(key: str, snap: dict[str, Any]) -> None:
+    """ACP-734 — the regeneration + paired-diff story as DATA, checked at
+    generation (the ticket's 预检：regenDiff 声明的行数/段落与快照内容一致):
+    - a regeneration exists only where a done distillation fed it, and names
+      exactly that run (generatedFrom); its content IS the committed doc —
+      the "new version" is content, not a badge;
+    - every added candidate's summary is a line of the content, and every
+    modified node's label refinement shows up on an added diff line — the
+    content is a function of the distilled facts, not prose about them;
+    - every group's userDiff/regenDiff is re-sliced HERE from the version
+      rows the fixture itself emitted (newest = the regen's row, the one
+    below = the user's row) — a group cannot show a line its rows do not
+    carry; a remove-kind group must be empty on both sides (removing a graph
+    attachment cuts no doc lines — the emptiness is data, matching the hint)."""
+    regen = snap.get("regeneration")
+    if regen is None:
+        assert "diffGroups" not in snap, f"{key}: diffGroups without a regeneration"
+        return
+    dist = snap.get("distillation")
+    assert dist is not None and dist["status"] == "done", (
+        f"{key}: regeneration without a done distillation to feed it"
+    )
+    assert regen["generatedFrom"] == dist["id"], (
+        f"{key}: regeneration names {regen['generatedFrom']!r}, not this frame's distillation {dist['id']!r}"
+    )
+    rows = snap["versions"].get(regen["docName"]) or []
+    assert len(rows) >= 2, f"{key}: regeneration doc has no version pair to pair against"
+    committed = next(d["content"] for d in snap["docs"] if d["name"] == regen["docName"])
+    assert regen["content"] == committed, f"{key}: regeneration.content ≠ the committed doc"
+    content_lines = committed.splitlines()
+    for c in dist["candidates"]:
+        if c["kind"] == "add":
+            assert f"- {c['summary']}" in content_lines, (
+                f"{key}: added candidate {c['id']}: its summary is not a line of the regenerated content"
+            )
+    labels = {n["id"]: n["label"] for n in (snap.get("graph") or {}).get("nodes", [])}
+    added = [
+        ln[1:]
+        for ln in rows[0]["diff"].splitlines()
+        if ln.startswith("+") and not ln.startswith("+++")
+    ]
+    # the modified-kind candidates carry the proof the distillation precheck
+    # cannot: the persisted frame has no graphDelta to compare against, so
+    # each refined node's label must itself show up on an added diff line.
+    for c in dist["candidates"]:
+        if c["kind"] != "modify":
+            continue
+        refine = re.search(r"（([^）]+)）", labels[c["target"]])
+        assert refine and any(refine.group(1) in ln for ln in added), (
+            f"{key}: modified candidate {c['id']}: label {labels[c['target']]!r} — its refinement "
+            "carries no added line in the regen's diff"
+        )
+    groups = snap.get("diffGroups") or []
+    assert len(groups) == len(dist["candidates"]), (
+        f"{key}: {len(groups)} diff groups ≠ {len(dist['candidates'])} candidates — 一组一候选"
+    )
+    seen_ids = set()
+    by_point = {p["point"]: p for p in REGEN_POINTS}
+    for g in groups:
+        p = by_point.get(g["point"])
+        assert p is not None, f"{key}: group {g['point']!r} is not a declared business point"
+        assert g["candidateId"] == p["candidate"] and g["candidateId"] not in seen_ids, (
+            f"{key}: group {g['point']!r} must name exactly candidate {p['candidate']!r}"
+        )
+        seen_ids.add(g["candidateId"])
+        want_user = _diff_lines(rows[1]["diff"], p["keyword"])
+        want_regen = _diff_lines(rows[0]["diff"], p["keyword"])
+        assert g["userDiff"] == want_user, (
+            f"{key}: group {g['point']!r} userDiff ≠ the user's version row re-sliced"
+        )
+        assert g["regenDiff"] == want_regen, (
+            f"{key}: group {g['point']!r} regenDiff ≠ the regen's version row re-sliced"
+        )
+        for ln in (g["userDiff"] + g["regenDiff"]).splitlines():
+            if ln.startswith("+"):
+                assert ln[1:] in content_lines, (
+                    f"{key}: group {g['point']!r} shows an added line the committed content does not hold"
+                )
+        kinds = {c["kind"] for c in g["structuredChanges"]}
+        if kinds == {"remove"}:
+            assert g["userDiff"] == "" and g["regenDiff"] == "", (
+                f"{key}: remove-kind group {g['point']!r} carries doc lines — "
+                "removing a graph attachment cuts no document lines"
+            )
+
+
 def dump(path: Path, data: Any) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1276,6 +1535,7 @@ def main_run() -> None:
         check_graph_shape(key, snap)
         check_generated_traceability(key, snap)
         check_distillation(key, snap)
+        check_regen(key, snap)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)
