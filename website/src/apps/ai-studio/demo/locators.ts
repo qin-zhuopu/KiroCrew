@@ -116,6 +116,26 @@ export const LOCATORS: Record<string, DemoLocator> = {
   // segments carry content (the point's linkage row) — so main-15/16/17 walk
   // 用户改动 → 结构化变化 → 重生成差异 over the same business point, and each
   // segment gets its own 引导落位 assertion.
+  // the development run: record header / phase list / result row (ACP-735),
+  // each a snapshot-driven demo panel; the two buttons wait for their
+  // enabled state like commit/release/distill (a synthetic click on a
+  // disabled button fires but no-ops)
+  dev_record: { find: () => byTestid('dev-design-version') },
+  dev_process: { find: () => byTestid('dev-phases') },
+  dev_result: { find: () => byTestid('dev-artifacts') },
+  run_preview: { find: () => byTestid('run-preview') },
+  dev_btn: {
+    find: () => {
+      const el = byTestid('dev-btn')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
+  run_open_btn: {
+    find: () => {
+      const el = byTestid('run-open-btn')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
   regen_doc_view: { find: () => byTestid('regen-doc-view') },
   regen_diff_pair: { find: () => byTestid('regen-diff-pair') },
   diff_group: {

@@ -1,5 +1,6 @@
 // The workspace top bar's project-level long-running acts (ACP-730's 发版,
-// ACP-733's 开始沉淀), shaped like ProjectCommitBar: one control, both
+// ACP-733's 开始沉淀, ACP-735's 开始开发), shaped like ProjectCommitBar:
+// one control, both
 // surfaces, the callback seam doing the work. The real path has no release
 // or distillation endpoint yet, so StudioWorkspace does not render this at
 // all — an enabled button whose click goes nowhere is exactly the fake
@@ -11,7 +12,7 @@
 // lands (the distill click resolves straight into the snapshot's own
 // running state).
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BrainCircuit, Rocket } from 'lucide-react'
+import { BrainCircuit, Hammer, Rocket } from 'lucide-react'
 import { Btn } from '../../components/ui'
 import { i18nT } from '../../i18n/t'
 
@@ -27,7 +28,7 @@ export default function ReleaseControl({ onRelease, phases, phaseMs = 600, disab
   disabled?: boolean
   /** which top-bar act this button is: the testid, labels and icon come from
    * that act's keys, the walk mechanics are shared */
-  act?: 'release' | 'distill'
+  act?: 'release' | 'distill' | 'dev'
 }) {
   const [pending, setPending] = useState(false)
   const [phase, setPhase] = useState(0)
@@ -53,18 +54,30 @@ export default function ReleaseControl({ onRelease, phases, phaseMs = 600, disab
     }
   }, [pending, onRelease])
 
+  // one table for the three acts: testid + the i18n keys each reads. The
+  // pending label falls back to the act's own "…ing" when it declares no
+  // phase walk (distill/dev resolve straight into the snapshot's own
+  // running frame; release passes three phase labels and walks them).
+  const ACTS = {
+    release: { testid: 'release-btn', key: 'release', pending: 'releasing', hint: 'release_hint', Icon: Rocket },
+    distill: { testid: 'distill-btn', key: 'distill', pending: 'distill_running', hint: 'distill_hint', Icon: BrainCircuit },
+    // the `dev` i18n key is taken by the sidebar's run label — the button
+    // reads dev_start
+    dev: { testid: 'dev-btn', key: 'dev_start', pending: 'dev_running', hint: 'dev_hint', Icon: Hammer },
+  } as const
+  const conf = ACTS[act]
   const label = pending
-    ? (phases?.[phase] ?? i18nT(act === 'distill' ? 'apps.aiStudio.distill_running' : 'apps.aiStudio.releasing'))
-    : i18nT(act === 'distill' ? 'apps.aiStudio.distill' : 'apps.aiStudio.release')
-  const Icon = act === 'distill' ? BrainCircuit : Rocket
+    ? (phases?.[phase] ?? i18nT(`apps.aiStudio.${conf.pending}`))
+    : i18nT(`apps.aiStudio.${conf.key}`)
+  const Icon = conf.Icon
 
   return (
     <Btn
       onClick={release}
       disabled={disabled || pending}
-      data-testid={act === 'distill' ? 'distill-btn' : 'release-btn'}
+      data-testid={conf.testid}
       data-release-pending={pending ? 'true' : undefined}
-      title={i18nT(act === 'distill' ? 'apps.aiStudio.distill_hint' : 'apps.aiStudio.release_hint')}
+      title={i18nT(`apps.aiStudio.${conf.hint}`)}
     >
       <Icon size={13} className="lucide-inline" />
       {label}

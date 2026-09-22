@@ -197,7 +197,25 @@
       "diff_group_user": "Your changes",
       "diff_group_structured": "Structured changes",
       "diff_group_regen": "Regeneration diff",
-      "diff_group_empty": "no lines for this point"
+      "diff_group_empty": "no lines for this point",
+      "dev_start": "Start development",
+      "dev_running": "Developing…",
+      "dev_hint": "Open a development run on the frozen design version",
+      "dev_title": "Development run",
+      "dev_phase_tasks": "Task generation",
+      "dev_phase_implement": "Implementation",
+      "dev_phase_test": "Testing",
+      "dev_phase_build": "Build",
+      "dev_status_pending": "Pending",
+      "dev_status_running": "Running",
+      "dev_status_done": "Done",
+      "dev_artifact_test": "Test report",
+      "dev_artifact_build": "Build output",
+      "dev_artifact_runtime": "Runtime entry",
+      "dev_runnable_ready": "Runnable {{version}} ready",
+      "run_open": "Open runnable version",
+      "run_preview_note": "built-in preview of dev run {{from}} — no server involved",
+      "run_preview_close": "Back to workbench"
     },
     "autoImprovement": {
       "findingDetail": {

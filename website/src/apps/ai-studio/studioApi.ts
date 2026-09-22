@@ -159,6 +159,59 @@ export interface StudioDiffGroup {
   regenDiff: string
 }
 
+/** One phase of a development run (ACP-735): the acceptance doc's step-13
+ * four-stage process — 任务生成 → 实现 → 测试 → 构建. `summary` is the
+ * one-fact sentence the process view shows once the phase is done; it lives
+ * in the snapshot, so the "process" is recorded data, never a timer
+ * inventing progress on screen. */
+export interface StudioDevPhase {
+  name: 'tasks' | 'implement' | 'test' | 'build'
+  status: 'pending' | 'running' | 'done'
+  /** one factual line shown when done (empty while not) */
+  summary: string
+}
+
+/** One product of a development run (ACP-735): the test report, the build
+ * output, the runtime entry — the 结果 page of acceptance-doc step 14. */
+export interface StudioDevArtifact {
+  kind: 'test' | 'build' | 'runtime'
+  path: string
+}
+
+/** A development run opened on a frozen design (ACP-735, acceptance-doc
+ * steps 12-15): 「开始开发」records WHICH design/graph version it builds
+ * (designVersion — the traceability anchor), the four phases advance as
+ * snapshot frames, and the finished run names a runnableVersion the demo
+ * opens as a built-in preview (never a server). Same "type written first"
+ * doctrine: no endpoint yet, snapshot and future API share this shape. */
+export interface StudioDevRun {
+  id: string
+  /** the frozen design this run implements — e.g. "v4 · graph@distill-v3";
+   * the generator proves it names THIS world's regen version and
+   * distillation id, so the run traces back to the applied facts */
+  designVersion: string
+  phases: StudioDevPhase[]
+  artifacts: StudioDevArtifact[]
+  /** set only when the build phase is done — the 体验 entry appears with
+   * its product, not before */
+  runnableVersion?: string
+}
+
+/** The built-in experience screen of a finished dev run (ACP-735,
+ * acceptance-doc step 15): what 「打开可运行版本」 opens — an internal route
+ * onto this data inside the demo overlay, NEVER a server, container or real
+ * deployment. `lines` is the feature list the preview shows, and the
+ * generator proves it is exactly the requirement-node labels of the graph
+ * the run built on: the experience claims only what the structured design
+ * promises. */
+export interface StudioRunPreview {
+  version: string
+  /** the StudioDevRun.id this preview belongs to */
+  devRunId: string
+  title: string
+  lines: string[]
+}
+
 /** One source file a release generated (ACP-730). `derivedFrom` names the
  * graph nodes (requirements) the file implements — the demo generator
  * cross-checks that set against the graph delta, so "generated code matches

@@ -405,7 +405,25 @@
       "diff_group_user": "用户改动",
       "diff_group_structured": "结构化变化",
       "diff_group_regen": "重生成差异",
-      "diff_group_empty": "该业务点在此无改动行"
+      "diff_group_empty": "该业务点在此无改动行",
+      "dev_start": "开始开发",
+      "dev_running": "开发中…",
+      "dev_hint": "基于冻结的设计版本开启开发任务",
+      "dev_title": "开发任务",
+      "dev_phase_tasks": "任务生成",
+      "dev_phase_implement": "实现",
+      "dev_phase_test": "测试",
+      "dev_phase_build": "构建",
+      "dev_status_pending": "待启动",
+      "dev_status_running": "进行中",
+      "dev_status_done": "已完成",
+      "dev_artifact_test": "测试报告",
+      "dev_artifact_build": "构建产物",
+      "dev_artifact_runtime": "运行时入口",
+      "dev_runnable_ready": "可运行版本 {{version}} 就绪",
+      "run_open": "打开可运行版本",
+      "run_preview_note": "内置体验页 · 来自 {{from}} —— 不起任何服务器",
+      "run_preview_close": "返回工作台"
     },
     "autoImprovement": {
       "findingDetail": {

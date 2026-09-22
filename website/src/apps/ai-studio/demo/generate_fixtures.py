@@ -102,6 +102,8 @@ class Project:
         distillation: "dict[str, Any] | None" = None,
         regeneration: "dict[str, Any] | None" = None,
         diff_groups: "list[dict[str, Any]] | None" = None,
+        dev_run: "dict[str, Any] | None" = None,
+        run_preview: "dict[str, Any] | None" = None,
     ) -> dict[str, Any]:
         """One replayable state: every doc's committed content, the focused
         doc's editor buffer, and its draft records (newest first). `graph`
@@ -140,6 +142,10 @@ class Project:
             snap["regeneration"] = regeneration
         if diff_groups is not None:
             snap["diffGroups"] = diff_groups
+        if dev_run is not None:
+            snap["devRun"] = dev_run
+        if run_preview is not None:
+            snap["runPreview"] = run_preview
         if generated_files is not None:
             snap["generatedFiles"] = generated_files
             # the audit anchor: which snapshot's graphDelta these files must
@@ -435,6 +441,80 @@ REGEN: dict[str, Any] = {
     "content": REQ_REGEN,
 }
 
+# ---- the development run opened on the frozen design (ACP-735 / T13) --------
+# 验收文档步骤 12-15：「开始开发」不是一句口号——先立开发记录（标注所用
+# 设计/图谱版本，追溯起点），再走 任务生成→实现→测试→构建 四阶段，每阶段
+# 一句事实摘要，最后给出 测试报告/构建产物/可运行入口。四阶段的推进是三个
+# 快照帧（running 落点→测试进行中→全部完成），不是业务组件里的假计时器；
+# 自动播放逐帧走过即「过程推进」，手动步进得到逐帧相同的画面（回放一致）。
+# designVersion 锚定本世界的重生成版本与沉淀 id（check_devrun 校验）；体验
+# 页的功能清单逐字等于图谱的需求节点标签（同样是派生，不是文案）。
+
+DEV_ID = "dev-v4"
+DEV_RUNNABLE = "0.4.0"
+
+def _phase(name: str, status: str, summary: str = "") -> dict[str, Any]:
+    return {"name": name, "status": status, "summary": summary}
+
+DEV_SUMMARIES: dict[str, str] = {
+    "tasks": "按 v4 冻结设计拆分 5 个开发任务：有效期判断、过期退款、支付方式排除、优惠券服务、数据表",
+    "implement": "实现 4 个生成文件对应的模块，优惠券服务落地 COUPON_TTL=7 天",
+    "test": "23 项测试全部通过：有效期边界 6 项、过期退款 9 项、支付方式排除 8 项",
+    "build": "构建产物 points-service-0.4.0 打包完成，可运行版本就绪",
+}
+
+DEV_PREVIEW_LINES: list[str] = [
+    n["label"] for n in GRAPH_DISTILLED["nodes"] if n["kind"] == "requirement"
+]
+
+def _dev_run(phases: list[dict[str, Any]], artifacts: list[dict[str, str]]) -> dict[str, Any]:
+    run: dict[str, Any] = {
+        "id": DEV_ID,
+        "designVersion": f"{REGEN['version']} · graph@{DISTILL_APPLIED['id']}",
+        "phases": phases,
+        "artifacts": artifacts,
+    }
+    if all(p["status"] == "done" for p in phases):
+        run["runnableVersion"] = DEV_RUNNABLE
+    return run
+
+# the runnable experience (步骤 15): what the built-in preview screen shows
+# when 「打开可运行版本」 is pressed — an internal overlay route onto this
+# data, no server anywhere in the path. Its feature list is exactly the
+# graph's requirement-node labels (derived above), so the experience claims
+# only what the structured design holds.
+RUN_PREVIEW: dict[str, Any] = {
+    "version": DEV_RUNNABLE,
+    "devRunId": DEV_ID,
+    "title": f"{main.name} · {DEV_RUNNABLE}",
+    "lines": DEV_PREVIEW_LINES,
+}
+
+DEV_ARTIFACTS: list[dict[str, str]] = [
+    {"kind": "test", "path": "reports/test-v4.json"},
+    {"kind": "build", "path": "dist/points-service-0.4.0.tar.gz"},
+    {"kind": "runtime", "path": "runtime/points-service"},
+]
+
+# the three frames of the process: the run just opened (任务生成 in flight),
+# mid-run (实现 done, 测试 in flight), landed (all done, artifacts + runnable)
+DEV_TASKS = _dev_run(
+    [_phase("tasks", "running"), _phase("implement", "pending"),
+     _phase("test", "pending"), _phase("build", "pending")],
+    [],
+)
+DEV_TEST = _dev_run(
+    [_phase("tasks", "done", DEV_SUMMARIES["tasks"]),
+     _phase("implement", "done", DEV_SUMMARIES["implement"]),
+     _phase("test", "running"),
+     _phase("build", "pending")],
+    [],
+)
+DEV_DONE = _dev_run(
+    [_phase(name, "done", DEV_SUMMARIES[name]) for name in ("tasks", "implement", "test", "build")],
+    DEV_ARTIFACTS,
+)
+
 
 def _diff_lines(diff: str, keyword: str) -> str:
     """The +/- lines of a unified diff that carry one business point (file
@@ -672,6 +752,36 @@ add(
     ),
 )
 
+# main-015..018: the development run opened on the frozen v4 design (T13,
+# 验收文档步骤 12-15). The doc world stands still (v4 is the newest row,
+# the graph holds its absorbed shape); what moves is the RUN: opened with
+# its designVersion anchor (main-015), mid-flight (main-016), landed with
+# artifacts + runnableVersion (main-017), and the frame whose experience
+# page is open (main-018 — identical derived state to main-017 plus the
+# preview payload, so the chain before(k)≡after(k-1) holds across the
+# 打开可运行版本 click). check_devrun proves the phase machine is a legal
+# monotonic walk and the runnable entry only exists with its product.
+_DEV_BASE = {
+    "graph": GRAPH_DISTILLED,
+    "release": RELEASE_V3,
+    "generated_files": GENERATED_FILES,
+    "generated_from": "main-009",
+    "distillation": DISTILL_APPLIED,
+    "regeneration": REGEN,
+    "diff_groups": build_diff_groups(
+        unified_diff(REQ_V2, REQ_EDIT), unified_diff(REQ_EDIT, REQ_REGEN)
+    ),
+}
+add("main-015", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_TASKS, **_DEV_BASE))
+add("main-016", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_TEST, **_DEV_BASE))
+add("main-017", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_DONE, **_DEV_BASE))
+add(
+    "main-018",
+    main.snapshot(
+        "requirements.md", REQ_REGEN, [], dev_run=DEV_DONE, run_preview=RUN_PREVIEW, **_DEV_BASE
+    ),
+)
+
 # branch A --------------------------------------------------------------------
 # The honest chain (same rhythm as the main line): enter clean → type draft
 # A → autosave it → extend to draft B → autosave → open history → pick the
@@ -760,6 +870,14 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
         # groups (0 until the regen lands).
         state["regenVersion"] = snap.get("regeneration") is not None
         state["diffGroups"] = len(snap.get("diffGroups", []))
+        # the development-run vocabulary (T13) rides the same gate: whether a
+        # run is open, how many of its four phases are done, and whether a
+        # runnable version exists yet (0 until the build lands).
+        dev = snap.get("devRun")
+        state["devActive"] = dev is not None
+        state["devPhasesDone"] = sum(1 for p in dev["phases"] if p["status"] == "done") if dev else 0
+        state["devRunnable"] = bool(dev and dev.get("runnableVersion"))
+        state["runOpen"] = snap.get("runPreview") is not None
     return state
 
 
@@ -786,6 +904,10 @@ TARGET_VIEW: dict[str, str] = {
     "distill_panel": "AI 沉淀面板",
     "regen_doc_view": "重新生成的文档视图",
     "diff_group": "三段成组 Diff 视图",
+    "dev_record": "开发记录面板",
+    "dev_process": "开发过程四阶段面板",
+    "dev_result": "开发结果与体验入口",
+    "run_preview": "可运行版本体验页",
     "toolbar_trio": "工具栏三图标",
 }
 OBS_LABELS: dict[str, str] = {
@@ -804,6 +926,10 @@ OBS_LABELS: dict[str, str] = {
     "distillCandidates": "沉淀候选变化数",
     "regenVersion": "文档已由结构化事实重生成",
     "diffGroups": "成组 Diff 业务点数",
+    "devActive": "开发任务已开启",
+    "devPhasesDone": "开发已完成阶段数",
+    "devRunnable": "已有可运行版本",
+    "runOpen": "可运行体验页已打开",
 }
 # the observable reading of a declared state — exactly the keys the script
 # test's readState() mirrors, so a criterion is always checkable on the DOM
@@ -833,6 +959,10 @@ def observables(state: dict[str, Any]) -> dict[str, Any]:
         out["distillCandidates"] = state["distillCandidates"]
         out["regenVersion"] = state["regenVersion"]
         out["diffGroups"] = state["diffGroups"]
+        out["devActive"] = state["devActive"]
+        out["devPhasesDone"] = state["devPhasesDone"]
+        out["devRunnable"] = state["devRunnable"]
+        out["runOpen"] = state["runOpen"]
     return out
 
 
@@ -1192,6 +1322,48 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 None,
                 prev="main-014",
             ),
+            step(
+                "main-18",
+                "点「开始开发」：开发记录立起，锚定所用设计版本",
+                "main-014",
+                "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中",
+                "dev_record",
+                "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。",
+                ["dev_btn"],
+                prev="main-014",
+                after_fix="main-015",
+            ),
+            step(
+                "main-19",
+                "看开发过程：四阶段步进，已完成阶段各带一句事实摘要",
+                "main-016",
+                "开发进行中——任务生成、实现两步已完成（各带摘要），测试进行中，构建待启动",
+                "dev_process",
+                "当前：四阶段走到「测试」进行中——已完成的两段各有一句事实摘要（拆了 5 个任务、实现 4 个模块）。摘要活在快照里：自动播放逐帧走到这里和手动步进走到这里，画面逐字段相同；阶段状态不是业务组件里的假计时器。",
+                None,
+                prev="main-015",
+            ),
+            step(
+                "main-20",
+                "看开发结果：4/4 阶段完成，测试报告/构建产物/可运行入口就位",
+                "main-017",
+                "开发完成——四阶段全部完成，产物清单出现：测试报告、构建包、运行时入口",
+                "dev_result",
+                "当前：4/4 阶段完成——测试摘要给出 23 项全过，产物三条就位（test/build/runtime），可运行版本 0.4.0 就绪。结果页的每个数字与路径都活在快照里，且「体验」入口只在构建产物存在后才出现：没有产品的入口不放。",
+                None,
+                prev="main-016",
+            ),
+            step(
+                "main-21",
+                "点「打开可运行版本」：内置体验页展示结构化设计承诺的功能",
+                "main-017",
+                "点结果页的「打开可运行版本」——演示内部路由切到内置快照组件（不起任何服务器/容器），可运行版本 0.4.0 跑起来",
+                "run_preview",
+                "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→开发→体验 在这里走完。",
+                ["run_open_btn"],
+                prev="main-017",
+                after_fix="main-018",
+            ),
         ],
     },
     "alt-1-draft-restore": {
@@ -1521,6 +1693,71 @@ def check_regen(key: str, snap: dict[str, Any]) -> None:
             )
 
 
+def check_devrun(key: str, snap: dict[str, Any]) -> None:
+    """ACP-735 — the development run as DATA, checked at generation (the
+    ticket's 预检：phases 完整性与 runnableVersion 存在):
+    - a run exists only on top of a regenerated design, and its
+      designVersion names exactly THIS world's regen version + distillation
+      id — the run traces to the frozen structured facts, not to a wish;
+    - the four phases are the fixed pipeline tasks→implement→test→build,
+      each status legal; done phases carry a non-empty summary, non-done ones
+      carry none (a fact line for work that has not finished is a lie);
+    - artifacts and runnableVersion appear only when ALL phases are done —
+      the 体验 entry cannot exist before its product;
+    - the run preview's feature list is exactly the graph's requirement-node
+      labels — the runnable experience shows only what the structured design
+      promises; and it exists only in a frame whose run is finished."""
+    dev = snap.get("devRun")
+    if dev is None:
+        assert "runPreview" not in snap, f"{key}: runPreview without a development run"
+        return
+    regen = snap.get("regeneration")
+    dist = snap.get("distillation")
+    assert regen is not None and dist is not None, (
+        f"{key}: devRun before a regeneration/distillation — development builds on frozen structured facts"
+    )
+    assert dev["designVersion"] == f"{regen['version']} · graph@{dist['id']}", (
+        f"{key}: devRun designVersion {dev['designVersion']!r} names neither this frame's regen version nor its distillation"
+    )
+    names = [p["name"] for p in dev["phases"]]
+    assert names == ["tasks", "implement", "test", "build"], (
+        f"{key}: devRun phases {names} ≠ the fixed pipeline tasks/implement/test/build"
+    )
+    for p in dev["phases"]:
+        assert p["status"] in ("pending", "running", "done"), (
+            f"{key}: phase {p['name']} status {p['status']!r}"
+        )
+        if p["status"] == "done":
+            assert p["summary"].strip(), f"{key}: done phase {p['name']} has no fact summary"
+        else:
+            assert p["summary"] == "", f"{key}: unfinished phase {p['name']} already carries a summary"
+    all_done = all(p["status"] == "done" for p in dev["phases"])
+    if all_done:
+        assert dev.get("runnableVersion"), (
+            f"{key}: every phase done but no runnableVersion — the result page needs its product"
+        )
+        kinds = [a["kind"] for a in dev["artifacts"]]
+        assert kinds == ["test", "build", "runtime"], (
+            f"{key}: finished run's artifacts {kinds} ≠ test/build/runtime"
+        )
+    else:
+        assert "runnableVersion" not in dev, (
+            f"{key}: runnableVersion before the build lands — no entry without its product"
+        )
+        assert dev["artifacts"] == [], f"{key}: artifacts before every phase is done"
+    preview = snap.get("runPreview")
+    if preview is None:
+        return
+    assert all_done, f"{key}: runPreview frame whose run has not finished"
+    assert preview["devRunId"] == dev["id"] and preview["version"] == dev["runnableVersion"], (
+        f"{key}: runPreview names {preview['devRunId']!r}@{preview['version']!r}, not this run"
+    )
+    req_labels = [n["label"] for n in (snap.get("graph") or {}).get("nodes", []) if n["kind"] == "requirement"]
+    assert preview["lines"] == req_labels, (
+        f"{key}: runPreview feature list ≠ the graph's requirement labels — 体验页只能展示结构化设计承诺的功能"
+    )
+
+
 def dump(path: Path, data: Any) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1536,6 +1773,7 @@ def main_run() -> None:
         check_generated_traceability(key, snap)
         check_distillation(key, snap)
         check_regen(key, snap)
+        check_devrun(key, snap)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)

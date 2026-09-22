@@ -74,6 +74,11 @@ function readState(): Record<string, boolean | number | string> {
     // the docs were regenerated, and the paired-diff group count
     out.regenVersion = frame?.dataset.demoRegen === 'true'
     out.diffGroups = Number(frame?.dataset.demoDiffGroups)
+    // the development-run read-backs (ACP-735) ride the same wrapper
+    out.devActive = frame?.dataset.demoDev === 'true'
+    out.devPhasesDone = Number(frame?.dataset.demoDevPhasesDone)
+    out.devRunnable = frame?.dataset.demoDevRunnable === 'true'
+    out.runOpen = frame?.dataset.demoRunOpen === 'true'
   }
   return out
 }
@@ -99,6 +104,10 @@ function declared(s: DemoState): Record<string, boolean | number | string> {
     out.distillCandidates = s.distillCandidates ?? 0
     out.regenVersion = s.regenVersion ?? false
     out.diffGroups = s.diffGroups ?? 0
+    out.devActive = s.devActive ?? false
+    out.devPhasesDone = s.devPhasesDone ?? 0
+    out.devRunnable = s.devRunnable ?? false
+    out.runOpen = s.runOpen ?? false
   }
   return out
 }
@@ -603,4 +612,118 @@ describe('the regeneration beats (ACP-734): reverse link + three-segment pairing
     expect(addRow!.getAttribute('data-group-primary')).toBe('false')
     expect(addRow!.querySelector('[data-group-segment="user"] [data-diff-group-empty]')).not.toBeNull()
   }, 90000)
+})
+
+describe('the development beats (ACP-735): record → four phases → result → experience', () => {
+  // 验收文档步骤 12-15: main-18 is a live-act step (real 开始开发 click → the
+  // opened run's frame), main-19/20 are the process frames the chain walks,
+  // main-21 opens the built-in experience page through the result row's own
+  // button. The phase counts here are the snapshots' own data — the ticket's
+  // 回放一致性重点: autoplay advancing must show what manual stepping shows.
+  it('manual walk: record lands, phases advance 0→2→4, artifacts+runnable only at the end', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    mountDemo(name)
+
+    await walkTo(script, 'main-18')
+    await waitFor(
+      () => expect(readState().devActive).toBe(true),
+      { timeout: 6000, interval: 50 },
+    )
+    expect(readState().devPhasesDone).toBe(0)
+    // the record is anchored to the frozen design — the traceability start
+    expect(document.querySelector('[data-testid="dev-design-version"]')!.textContent).toContain('v4 · graph@distill-v3')
+    // before the run: no dev panel on the PREVIOUS frame (the click landed it)
+    expect(document.querySelectorAll('[data-testid^="dev-phase-"]')).toHaveLength(4)
+    // no artifacts, no runnable entry while phases are unfinished
+    expect(document.querySelector('[data-testid="dev-artifacts"]')).toBeNull()
+    expect(document.querySelector('[data-testid="run-open-btn"]')).toBeNull()
+
+    await clickTestId('demo-next')
+    await settleFor('main-19')
+    await waitFor(
+      () => expect(readState().devPhasesDone).toBe(2),
+      { timeout: 4000, interval: 50 },
+    )
+    // finished phases carry their fact summaries, the running one carries none
+    expect(document.querySelector('[data-dev-phase-summary="tasks"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="dev-phase-test"]')!.getAttribute('data-dev-phase-status')).toBe('running')
+    expect(document.querySelector('[data-dev-phase-summary="test"]')).toBeNull()
+
+    await clickTestId('demo-next')
+    await settleFor('main-20')
+    await waitFor(
+      () => expect(readState().devPhasesDone).toBe(4),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(readState().devRunnable).toBe(true)
+    // the result row: three artifacts. The experience BUTTON is deliberately
+    // absent here — a transition button only renders on the step that
+    // declares that transition (main-21's pre-click frame), exactly like the
+    // distill button never rendered on the applied-graph frame. The snapshot
+    // fact above (devRunnable) is what main-20 owns.
+    expect(document.querySelectorAll('[data-testid^="dev-artifact-"]')).toHaveLength(3)
+    expect(document.querySelector('[data-testid="run-open-btn"]')).toBeNull()
+    // the preview is NOT open yet — opening it is main-21's own click
+    expect(document.querySelector('[data-testid="run-preview"]')).toBeNull()
+
+    await clickTestId('demo-next')
+    await settleFor('main-21')
+    await waitFor(
+      () => expect(readState().runOpen).toBe(true),
+      { timeout: 6000, interval: 50 },
+    )
+    // the experience screen shows exactly the graph's requirement labels —
+    // no more features than the structured design ever promised
+    const preview = document.querySelector('[data-testid="run-preview"]')!
+    expect(preview.getAttribute('data-run-version')).toBe('0.4.0')
+    const shown = [...preview.querySelectorAll('[data-run-line]')].map((el) => el.getAttribute('data-run-line'))
+    // the graph node <g> carries label + doc as two <text> children — take
+    // the first (the label), not the concatenated textContent
+    const graphLabels = [...document.querySelectorAll('[data-testid="graph-view"] [data-graph-node]')].map(
+      (el) => el.querySelector('text')?.textContent?.trim() ?? '',
+    )
+    expect(shown.length).toBeGreaterThan(0)
+    for (const line of shown) expect(graphLabels).toContain(line)
+
+    // back off the experience frame: the preview was main-018's own data
+    await clickTestId('demo-prev')
+    await settleFor('main-20')
+    await waitFor(
+      () => expect(readState().runOpen).toBe(false),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(document.querySelector('[data-testid="run-preview"]')).toBeNull()
+  }, 90000)
+
+  it('autoplay lands the same dev picture at main-20 as manual stepping', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    const target = script.steps.find((s) => s.id === 'main-20')!
+
+    const mr = mountDemo(name)
+    await walkTo(script, 'main-20')
+    await waitFor(
+      () => expect(readState()).toEqual(declared(target.after)),
+      { timeout: 4000, interval: 50 },
+    )
+    const manual = readState()
+    mr.unmount()
+
+    const ar = mountDemo(name, '&demoAutoMs=60')
+    await settleFor(script.steps[0].id)
+    await clickTestId('demo-play')
+    await waitFor(
+      () => {
+        const el = screen.getByTestId('demo-stepper')
+        expect(el.getAttribute('data-demo-step')).toBe('main-20')
+        expect(el.getAttribute('data-demo-phase')).toBe('main-20:settled')
+      },
+      { timeout: 30000, interval: 50 },
+    )
+    await waitFor(
+      () => expect(readState()).toEqual(declared(target.after)),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(readState()).toEqual(manual)
+    ar.unmount()
+  }, 120000)
 })

@@ -7,6 +7,9 @@
         "event": "打开「会员积分系统」，requirements.md 已在编辑器打开"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -22,11 +25,15 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-001）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -42,6 +49,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -81,6 +89,9 @@
         "event": "点开工具栏「版本历史」，选最新一行"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -96,11 +107,15 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-002）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -116,6 +131,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -158,6 +174,9 @@
         "event": "（返回编辑）再开「版本历史」选最早一行"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -173,11 +192,15 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-003）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -193,6 +216,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -235,6 +259,9 @@
         "event": "在编辑器追加两行验收标准——首次变更立即落一条草稿记录"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -250,11 +277,15 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-004）：编辑器脏态（有未提交修改） 否→是；草稿记录数 0→1；diff 图标置灰 是→否；修改历史图标置灰 是→否",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -270,6 +301,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -317,6 +349,9 @@
         "event": "停手 2 秒，防抖到期——内容与最新记录相同，不落新条"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -332,11 +367,15 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-005）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -352,6 +391,7 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -395,6 +435,9 @@
         "event": "点亮 diff 图标，点开「与最近提交对比」"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -410,11 +453,15 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-006）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -430,6 +477,7 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -473,6 +521,9 @@
         "event": "确认红绿无误，看顶栏的待提交汇总（ACP-727 后提交是项目级操作）"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -488,11 +539,15 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-007）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -508,6 +563,7 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -550,6 +606,9 @@
         "event": "点顶栏「提交全部」——旧内容进版本快照、草稿记录整体清空、编辑器重挂到已提交基线"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -565,12 +624,16 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
       "afterFix": "main-008",
       "backendFact": "后台（快照 main-008）：编辑器脏态（有未提交修改） 是→否；草稿记录数 1→0；已提交版本数 2→3；diff 图标置灰 否→是；修改历史图标置灰 否→是",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "active",
         "dirty": true,
@@ -586,6 +649,7 @@
         "historyIcon": "list",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -640,6 +704,9 @@
         "event": "提交完成的同一时刻，需求图谱收到 v3 的两条新需求——闭环在开头承诺的地方合上"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -655,11 +722,15 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-009）：图谱节点总数 6→8；本次新增图谱节点数 0→2",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -675,6 +746,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -709,6 +781,9 @@
         "event": "点顶栏「发版」——解析图谱 → 生成文件清单 → v3 就绪；每个文件标注它实现图谱里的哪条需求"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -724,12 +799,16 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
       "afterFix": "main-010",
       "backendFact": "后台（快照 main-010）：本次新增图谱节点数 2→0；已发版 否→是；生成代码文件数 0→4",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -745,6 +824,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": false,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -791,6 +871,9 @@
         "event": "点顶栏「开始沉淀」——AI 从 v3 冻结的文档提炼结构化设计事实，任务进入进行中"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -806,12 +889,16 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
       "afterFix": "main-011",
       "backendFact": "后台（快照 main-011）：沉淀任务状态 无任务→进行中",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -827,6 +914,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -858,6 +946,9 @@
         "event": "沉淀完成——候选清单按新增/修改/删除分组，每条带来源文档段落（可追溯，不是黑盒）"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -873,11 +964,15 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-012）：沉淀任务状态 进行中→已完成；沉淀候选变化数 0→3",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -893,6 +988,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -927,6 +1023,9 @@
         "event": "候选被采纳、图谱吸收——新节点实线亮框、修改节点虚线亮框、孤儿节点消失"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -942,11 +1041,15 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-013）：本次新增图谱节点数 0→1；本次修改图谱节点数 0→1；本次移除图谱节点数 0→1",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -962,6 +1065,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -1001,6 +1105,9 @@
         "event": "沉淀应用后，AI 从结构化设计事实反向重生成文档——版本历史出现 v4，快照标注它由哪次沉淀生成"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 3,
         "diffIcon": "gray",
         "dirty": false,
@@ -1016,11 +1123,15 @@
         "historyIcon": "gray",
         "regenVersion": true,
         "released": true,
+        "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-014）：已提交版本数 3→4；本次新增图谱节点数 1→0；本次修改图谱节点数 1→0；本次移除图谱节点数 1→0；文档已由结构化事实重生成 否→是；成组 Diff 业务点数 0→3",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 0,
         "diffIcon": "gray",
         "dirty": false,
@@ -1036,6 +1147,7 @@
         "historyIcon": "gray",
         "regenVersion": false,
         "released": true,
+        "runOpen": false,
         "versions": 3,
         "versionsIcon": "list"
       },
@@ -1093,6 +1205,9 @@
         "event": "成组 Diff 按业务点分组（一组一个沉淀候选），先看闭环最完整的「兑换券 7 天有效」——左段高亮"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 3,
         "diffIcon": "gray",
         "dirty": false,
@@ -1108,11 +1223,15 @@
         "historyIcon": "gray",
         "regenVersion": true,
         "released": true,
+        "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-014）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 3,
         "diffIcon": "gray",
         "dirty": false,
@@ -1128,6 +1247,7 @@
         "historyIcon": "gray",
         "regenVersion": true,
         "released": true,
+        "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
@@ -1167,6 +1287,9 @@
         "event": "同一点的中段高亮——沉淀对这一点产出的结构化变化（候选 + 来源段落）"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 3,
         "diffIcon": "gray",
         "dirty": false,
@@ -1182,11 +1305,15 @@
         "historyIcon": "gray",
         "regenVersion": true,
         "released": true,
+        "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-014）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 3,
         "diffIcon": "gray",
         "dirty": false,
@@ -1202,6 +1329,7 @@
         "historyIcon": "gray",
         "regenVersion": true,
         "released": true,
+        "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
@@ -1241,6 +1369,9 @@
         "event": "同一点的右段高亮——v4 相对 v3 为这点带来的行，回扣左段你的原话"
       },
       "after": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 3,
         "diffIcon": "gray",
         "dirty": false,
@@ -1256,11 +1387,15 @@
         "historyIcon": "gray",
         "regenVersion": true,
         "released": true,
+        "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
       "backendFact": "后台（快照 main-014）：状态层无变化，仅展示层落位",
       "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
         "diffGroups": 3,
         "diffIcon": "gray",
         "dirty": false,
@@ -1276,6 +1411,7 @@
         "historyIcon": "gray",
         "regenVersion": true,
         "released": true,
+        "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
@@ -1309,6 +1445,305 @@
       "title": "核对③重生成差异：右段是结构化事实反向产出的行",
       "userAction": "同一点的右段高亮——v4 相对 v3 为这点带来的行，回扣左段你的原话",
       "userSees": "当前：右段是重生成 v4 为这一点带出的行——「积分满 100 可兑换 5 元优惠券」被细化成带 7 天标签的写法。左段你写的、中段沉淀的、右段重生成的，三段同点摆在一起：系统理解得对不对，用户一眼可核对。其余组同样展示：纯沉淀新增的组左段为空（你没写过它），图谱移除组左右皆空（移除的是挂靠不是文档行）——空也是数据，不是缺憾。"
+    },
+    {
+      "action": {
+        "event": "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中"
+      },
+      "after": {
+        "devActive": true,
+        "devPhasesDone": 0,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "afterFix": "main-015",
+      "backendFact": "后台（快照 main-015）：开发任务已开启 否→是",
+      "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-014",
+      "goesTo": "开发记录面板",
+      "highlight": {
+        "hint": "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。",
+        "open": [
+          "dev_btn"
+        ],
+        "target": "dev_record"
+      },
+      "id": "main-18",
+      "passCriteria": [
+        {
+          "eq": true,
+          "field": "devActive",
+          "note": "开发任务已开启"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "点「开始开发」：开发记录立起，锚定所用设计版本",
+      "userAction": "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中",
+      "userSees": "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。"
+    },
+    {
+      "action": {
+        "event": "开发进行中——任务生成、实现两步已完成（各带摘要），测试进行中，构建待启动"
+      },
+      "after": {
+        "devActive": true,
+        "devPhasesDone": 2,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "backendFact": "后台（快照 main-016）：开发已完成阶段数 0→2",
+      "before": {
+        "devActive": true,
+        "devPhasesDone": 0,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-016",
+      "goesTo": "开发过程四阶段面板",
+      "highlight": {
+        "hint": "当前：四阶段走到「测试」进行中——已完成的两段各有一句事实摘要（拆了 5 个任务、实现 4 个模块）。摘要活在快照里：自动播放逐帧走到这里和手动步进走到这里，画面逐字段相同；阶段状态不是业务组件里的假计时器。",
+        "open": [],
+        "target": "dev_process"
+      },
+      "id": "main-19",
+      "passCriteria": [
+        {
+          "eq": 2,
+          "field": "devPhasesDone",
+          "note": "开发已完成阶段数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "看开发过程：四阶段步进，已完成阶段各带一句事实摘要",
+      "userAction": "开发进行中——任务生成、实现两步已完成（各带摘要），测试进行中，构建待启动",
+      "userSees": "当前：四阶段走到「测试」进行中——已完成的两段各有一句事实摘要（拆了 5 个任务、实现 4 个模块）。摘要活在快照里：自动播放逐帧走到这里和手动步进走到这里，画面逐字段相同；阶段状态不是业务组件里的假计时器。"
+    },
+    {
+      "action": {
+        "event": "开发完成——四阶段全部完成，产物清单出现：测试报告、构建包、运行时入口"
+      },
+      "after": {
+        "devActive": true,
+        "devPhasesDone": 4,
+        "devRunnable": true,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "backendFact": "后台（快照 main-017）：开发已完成阶段数 2→4；已有可运行版本 否→是",
+      "before": {
+        "devActive": true,
+        "devPhasesDone": 2,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-017",
+      "goesTo": "开发结果与体验入口",
+      "highlight": {
+        "hint": "当前：4/4 阶段完成——测试摘要给出 23 项全过，产物三条就位（test/build/runtime），可运行版本 0.4.0 就绪。结果页的每个数字与路径都活在快照里，且「体验」入口只在构建产物存在后才出现：没有产品的入口不放。",
+        "open": [],
+        "target": "dev_result"
+      },
+      "id": "main-20",
+      "passCriteria": [
+        {
+          "eq": 4,
+          "field": "devPhasesDone",
+          "note": "开发已完成阶段数"
+        },
+        {
+          "eq": true,
+          "field": "devRunnable",
+          "note": "已有可运行版本"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "看开发结果：4/4 阶段完成，测试报告/构建产物/可运行入口就位",
+      "userAction": "开发完成——四阶段全部完成，产物清单出现：测试报告、构建包、运行时入口",
+      "userSees": "当前：4/4 阶段完成——测试摘要给出 23 项全过，产物三条就位（test/build/runtime），可运行版本 0.4.0 就绪。结果页的每个数字与路径都活在快照里，且「体验」入口只在构建产物存在后才出现：没有产品的入口不放。"
+    },
+    {
+      "action": {
+        "event": "点结果页的「打开可运行版本」——演示内部路由切到内置快照组件（不起任何服务器/容器），可运行版本 0.4.0 跑起来"
+      },
+      "after": {
+        "devActive": true,
+        "devPhasesDone": 4,
+        "devRunnable": true,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": true,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "afterFix": "main-018",
+      "backendFact": "后台（快照 main-018）：可运行体验页已打开 否→是",
+      "before": {
+        "devActive": true,
+        "devPhasesDone": 4,
+        "devRunnable": true,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyIcon": "gray",
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-017",
+      "goesTo": "可运行版本体验页",
+      "highlight": {
+        "hint": "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→开发→体验 在这里走完。",
+        "open": [
+          "run_open_btn"
+        ],
+        "target": "run_preview"
+      },
+      "id": "main-21",
+      "passCriteria": [
+        {
+          "eq": true,
+          "field": "runOpen",
+          "note": "可运行体验页已打开"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "点「打开可运行版本」：内置体验页展示结构化设计承诺的功能",
+      "userAction": "点结果页的「打开可运行版本」——演示内部路由切到内置快照组件（不起任何服务器/容器），可运行版本 0.4.0 跑起来",
+      "userSees": "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→开发→体验 在这里走完。"
     }
   ],
   "title": "会员积分系统：编辑 → 自动保存 → 提交闭环"

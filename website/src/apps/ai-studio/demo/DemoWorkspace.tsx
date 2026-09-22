@@ -25,6 +25,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ErrorNotice from '../../../components/ErrorNotice'
 import { i18nT } from '../../../i18n/t'
 import CodeGenView from '../CodeGenView'
+import DevRunPanel, { RunPreviewScreen } from '../DevRunView'
 import DistillPanel from '../DistillPanel'
 import GraphView from '../GraphView'
 import { RegenDiffPair, RegenDocView } from '../RegenDiffView'
@@ -54,13 +55,20 @@ export default function DemoWorkspace({ params }: {
   const onDocCommitted = useCallback((fresh: StudioDoc[]) => {
     setLiveCommit((c) => ({ docs: fresh, rev: (c?.rev ?? 0) + 1 }))
   }, [])
-  // A live act (main-10's release, main-11's distillation) lands by swapping
-  // the bottom panel to the step's after-fix snapshot — the same snapshot the
-  // script test derived the after-state from, so the panel shows data, not a
-  // promise. One flag for both acts: "the real click has landed" is the same
-  // fact whichever button made it. Like liveCommit, it belongs to the step:
-  // leaving the step re-derives the whole picture from its own snapshot.
-  const [liveLanded, setLiveLanded] = useState(false)
+  // A live act (main-10's release, main-11's distillation, main-18's dev,
+  // main-21's experience) lands by swapping the bottom panel to the step's
+  // after-fix snapshot — the same snapshot the script test derived the
+  // after-state from, so the panel shows data, not a promise. "Which step's
+  // act has landed" is held as DATA stamped with the step index, and
+  // `liveLanded` is DERIVED from it — deliberately not a boolean an effect
+  // clears: the overlay replays the act click from a CHILD effect, which runs
+  // before this component's own step-change reset effect, so a reset-style
+  // flag gets wiped inside the very commit the click landed in (measured:
+  // the landing renders, then reverts 4ms later, and the frame silently
+  // shows the pre-click snapshot). Deriving costs the reset effect nothing —
+  // stepping to N+1 makes a stamp of N read false, which IS the "belongs to
+  // the step" semantics, enforced by data rather than by effect timing.
+  const [landedStep, setLandedStep] = useState<number | null>(null)
 
   // state-layer swap: a new step means a new fake, so every cached
   // ai-studio read (project docs, both histories) is stale by construction.
@@ -70,7 +78,15 @@ export default function DemoWorkspace({ params }: {
   useEffect(() => {
     queryClient.removeQueries({ queryKey: ['ai-studio'] })
     setLiveCommit(null)
-    setLiveLanded(false)
+    // NB: no liveLanded reset — `liveLanded` is DERIVED from landedStep,
+    // which the act click stamps with its own step index. Stepping to a new
+    // index already reads it false; and because this effect no longer writes
+    // it, the child-overlay click that lands in the same commit as this
+    // effect can never be wiped by it (the old reset-effect flag WAS that
+    // race: child replay effect → parent reset effect, same flush, the
+    // landing reverted 4ms later and the step silently showed its pre-click
+    // snapshot — reproduced at main-21, where the demo's own next/prev could
+    // never open the experience page).
   }, [stepIndex, queryClient])
 
   // the fake notifies on every live mutation (a presenter clicking Commit
@@ -127,25 +143,48 @@ export default function DemoWorkspace({ params }: {
   // landed" means the same thing for both: show what the snapshot holds.
   const canRelease = ctl.afterFixFixture?.release !== undefined && ctl.fixture.release === undefined
   const canDistill = ctl.afterFixFixture?.distillation !== undefined && ctl.fixture.distillation === undefined
+  // the dev act (main-18) lands the opened run; the experience act (main-21)
+  // lands the frame whose preview is open — both ride the same liveLanded
+  // mechanism, and 打开可运行版本 is offered only where the after-fix frame
+  // actually carries the preview its click opens.
+  const canDev = ctl.afterFixFixture?.devRun !== undefined && ctl.fixture.devRun === undefined
+  const canOpenRun = ctl.afterFixFixture?.runPreview !== undefined && ctl.fixture.runPreview === undefined
   // the after-fix snapshot takes the panel once its act lands; before that
   // (and in every world without an act) the step's own fixture speaks.
+  const liveLanded = landedStep === ctl.stepIndex
   const landed: DemoFixture = liveLanded && ctl.afterFixFixture ? ctl.afterFixFixture : ctl.fixture
   const nodeLabels = Object.fromEntries((landed.graph?.nodes ?? []).map((n) => [n.id, n.label]))
   const onRelease = async () => {
     if (!ctl.afterFixFixture) return
     const phases = ctl.step.releasePhases ?? []
     await new Promise((r) => setTimeout(r, Math.max(phases.length, 1) * RELEASE_PHASE_MS))
-    setLiveLanded(true)
+    setLandedStep(ctl.stepIndex)
   }
   const onDistill = async () => {
     // no phase walk: the landing snapshot's own running frame carries the
     // "进行中" state, so the click resolves straight into it
     if (!ctl.afterFixFixture) return
-    setLiveLanded(true)
+    setLandedStep(ctl.stepIndex)
+  }
+  const onDev = async () => {
+    // same as distill: the landing frame's own run carries the in-flight
+    // phase — the process advances across snapshots, not on a timer here
+    if (!ctl.afterFixFixture) return
+    setLandedStep(ctl.stepIndex)
+  }
+  const onOpenRun = async () => {
+    // the 体验 entry is an internal frame swap onto the after-fix snapshot's
+    // runPreview data — no server, no container, nothing leaves the page
+    if (!ctl.afterFixFixture) return
+    setLandedStep(ctl.stepIndex)
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid="ai-studio-demo" data-demo-scenario={ctl.scenario}>
+    // `relative` is the positioning context for the run-preview overlay —
+    // the experience screen covers the workbench, never escapes to a page
+    // ancestor (the stepper/ring are fixed overlays above it, so guidance
+    // still works while the experience page is open)
+    <div className="relative flex flex-col h-full min-h-0" data-testid="ai-studio-demo" data-demo-scenario={ctl.scenario}>
       <header className="flex items-center gap-3 px-4 h-[44px] shrink-0 border-b border-border bg-card">
         <span className="text-sm font-semibold text-text-strong">{ctl.fixture.project.name}</span>
         <span className="text-[12px] text-muted truncate">{ctl.fixture.project.description}</span>
@@ -171,6 +210,9 @@ export default function DemoWorkspace({ params }: {
           )}
           {canDistill && (
             <ReleaseControl act="distill" onRelease={onDistill} disabled={liveLanded} />
+          )}
+          {canDev && (
+            <ReleaseControl act="dev" onRelease={onDev} disabled={liveLanded} />
           )}
         </div>
       </header>
@@ -215,6 +257,17 @@ export default function DemoWorkspace({ params }: {
           // the pre-regen steps too
           data-demo-regen={landed.regeneration !== undefined ? 'true' : 'false'}
           data-demo-diff-groups={String(landed.diffGroups?.length ?? 0)}
+          // the development-run read-backs (ACP-735) ride the same wrapper:
+          // devActive / done-phase count / runnable / preview-open are stated
+          // for EVERY step of a graph world by derive(), so the mirror must
+          // read them even before the dev panel mounts (and while the preview
+          // overlay covers the page — the wrapper stays in the DOM)
+          data-demo-dev={landed.devRun !== undefined ? 'true' : 'false'}
+          data-demo-dev-phases-done={String(
+            (landed.devRun?.phases ?? []).filter((p) => p.status === 'done').length,
+          )}
+          data-demo-dev-runnable={landed.devRun?.runnableVersion ? 'true' : 'false'}
+          data-demo-run-open={landed.runPreview !== undefined ? 'true' : 'false'}
         >
           <GraphView
             graph={landed.graph}
@@ -280,6 +333,25 @@ export default function DemoWorkspace({ params }: {
         <div className="shrink-0 max-h-[360px] overflow-auto border-t border-border bg-bg">
           <RegenDiffPair groups={landed.diffGroups} />
         </div>
+      )}
+      {/* the development run (ACP-735, steps 12-14): record anchored to the
+       * frozen design, the four-phase walk, and once every phase is done the
+       * artifacts + runnable entry. Phase statuses are the loaded frame's own
+       * data — autoplay advancing frames IS the process advancing, and manual
+       * stepping shows the identical pictures. 打开可运行版本 is offered only
+       * on the step whose after-fix frame carries the preview it opens (the
+       * real frame already shows it open, so the button never re-appears
+       * there); its click is a frame swap onto that snapshot's own data. */}
+      {landed.devRun && (
+        <div className="shrink-0 max-h-[340px] overflow-auto border-t border-border bg-bg">
+          <DevRunPanel run={landed.devRun} onOpenRun={canOpenRun && !liveLanded ? onOpenRun : undefined} />
+        </div>
+      )}
+      {/* the runnable experience (step 15): an internal overlay route onto
+       * the frame's runPreview data — no server, no container, the ticket's
+       * hard rule. Rendered under the same overlay the guidance layer rings. */}
+      {landed.runPreview && (
+        <RunPreviewScreen preview={landed.runPreview} />
       )}
       <DemoOverlay ctl={ctl} />
     </div>
