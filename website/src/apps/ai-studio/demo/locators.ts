@@ -94,6 +94,11 @@ export const LOCATORS: Record<string, DemoLocator> = {
   draft_history_list: { find: () => byTestid('draft-history-list') },
   version_history_list: { find: () => byTestid('version-history-list') },
 
+  // the requirement-graph panel (ACP-729): rendered by the demo workbench
+  // from the snapshot's graph; the script rings it and the added nodes it
+  // highlights are the snapshot diff, not a claim
+  graph_view: { find: () => byTestid('graph-view') },
+
   // row picks inside an open popover / dialog
   version_row: { find: (arg) => popoverRows('version-history-list', arg) },
   draft_row: { find: (arg) => popoverRows('draft-history-list', arg) },

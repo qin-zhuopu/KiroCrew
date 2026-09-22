@@ -53,6 +53,32 @@ export interface StudioDraftDoc {
   changed: boolean
 }
 
+/** One node of the requirement graph the commits feed (ACP-729). The graph
+ * is not a backend endpoint yet — the shape is written here first so the
+ * demo snapshots and the future `GET …/graph` response share one type, and
+ * neither side invents fields the other does not have. */
+export interface StudioGraphNode {
+  id: string
+  label: string
+  /** requirement | doc | module — the three kinds the graph speaks */
+  kind: 'requirement' | 'doc' | 'module'
+  /** for kind=requirement: the doc whose committed text produced it */
+  doc?: string
+}
+
+/** One directed edge between two graph nodes (`from` depends-on/traces-to
+ * `to`; kind names which relation. Ids reference StudioGraphNode.id. */
+export interface StudioGraphEdge {
+  from: string
+  to: string
+  kind: 'trace' | 'depends'
+}
+
+export interface StudioGraph {
+  nodes: StudioGraphNode[]
+  edges: StudioGraphEdge[]
+}
+
 export class StudioApiError extends Error {
   readonly code: string
   readonly status: number

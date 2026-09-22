@@ -11,6 +11,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 2,
         "versionsIcon": "list"
@@ -20,6 +22,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 2,
         "versionsIcon": "list"
@@ -43,6 +47,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 2,
         "versionsIcon": "list"
@@ -52,6 +58,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 2,
         "versionsIcon": "list"
@@ -78,6 +86,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 2,
         "versionsIcon": "list"
@@ -87,6 +97,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 2,
         "versionsIcon": "list"
@@ -113,6 +125,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -122,6 +136,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 2,
         "versionsIcon": "list"
@@ -148,6 +164,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -157,6 +175,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -184,6 +204,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -193,6 +215,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -220,6 +244,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -229,6 +255,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -255,6 +283,8 @@
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "gray",
         "versions": 3,
         "versionsIcon": "list"
@@ -264,6 +294,8 @@
         "dirty": true,
         "doc": "requirements.md",
         "draftRecords": 1,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
         "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
@@ -282,6 +314,42 @@
       },
       "id": "main-8",
       "title": "点「提交全部」：版本 +1、修改历史清空、图标回灰"
+    },
+    {
+      "action": {
+        "event": "提交完成的同一时刻，需求图谱收到 v3 的两条新需求——闭环在开头承诺的地方合上"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "graphAddedNodes": 2,
+        "graphNodes": 8,
+        "historyIcon": "gray",
+        "versions": 3,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "graphAddedNodes": 0,
+        "graphNodes": 6,
+        "historyIcon": "gray",
+        "versions": 3,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-009",
+      "highlight": {
+        "hint": "当前：图谱 8 个节点，绿框的两个（优惠券 7 天有效期、积分不可抵现）是刚才那次提交新增的——正是 v3 新加的两行。提交不是终点：旧内容进版本快照，新需求进图谱，这才是完整的闭环。",
+        "open": [],
+        "target": "graph_view"
+      },
+      "id": "main-9",
+      "title": "提交喂图谱：两个新需求节点亮起"
     }
   ],
   "title": "会员积分系统：编辑 → 自动保存 → 提交闭环"

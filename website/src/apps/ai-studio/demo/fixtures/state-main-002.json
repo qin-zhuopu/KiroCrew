@@ -16,6 +16,70 @@
   ],
   "draftVersions": [],
   "focusDoc": "requirements.md",
+  "graph": {
+    "edges": [
+      {
+        "from": "req-signin",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-consume",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-redeem",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-signin",
+        "kind": "depends",
+        "to": "mod-points-center"
+      },
+      {
+        "from": "req-redeem",
+        "kind": "depends",
+        "to": "mod-points-center"
+      }
+    ],
+    "nodes": [
+      {
+        "doc": "requirements.md",
+        "id": "req-signin",
+        "kind": "requirement",
+        "label": "每日签到返积分"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-consume",
+        "kind": "requirement",
+        "label": "消费返积分"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-redeem",
+        "kind": "requirement",
+        "label": "积分兑换优惠券"
+      },
+      {
+        "id": "doc-requirements",
+        "kind": "doc",
+        "label": "requirements.md"
+      },
+      {
+        "id": "doc-workflow",
+        "kind": "doc",
+        "label": "workflow.md"
+      },
+      {
+        "id": "mod-points-center",
+        "kind": "module",
+        "label": "积分中心模块"
+      }
+    ]
+  },
   "project": {
     "createdAt": 1758600000,
     "description": "签到、消费返积分、积分兑换闭环",

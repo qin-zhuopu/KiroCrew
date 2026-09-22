@@ -93,10 +93,16 @@ class Project:
         focus: str,
         buffer: str,
         drafts: list[tuple[int, str]],
+        graph: "dict[str, Any] | None" = None,
+        graph_delta: "dict[str, list[str]] | None" = None,
     ) -> dict[str, Any]:
         """One replayable state: every doc's committed content, the focused
-        doc's editor buffer, and its draft records (newest first)."""
-        return {
+        doc's editor buffer, and its draft records (newest first). `graph`
+        (ACP-729) carries the requirement graph as the snapshot froze it;
+        `graph_delta` names what this snapshot's STORY added — the step
+        generator cross-checks it against the previous snapshot, so the
+        "new in this commit" highlight is a derived fact, never a wish."""
+        snap: dict[str, Any] = {
             "project": {
                 "id": self.id,
                 "name": self.name,
@@ -111,6 +117,11 @@ class Project:
             ],
             "versions": {d.name: d.rows() for d in self.docs.values()},
         }
+        if graph is not None:
+            snap["graph"] = graph
+            if graph_delta is not None:
+                snap["graphDelta"] = graph_delta
+        return snap
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +180,53 @@ req.commit(REQ_V2, T0 - 86400)     # v1.5 committed yesterday
 # then: user edits REQ_V2 -> REQ_EDIT (the main line replays this), autosaves,
 # and finally commits REQ_EDIT (v3). The step models mutate a live Doc below.
 
+# ---- the requirement graph the commits feed (ACP-729) -----------------------
+# Shaped exactly like StudioGraph in studioApi.ts. GRAPH_BEFORE is the state
+# after v2 (the story's starting graph); GRAPH_AFTER is what the v3 commit fed
+# back in — the v3 lines added 「优惠券 7 天内有效」 and the 「积分抵现」
+# exclusion, so exactly two requirement nodes and their doc/module edges are
+# new. The generator refuses a delta that is not the true set difference.
+
+def _node(nid: str, label: str, kind: str, doc: "str | None" = None) -> dict[str, Any]:
+    n: dict[str, Any] = {"id": nid, "label": label, "kind": kind}
+    if doc is not None:
+        n["doc"] = doc
+    return n
+
+def _edge(frm: str, to: str, kind: str) -> dict[str, str]:
+    return {"from": frm, "to": to, "kind": kind}
+
+GRAPH_BEFORE: dict[str, Any] = {
+    "nodes": [
+        _node("req-signin", "每日签到返积分", "requirement", "requirements.md"),
+        _node("req-consume", "消费返积分", "requirement", "requirements.md"),
+        _node("req-redeem", "积分兑换优惠券", "requirement", "requirements.md"),
+        _node("doc-requirements", "requirements.md", "doc"),
+        _node("doc-workflow", "workflow.md", "doc"),
+        _node("mod-points-center", "积分中心模块", "module"),
+    ],
+    "edges": [
+        _edge("req-signin", "doc-requirements", "trace"),
+        _edge("req-consume", "doc-requirements", "trace"),
+        _edge("req-redeem", "doc-requirements", "trace"),
+        _edge("req-signin", "mod-points-center", "depends"),
+        _edge("req-redeem", "mod-points-center", "depends"),
+    ],
+}
+
+GRAPH_AFTER: dict[str, Any] = {
+    "nodes": GRAPH_BEFORE["nodes"] + [
+        _node("req-coupon-expiry", "优惠券 7 天有效期", "requirement", "requirements.md"),
+        _node("req-no-cash-offset", "积分不可抵现", "requirement", "requirements.md"),
+    ],
+    "edges": GRAPH_BEFORE["edges"] + [
+        _edge("req-coupon-expiry", "doc-requirements", "trace"),
+        _edge("req-no-cash-offset", "doc-requirements", "trace"),
+        _edge("req-coupon-expiry", "mod-points-center", "depends"),
+        _edge("req-no-cash-offset", "mod-points-center", "depends"),
+    ],
+}
+
 # ---- branch A: App 官网改版 (half-done draft, restore branch) ---------------
 
 site = Project("demo-website-revamp", "App 官网改版", "品牌升级：官网首屏与信息架构重做", T0 - 3 * 86400)
@@ -221,26 +279,51 @@ def add(key: str, snap: dict[str, Any]) -> None:
 
 
 # main line -------------------------------------------------------------------
-# main-001..003: nothing touched yet (the trail already holds v1, v2).
-add("main-001", main.snapshot("requirements.md", REQ_V2, []))
-add("main-002", main.snapshot("requirements.md", REQ_V2, []))
-add("main-003", main.snapshot("requirements.md", REQ_V2, []))
+# main-001..003: nothing touched yet (the trail already holds v1, v2). The
+# main line carries its requirement graph in EVERY snapshot (ACP-729): the
+# panel is part of this world from the first frame, stable at six nodes until
+# the commit feeds the story's only graph change (main-009).
+add("main-001", main.snapshot("requirements.md", REQ_V2, [], graph=GRAPH_BEFORE))
+add("main-002", main.snapshot("requirements.md", REQ_V2, [], graph=GRAPH_BEFORE))
+add("main-003", main.snapshot("requirements.md", REQ_V2, [], graph=GRAPH_BEFORE))
 # main-004: the user appended two lines. ACP-728: the FIRST uncommitted
 # change lands its draft record immediately (the debounce only covers
 # subsequent input), so a dirty buffer never rides with an empty history —
 # the invariant the store now guarantees and every dirty snapshot carries.
-add("main-004", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)]))
+add("main-004", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)], graph=GRAPH_BEFORE))
 # main-005: idling past the debounce adds nothing (dedupe: identical to the
 # newest record). The record count is the state; the step only opens the
 # panel that reads it.
-add("main-005", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)]))
+add("main-005", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)], graph=GRAPH_BEFORE))
 # main-006/007: same state; the steps only change what the overlay opens.
-add("main-006", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)]))
-add("main-007", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)]))
+add("main-006", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)], graph=GRAPH_BEFORE))
+add("main-007", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)], graph=GRAPH_BEFORE))
 # main-008: the commit. The store moved the buffer into docs/ and versions/
 # (v3) and deleted the drafts — the snapshot below shows exactly that.
 req.commit(REQ_EDIT, T0 + 172800)
-add("main-008", main.snapshot("requirements.md", REQ_EDIT, []))
+add("main-008", main.snapshot("requirements.md", REQ_EDIT, [], graph=GRAPH_BEFORE))
+# main-009: the graph the commit fed (ACP-729 — the loop closes where it
+# started: the commit's whole purpose is to update the requirement graph).
+# The delta is exactly what the v3 lines talk about: two new requirement
+# nodes, each tracing to the doc that produced them.
+add(
+    "main-009",
+    main.snapshot(
+        "requirements.md",
+        REQ_EDIT,
+        [],
+        graph=GRAPH_AFTER,
+        graph_delta={
+            "nodes": ["req-coupon-expiry", "req-no-cash-offset"],
+            "edges": [
+                "req-coupon-expiry->doc-requirements",
+                "req-no-cash-offset->doc-requirements",
+                "req-coupon-expiry->mod-points-center",
+                "req-no-cash-offset->mod-points-center",
+            ],
+        },
+    ),
+)
 
 # branch A --------------------------------------------------------------------
 # The honest chain (same rhythm as the main line): enter clean → type draft
@@ -292,7 +375,7 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
     dirty = snap["buffer"] != committed
     drafts = len(snap["draftVersions"])
     versions = len(snap["versions"][focus])
-    return {
+    state: dict[str, Any] = {
         "doc": focus,
         "dirty": dirty,
         "diffIcon": "active" if dirty else "gray",
@@ -301,6 +384,12 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
         "versions": versions,
         "versionsIcon": "list" if versions else "gray",
     }
+    # the graph vocabulary (ACP-729) only exists for worlds that carry a
+    # graph: a snapshot without one keeps speaking the seven fields above.
+    if "graph" in snap:
+        state["graphNodes"] = len(snap["graph"]["nodes"])
+        state["graphAddedNodes"] = len(snap.get("graphDelta", {}).get("nodes", []))
+    return state
 
 
 def step(
@@ -336,6 +425,27 @@ def step(
             raise AssertionError(
                 f"{sid}.{label}: dirty diff with 0 draft records violates the "
                 "dirty⇒has-records invariant (ACP-728) — seed the snapshot"
+            )
+    # ACP-729 cross-check — a step that DECLARES a graph delta must actually
+    # land it: the after snapshot's graph minus the before snapshot's graph is
+    # exactly the declared delta (set difference on node ids and "from->to"
+    # edge spellings). The highlight of "new in this commit" is only honest
+    # if the snapshots' diff says so, never because a step wished it so.
+    after_snap = SNAPS[after_fix or fixture]
+    before_snap = SNAPS[prev] if prev else SNAPS[fixture]
+    delta = after_snap.get("graphDelta")
+    if delta is not None:
+        ga = after_snap.get("graph") or {}
+        gb = before_snap.get("graph") or {}
+        real_nodes = {n["id"] for n in ga.get("nodes", [])} - {n["id"] for n in gb.get("nodes", [])}
+        real_edges = {f"{e['from']}->{e['to']}" for e in ga.get("edges", [])} - {
+            f"{e['from']}->{e['to']}" for e in gb.get("edges", [])
+        }
+        if set(delta["nodes"]) != real_nodes or set(delta["edges"]) != real_edges:
+            raise AssertionError(
+                f"{sid}: declared graphDelta {sorted(delta['nodes'])}/{sorted(delta['edges'])} "
+                f"≠ snapshot diff {sorted(real_nodes)}/{sorted(real_edges)} — "
+                "the highlight must be the snapshots' own difference"
             )
     return {
         "id": sid,
@@ -435,6 +545,16 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 prev="main-007",
                 after_fix="main-008",
 
+            ),
+            step(
+                "main-9",
+                "提交喂图谱：两个新需求节点亮起",
+                "main-009",
+                "提交完成的同一时刻，需求图谱收到 v3 的两条新需求——闭环在开头承诺的地方合上",
+                "graph_view",
+                "当前：图谱 8 个节点，绿框的两个（优惠券 7 天有效期、积分不可抵现）是刚才那次提交新增的——正是 v3 新加的两行。提交不是终点：旧内容进版本快照，新需求进图谱，这才是完整的闭环。",
+                None,
+                prev="main-008",
             ),
         ],
     },
@@ -572,6 +692,31 @@ for script in SCRIPTS.values():
 # ---------------------------------------------------------------------------
 
 
+def check_graph_shape(key: str, snap: dict[str, Any]) -> None:
+    """ACP-729 schema precheck: a carried graph must be well-formed — the
+    StudioGraph shape (node id/label/kind, edge from/to/kind), unique node
+    ids, edges only between existing nodes. A snapshot the fake cannot serve
+    honestly is a broken model; fail at generation, not at presentation."""
+    graph = snap.get("graph")
+    if graph is None:
+        return
+    ids = set()
+    for n in graph["nodes"]:
+        assert n["kind"] in ("requirement", "doc", "module"), f"{key}: node {n['id']} kind {n['kind']!r}"
+        assert n["id"] not in ids, f"{key}: duplicate node id {n['id']}"
+        ids.add(n["id"])
+        assert isinstance(n["label"], str) and n["label"]
+        assert "doc" not in n or isinstance(n["doc"], str)
+    for e in graph["edges"]:
+        assert e["kind"] in ("trace", "depends"), f"{key}: edge kind {e['kind']!r}"
+        assert e["from"] in ids and e["to"] in ids, f"{key}: dangling edge {e['from']}->{e['to']}"
+    delta = snap.get("graphDelta")
+    if delta is not None:
+        assert set(delta["nodes"]) <= ids, f"{key}: delta names unknown nodes"
+        known = {f"{e['from']}->{e['to']}" for e in graph["edges"]}
+        assert set(delta["edges"]) <= known, f"{key}: delta names unknown edges"
+
+
 def dump(path: Path, data: Any) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -583,6 +728,7 @@ def main_run() -> None:
     FIXTURES.mkdir(parents=True, exist_ok=True)
     STEPS.mkdir(parents=True, exist_ok=True)
     for key, snap in SNAPS.items():
+        check_graph_shape(key, snap)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)

@@ -1,8 +1,8 @@
 {
-  "buffer": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券\n",
+  "buffer": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠、积分抵现\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券\n- [ ] 优惠券 7 天内有效，过期自动退回积分\n",
   "docs": [
     {
-      "content": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券\n",
+      "content": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠、积分抵现\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券\n- [ ] 优惠券 7 天内有效，过期自动退回积分\n",
       "name": "requirements.md"
     },
     {
@@ -42,6 +42,26 @@
         "from": "req-redeem",
         "kind": "depends",
         "to": "mod-points-center"
+      },
+      {
+        "from": "req-coupon-expiry",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-no-cash-offset",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-coupon-expiry",
+        "kind": "depends",
+        "to": "mod-points-center"
+      },
+      {
+        "from": "req-no-cash-offset",
+        "kind": "depends",
+        "to": "mod-points-center"
       }
     ],
     "nodes": [
@@ -77,7 +97,31 @@
         "id": "mod-points-center",
         "kind": "module",
         "label": "积分中心模块"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-coupon-expiry",
+        "kind": "requirement",
+        "label": "优惠券 7 天有效期"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-no-cash-offset",
+        "kind": "requirement",
+        "label": "积分不可抵现"
       }
+    ]
+  },
+  "graphDelta": {
+    "edges": [
+      "req-coupon-expiry->doc-requirements",
+      "req-no-cash-offset->doc-requirements",
+      "req-coupon-expiry->mod-points-center",
+      "req-no-cash-offset->mod-points-center"
+    ],
+    "nodes": [
+      "req-coupon-expiry",
+      "req-no-cash-offset"
     ]
   },
   "project": {
@@ -88,6 +132,11 @@
   },
   "versions": {
     "requirements.md": [
+      {
+        "diff": "--- previous\n+++ current\n@@ -9,10 +9,11 @@\n ## 范围\n \n - 包含：积分获取、积分兑换、积分过期提醒\n-- 不包含：积分转赠\n+- 不包含：积分转赠、积分抵现\n \n ## 验收标准\n \n - [ ] 每日签到 +5 积分\n - [ ] 消费 1 元返 1 积分\n - [ ] 积分满 100 可兑换 5 元优惠券\n+- [ ] 优惠券 7 天内有效，过期自动退回积分\n",
+        "name": "1758772800.md",
+        "time": 1758772800
+      },
       {
         "diff": "--- previous\n+++ current\n@@ -15,3 +15,4 @@\n \n - [ ] 每日签到 +5 积分\n - [ ] 消费 1 元返 1 积分\n+- [ ] 积分满 100 可兑换 5 元优惠券\n",
         "name": "1758513600.md",

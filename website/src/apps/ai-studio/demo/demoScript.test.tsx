@@ -40,34 +40,41 @@ const SCENARIOS = Object.entries(STEP_FILES).map(([path, mod]) => ({
 /** Business-observable state, read the way a viewer sees it: the editor's
  * data attributes (the state machine's own read-backs) and the icons'
  * enabled/disabled flags (what "grey" means on screen). */
-function readState(): {
-  dirty: boolean
-  draftRecords: number
-  versions: number
-  diffDisabled: boolean
-  historyDisabled: boolean
-} {
+function readState(): Record<string, boolean | number> {
   const doc = document.querySelector<HTMLElement>('[data-testid^="doc-"]')
   expect(doc, 'editor surface mounted').not.toBeNull()
-  return {
+  const out: Record<string, boolean | number> = {
     dirty: doc!.dataset.docDirty === 'true',
     draftRecords: Number(doc!.dataset.draftCount),
     versions: Number(doc!.dataset.versionCount),
     diffDisabled: (document.querySelector('[data-testid="diff-btn"]') as HTMLButtonElement).disabled,
     historyDisabled: (document.querySelector('[data-testid="draft-history-btn"]') as HTMLButtonElement).disabled,
   }
+  // the graph read-backs exist exactly for worlds that carry one: the
+  // snapshot's graphNodes / graphAddedNodes land as SVG node counts (ACP-729)
+  const graph = document.querySelector<HTMLElement>('[data-testid="graph-view"]')
+  if (graph) {
+    out.graphNodes = graph.querySelectorAll('[data-graph-node]').length
+    out.graphAddedNodes = graph.querySelectorAll('[data-graph-added="true"]').length
+  }
+  return out
 }
 
 /** the §2-vocabulary fields of a declared before/after, mapped onto the
  * observable readings above */
-function declared(s: DemoState) {
-  return {
+function declared(s: DemoState): Record<string, boolean | number> {
+  const out: Record<string, boolean | number> = {
     dirty: s.dirty,
     draftRecords: s.draftRecords,
     versions: s.versions,
     diffDisabled: s.diffIcon === 'gray',
     historyDisabled: s.historyIcon === 'gray',
   }
+  if (s.graphNodes !== undefined) {
+    out.graphNodes = s.graphNodes
+    out.graphAddedNodes = s.graphAddedNodes ?? 0
+  }
+  return out
 }
 
 const settleFor = (stepId: string) =>
@@ -262,4 +269,76 @@ describe('assertion 4: 回退恢复 — back to a mid step matches its snapshot'
     expect(backAt4).toEqual(forwardAt4)
     expect(backAt4).toEqual(declared(script.steps[4].after))
   }, 60000)
+})
+
+describe('the graph step (ACP-729): replay-consistent and back-recoverable', () => {
+  // the four assertions cover every step through the loops above; this one
+  // pins the NEW last step of the main line explicitly — the graph delta is
+  // the step's whole payload, so replaying it must always light the same
+  // added nodes, and stepping away and back must land the same picture.
+  it('manual and autoplay both land the graph delta identically at main-9', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    const last = script.steps.length - 1
+    expect(script.steps[last].id).toBe('main-9')
+
+    const mr = mountDemo(name)
+    await settleFor(script.steps[0].id)
+    for (let i = 0; i < last; i++) {
+      await clickTestId('demo-next')
+      await settleFor(script.steps[i + 1].id)
+    }
+    await waitFor(
+      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      { timeout: 4000, interval: 50 },
+    )
+    const manual = readState()
+    expect(manual.graphNodes).toBe(8)
+    expect(manual.graphAddedNodes).toBe(2)
+    mr.unmount()
+
+    const ar = mountDemo(name, '&demoAutoMs=60')
+    await settleFor(script.steps[0].id)
+    await clickTestId('demo-play')
+    await waitFor(
+      () => {
+        const el = screen.getByTestId('demo-stepper')
+        expect(el.getAttribute('data-demo-step')).toBe('main-9')
+        expect(el.getAttribute('data-demo-phase')).toBe('main-9:settled')
+      },
+      { timeout: 20000, interval: 50 },
+    )
+    await waitFor(
+      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(readState()).toEqual(manual)
+    ar.unmount()
+  }, 90000)
+
+  it('stepping off main-9 and back re-derives the same graph picture', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    const last = script.steps.length - 1
+    mountDemo(name)
+    await settleFor(script.steps[0].id)
+    for (let i = 0; i < last; i++) {
+      await clickTestId('demo-next')
+      await settleFor(script.steps[i + 1].id)
+    }
+    await waitFor(
+      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      { timeout: 4000, interval: 50 },
+    )
+    const forward = readState()
+    // back to the commit step, then forward again: main-9's picture must be
+    // re-derived from its snapshot — same 8 nodes, same 2 added
+    await clickTestId('demo-prev')
+    await settleFor(script.steps[last - 1].id)
+    await clickTestId('demo-next')
+    await settleFor(script.steps[last].id)
+    await waitFor(
+      () => expect(readState()).toEqual(declared(script.steps[last].after)),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(readState()).toEqual(forward)
+  }, 90000)
 })

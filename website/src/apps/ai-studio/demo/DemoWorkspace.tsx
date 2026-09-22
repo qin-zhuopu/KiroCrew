@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ErrorNotice from '../../../components/ErrorNotice'
 import { i18nT } from '../../../i18n/t'
+import GraphView from '../GraphView'
 import ProjectCommitBar from '../ProjectCommitBar'
 import WorkArea, { type WorkTab } from '../WorkArea'
 import type { StudioDoc } from '../studioApi'
@@ -117,6 +118,20 @@ export default function DemoWorkspace({ params }: {
           commitRev={liveCommit?.rev ?? 0}
         />
       </div>
+      {/* the requirement graph the commits feed (ACP-729). Rendering is
+       * snapshot-driven, not step-driven: this world's snapshots carry a
+       * graph, so the panel is part of the frame from step 1 — the commit
+       * step's payoff is the delta lighting up, not a panel appearing out
+       * of nowhere. Worlds without a graph (the alt lines) never render it. */}
+      {ctl.fixture.graph && (
+        <div className="shrink-0 max-h-[300px] overflow-auto border-t border-border bg-bg">
+          <GraphView
+            graph={ctl.fixture.graph}
+            addedNodeIds={ctl.fixture.graphDelta?.nodes}
+            addedEdges={ctl.fixture.graphDelta?.edges}
+          />
+        </div>
+      )}
       <DemoOverlay ctl={ctl} />
     </div>
   )
