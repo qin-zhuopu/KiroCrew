@@ -71,6 +71,7 @@ export type StudioApi = {
   createProject: (name: string, description: string) => Promise<{ project: StudioProject }>
   getProject: (id: string) => Promise<{ project: StudioProject; docs: StudioDoc[] }>
   saveDoc: (id: string, name: string, content: string) => Promise<{ doc: StudioDoc }>
+  listDraftDocs: (id: string) => Promise<{ drafts: StudioDraftDoc[] }>
   saveDraft: (id: string, name: string, content: string) => Promise<{ ok: boolean }>
   listDraftVersions: (id: string, name: string) => Promise<{ versions: StudioDraftVersion[] }>
   listVersions: (id: string, name: string) => Promise<{ versions: StudioVersion[] }>

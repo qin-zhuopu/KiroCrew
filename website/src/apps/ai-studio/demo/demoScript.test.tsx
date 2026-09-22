@@ -163,8 +163,18 @@ describe('assertions 1+2: 状态迁移 + 引导落位 (all three lines)', () => 
           { timeout: 4000, interval: 50 },
         )
         // 引导落位: the ring is bound to this step's declared target…
-        const ring = screen.getByTestId('demo-ring')
-        expect(ring.getAttribute('data-demo-ring-target')).toBe(step.highlight.target)
+        // (waitFor, same convergence discipline as the state check: a
+        // target like the top bar's drafts badge only exists once the
+        // step's queries have landed, and the ring re-measures on its
+        // own 250ms tick — the expected target stays exactly the
+        // declared one)
+        await waitFor(
+          () => {
+            const ring = screen.getByTestId('demo-ring')
+            expect(ring.getAttribute('data-demo-ring-target'), `${name}/${step.id} ring target`).toBe(step.highlight.target)
+          },
+          { timeout: 4000, interval: 50 },
+        )
         // …and the hint bar carries this step's text
         expect(within(screen.getByTestId('demo-stepper')).getByTestId('demo-hint')).toHaveTextContent(
           step.highlight.hint.slice(0, 12),

@@ -25,7 +25,6 @@ export interface WorkAreaProps {
   onClose: (id: string) => void
   /** Which project the open doc tabs belong to — DocEditor autosaves drafts against it. */
   projectId: string
-  onDocSaved: () => void
   /** data source for the doc editor; the demo passes its snapshot fake */
   api?: StudioApi
   /** Bumped by the workspace top bar after a project-level commit: part of
@@ -35,7 +34,7 @@ export interface WorkAreaProps {
   commitRev?: number
 }
 
-export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, onDocSaved, api, commitRev = 0 }: WorkAreaProps) {
+export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, api, commitRev = 0 }: WorkAreaProps) {
   const active = tabs.find((t) => t.id === activeId) ?? null
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -78,9 +77,10 @@ export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId,
           // the tab id rides in the key so a demo step (which re-keys its
           // single tab per step) re-mounts the editor wholesale; for the
           // ordinary path a tab's id is constant, so this stays the same
-          // stable identity the editor has always had
+          // stable identity the editor has always had. commitRev carries
+          // ACP-727's project-commit re-mount.
           <DocEditor
-            key={`${projectId}:${active.docName}:${commitRev}`}
+            key={`${projectId}:${active.id}:${active.docName}:${commitRev}`}
             projectId={projectId}
             docName={active.docName}
             initialContent={active.initialContent}

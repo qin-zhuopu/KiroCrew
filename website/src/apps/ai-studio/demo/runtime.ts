@@ -125,6 +125,18 @@ export function createDemoApi(fixture: DemoFixture): StudioApi & { subscribe: (c
       notify()
       return { doc: { name, content } }
     },
+    async listDraftDocs() {
+      // the top bar's project-level commit work list: only the focused doc
+      // carries drafts in a snapshot (the fixture's draftVersions are its
+      // records); `changed` compares the newest record against the commit.
+      const latest = store.drafts[0]
+      const doc = store.docs.find((d) => d.name === focus)
+      const changed = latest !== undefined && latest.content !== (doc?.content ?? '')
+      const drafts = latest
+        ? [{ name: focus, content: latest.content, changed }]
+        : []
+      return { drafts: clone(drafts) }
+    },
     async saveDraft(_id: string, name: string, content: string) {
       // projects.save_draft: append unless identical to the newest record
       const deduped = store.drafts.length > 0 && store.drafts[0].content === content

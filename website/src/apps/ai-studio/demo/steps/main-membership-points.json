@@ -213,7 +213,7 @@
     },
     {
       "action": {
-        "event": "确认红绿无误，点击提交"
+        "event": "确认红绿无误，看顶栏的待提交汇总（ACP-727 后提交是项目级操作）"
       },
       "after": {
         "diffIcon": "active",
@@ -236,19 +236,19 @@
       "branch": null,
       "fixture": "main-007",
       "highlight": {
-        "hint": "当前：提交触发的内部动作——旧内容进版本快照（v3）、草稿记录整体清空、diff 图标回灰。下一步直接载入提交后的快照。",
+        "hint": "当前：顶栏徽章列出了所有含未提交草稿的文档——提交喂给整个项目的需求图谱，不再是单文档操作。下一步点「提交全部」真实走一遍提交路径。",
         "open": [
           "markdown_toggle",
           "set_buffer"
         ],
-        "target": "commit_btn"
+        "target": "commit_summary"
       },
       "id": "main-7",
-      "title": "点「提交版本」"
+      "title": "确认提交范围：顶栏汇总待提交文档"
     },
     {
       "action": {
-        "event": "提交完成，页面回到干净态"
+        "event": "点顶栏「提交全部」——旧内容进版本快照、草稿记录整体清空、编辑器重挂到已提交基线"
       },
       "after": {
         "diffIcon": "gray",
@@ -269,16 +269,19 @@
         "versionsIcon": "list"
       },
       "branch": null,
-      "fixture": "main-008",
+      "fixture": "main-007",
       "highlight": {
-        "hint": "当前：版本历史变成 3 版（v3 即刚才的提交），修改历史 0 条（提交即清空），diff 图标回灰——闭环走完。",
+        "hint": "当前：提交刚真实发生（同一个顶栏按钮、同一套业务逻辑，数据来自快照 fake）——版本历史 3 版（v3 即刚才的提交），修改历史 0 条（提交即清空），diff 图标回灰——闭环走完。",
         "open": [
+          "markdown_toggle",
+          "set_buffer",
+          "commit_all_btn",
           "versions_btn"
         ],
         "target": "version_history_list"
       },
       "id": "main-8",
-      "title": "提交后：版本 +1、修改历史清空、图标回灰"
+      "title": "点「提交全部」：版本 +1、修改历史清空、图标回灰"
     }
   ],
   "title": "会员积分系统：编辑 → 自动保存 → 提交闭环"

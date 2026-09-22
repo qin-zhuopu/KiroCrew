@@ -300,10 +300,16 @@ def step(
     open_locators: list[str] | None = None,
     branch: str | None = None,
     prev: str | None = None,
+    after_fix: str | None = None,
 ) -> dict[str, Any]:
     """One script step. `fixture` is the state the step LANDS on (after);
     `prev` is the one it starts from — the script can never claim a before
     its chain does not carry, because before(k) is derived from fixture(k-1).
+
+    `after_fix` serves the live-act steps (main-8's real commit click): the
+    step ENTERS on `fixture` but its `open` acts perform the business event
+    for real, landing on `after_fix`'s state — declared, not invented: the
+    next snapshot in the chain is exactly where the real click goes.
     """
     snap = SNAPS[fixture]
     return {
@@ -313,7 +319,7 @@ def step(
         "fixture": fixture,
         "before": derive(SNAPS[prev]) if prev else derive(snap),
         "action": {"event": event},
-        "after": derive(snap),
+        "after": derive(SNAPS[after_fix]) if after_fix else derive(snap),
         "highlight": {"target": target, "hint": hint, "open": open_locators or []},
     }
 
@@ -385,23 +391,25 @@ SCRIPTS: dict[str, dict[str, Any]] = {
             ),
             step(
                 "main-7",
-                "点「提交版本」",
+                "确认提交范围：顶栏汇总待提交文档",
                 "main-007",
-                "确认红绿无误，点击提交",
-                "commit_btn",
-                "当前：提交触发的内部动作——旧内容进版本快照（v3）、草稿记录整体清空、diff 图标回灰。下一步直接载入提交后的快照。",
+                "确认红绿无误，看顶栏的待提交汇总（ACP-727 后提交是项目级操作）",
+                "commit_summary",
+                "当前：顶栏徽章列出了所有含未提交草稿的文档——提交喂给整个项目的需求图谱，不再是单文档操作。下一步点「提交全部」真实走一遍提交路径。",
                 ["markdown_toggle", "set_buffer"],prev="main-006",
-                
+
             ),
             step(
                 "main-8",
-                "提交后：版本 +1、修改历史清空、图标回灰",
-                "main-008",
-                "提交完成，页面回到干净态",
+                "点「提交全部」：版本 +1、修改历史清空、图标回灰",
+                "main-007",
+                "点顶栏「提交全部」——旧内容进版本快照、草稿记录整体清空、编辑器重挂到已提交基线",
                 "version_history_list",
-                "当前：版本历史变成 3 版（v3 即刚才的提交），修改历史 0 条（提交即清空），diff 图标回灰——闭环走完。",
-                ["versions_btn"],prev="main-007",
-                
+                "当前：提交刚真实发生（同一个顶栏按钮、同一套业务逻辑，数据来自快照 fake）——版本历史 3 版（v3 即刚才的提交），修改历史 0 条（提交即清空），diff 图标回灰——闭环走完。",
+                ["markdown_toggle", "set_buffer", "commit_all_btn", "versions_btn"],
+                prev="main-007",
+                after_fix="main-008",
+
             ),
         ],
     },

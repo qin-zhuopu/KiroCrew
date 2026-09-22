@@ -52,7 +52,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/pop
 import { fmtDateTimeNumeric } from '../../i18n/format'
 import { i18nT } from '../../i18n/t'
 import { LineDiff, UnifiedDiffText } from './DiffView'
-import { studioApi, StudioApiError, type StudioApi, type StudioDraftVersion, type StudioVersion } from './studioApi'
+import { studioApi, type StudioApi, type StudioDraftVersion, type StudioVersion } from './studioApi'
 import './DocEditor.css'
 
 /** Debounce for the draft autosave: long enough that a typing burst is one

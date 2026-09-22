@@ -71,7 +71,19 @@ export const LOCATORS: Record<string, DemoLocator> = {
   diff_btn: { find: () => byTestid('diff-btn') },
   draft_history_btn: { find: () => byTestid('draft-history-btn') },
   versions_btn: { find: () => byTestid('version-history-btn') },
-  commit_btn: { find: () => byTestid('commit-btn') },
+  // ACP-727 moved the commit to the project top bar. The button renders
+  // disabled until the drafts read lands, and a synthetic click FIRES on a
+  // disabled button (dispatchEvent bypasses the user-interaction guard)
+  // while commitAll's own `draftDocs.length === 0` check would silently
+  // no-op — so the locator waits for the enabled state before clicking.
+  commit_all_btn: {
+    find: () => {
+      const el = byTestid('commit-all-btn')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
+  // the top bar's commit summary: which docs the click would promote
+  commit_summary: { find: () => byTestid('drafts-pending') },
   markdown_toggle: { find: () => byTestid('markdown-toggle') },
 
   // editor / takeover bodies (targets to ring, not to click)
