@@ -12,7 +12,7 @@
 // Docs are the project's real files from /api/apps/ai-studio; the other tool
 // tabs are still fixture-backed (fixtures.ts) until those APIs exist. Pane
 // widths and visibility persist per app in localStorage.
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, FolderKanban, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
@@ -26,7 +26,12 @@ import ProjectsListPage from './ProjectsListPage'
 import ToolSidebar from './ToolSidebar'
 import WorkArea, { type WorkTab } from './WorkArea'
 import { DESIGN_VERSION, RUN_VERSION } from './fixtures'
+import { parseDemoScenario } from './demo/runtime'
 import { studioApi, StudioApiError, type StudioDoc } from './studioApi'
+
+// The demo surface (steps, fixtures, overlay, fake) loads ONLY on the
+// `?demo=` route — an ordinary visit never pays its bundle cost.
+const DemoWorkspace = lazy(() => import('./demo/DemoWorkspace'))
 
 const LS_WIDTHS = 'ai-studio.widths'
 const LS_HIDDEN = 'ai-studio.hidden'
@@ -64,7 +69,22 @@ function loadHidden(): Hidden {
 const WORKSPACE_RE = /^\/ai-studio\/projects\/([^/]+)/
 
 export default function AiStudioPage() {
-  const match = useLocation().pathname.match(WORKSPACE_RE)
+  const location = useLocation()
+  // `?demo=<scenario>` is the whole demo injection point (§4): the query is
+  // read here and nowhere else in the app — no business component below
+  // learns a demo exists. On this route the URL's project id is ignored:
+  // the scenario's fixture carries its own demo project (§5).
+  const demo = parseDemoScenario(location.search)
+  if (demo) {
+    return (
+      <Suspense fallback={<div className="h-full p-6"><ContentSkeleton rows={6} /></div>}>
+        {/* keyed on the scenario: swapping `?demo=` remounts the runtime
+         * from step 0 instead of leaving it mid-script on another line */}
+        <DemoWorkspace key={demo.scenario} params={demo} />
+      </Suspense>
+    )
+  }
+  const match = location.pathname.match(WORKSPACE_RE)
   if (match) return <StudioWorkspace projectId={decodeURIComponent(match[1])} />
   return <ProjectsListPage />
 }

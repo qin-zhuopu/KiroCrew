@@ -290,6 +290,15 @@
       }
     },
     "aiStudio": {
+      "demo_badge": "演示",
+      "demo_counter": "第 {{n}} / {{total}} 步",
+      "demo_event": "事件：{{event}}",
+      "demo_next": "下一步",
+      "demo_pause": "暂停",
+      "demo_play": "自动播放",
+      "demo_prev": "上一步",
+      "demo_restart": "重新开始演示",
+      "demo_unknown": "未知的演示剧本「{{scenario}}」。可用剧本见 website/src/apps/ai-studio/demo/steps/ 目录。",
       "toggle_panes": "切换栏位",
       "toggle_chat": "显示/隐藏对话栏",
       "toggle_workspace": "显示/隐藏工作区",

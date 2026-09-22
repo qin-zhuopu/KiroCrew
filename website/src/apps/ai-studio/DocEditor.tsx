@@ -49,7 +49,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/pop
 import { fmtDateTimeNumeric } from '../../i18n/format'
 import { i18nT } from '../../i18n/t'
 import { LineDiff, UnifiedDiffText } from './DiffView'
-import { studioApi, StudioApiError, type StudioDraftVersion, type StudioVersion } from './studioApi'
+import { studioApi, StudioApiError, type StudioApi, type StudioDraftVersion, type StudioVersion } from './studioApi'
 import './DocEditor.css'
 
 /** Debounce for the draft autosave: long enough that a typing burst is one
@@ -66,11 +66,14 @@ interface DiffModal {
   restore?: () => void
 }
 
-export default function DocEditor({ projectId, docName, initialContent, onSaved }: {
+export default function DocEditor({ projectId, docName, initialContent, onSaved, api = studioApi }: {
   projectId: string
   docName: string
   initialContent: string
   onSaved?: () => void
+  /** the data source, injectable for the demo's snapshot fake; the ordinary
+   * path uses the real client and never passes this */
+  api?: StudioApi
 }) {
   const [draft, setDraft] = useState(initialContent)
   const [saved, setSaved] = useState(initialContent)
@@ -128,7 +131,7 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved 
     if (!dirty) return
     const t = setTimeout(() => {
       if (draft === lastAutosavedRef.current) return
-      studioApi.saveDraft(projectId, docName, draft)
+      api.saveDraft(projectId, docName, draft)
         .then(() => {
           lastAutosavedRef.current = draft
           // the autosave list's new entry should be there when next opened
@@ -141,11 +144,11 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved 
 
   const draftVersionsQuery = useQuery({
     queryKey: ['ai-studio', 'draft-versions', projectId, docName],
-    queryFn: () => studioApi.listDraftVersions(projectId, docName).then((r) => r.versions),
+    queryFn: () => api.listDraftVersions(projectId, docName).then((r) => r.versions),
   })
   const versionsQuery = useQuery({
     queryKey: ['ai-studio', 'versions', projectId, docName],
-    queryFn: () => studioApi.listVersions(projectId, docName).then((r) => r.versions),
+    queryFn: () => api.listVersions(projectId, docName).then((r) => r.versions),
   })
   const draftVersions = draftVersionsQuery.data ?? []
   const versions = versionsQuery.data ?? []
@@ -189,7 +192,7 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved 
       // the buffer and `draft` is current, but from Rich the textarea does
       // not exist — same reasoning as the flip handlers.
       const content = raw || !editor || editor.isDestroyed ? draft : editor.getMarkdown()
-      await studioApi.saveDoc(projectId, docName, content)
+      await api.saveDoc(projectId, docName, content)
       setDraft(content)
       setSaved(content)
       lastAutosavedRef.current = null
@@ -223,8 +226,18 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved 
 
   const viewingVersion = versions.find((v) => v.time === versionView) ?? null
 
+  // The three counts below mirror the state machine the toolbar reads
+  // (dirty / draft records since last commit / committed versions). They are
+  // plain business observability — the same facts the icons already render,
+  // readable from the DOM without simulating icon semantics.
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid={`doc-${docName}`}>
+    <div
+      className="flex flex-col h-full min-h-0"
+      data-testid={`doc-${docName}`}
+      data-doc-dirty={dirty ? 'true' : 'false'}
+      data-draft-count={draftVersions.length}
+      data-version-count={versions.length}
+    >
       <div className="flex items-center gap-1.5 px-4 h-[38px] shrink-0 border-b border-border">
         <span className="text-[13px] text-muted">{docName}</span>
         <span className="flex-1" />
@@ -257,10 +270,15 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved 
           </div>
         )}
         <span className="w-px h-4 bg-border mx-1" aria-hidden />
+        {/* The history trio is one addressable group: its three icons are the
+         * read-backs of the draft/version model, so tests (and the demo's
+         * guidance layer) ring the group, not three separate lookups. */}
+        <span className="flex items-center gap-0.5" data-testid="toolbar-trio">
         <ToolbarBtn
           label={i18nT('apps.aiStudio.diff_vs_committed')}
           icon={<GitCompareArrows size={14} />}
           disabled={!dirty || !!viewingVersion}
+          data-testid="diff-btn"
           onClick={() => setDiffModal({ heading: i18nT('apps.aiStudio.diff_vs_committed'), oldText: saved, newText: draftContent })}
         />
         <HistoryPopover
@@ -285,18 +303,20 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved 
           entries={versions}
           onPick={(t) => { setVersionsOpen(false); setVersionView(t) }}
         />
+        </span>
         {!viewingVersion && (
           <button
             type="button"
             className={`ml-1 rounded-md border border-border px-2 py-1 text-[12px] cursor-pointer transition-colors ${raw ? 'bg-bg-hover text-text' : 'text-muted hover:text-text'}`}
             aria-pressed={raw}
+            data-testid="markdown-toggle"
             onClick={raw ? flipToRich : flipToRaw}
           >
             Markdown
           </button>
         )}
         {!viewingVersion && (
-          <Btn primary onClick={save} disabled={!dirty || saving} className="ml-1">
+          <Btn primary onClick={save} disabled={!dirty || saving} className="ml-1" data-testid="commit-btn">
             <Save size={13} className="lucide-inline" /> {i18nT('apps.aiStudio.commit_version')}
           </Btn>
         )}
@@ -406,7 +426,7 @@ function HistoryPopover({ open, onOpenChange, disabled, entries, onPick }: {
   return (
     <Popover open={disabled ? false : open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <ToolbarBtn label={i18nT('apps.aiStudio.draft_history')} icon={<History size={14} />} disabled={disabled} />
+        <ToolbarBtn label={i18nT('apps.aiStudio.draft_history')} icon={<History size={14} />} disabled={disabled} data-testid="draft-history-btn" />
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[320px] p-1.5">
         {entries.length === 0 ? (
@@ -440,7 +460,7 @@ function VersionsPopover({ open, onOpenChange, disabled, entries, onPick }: {
   return (
     <Popover open={disabled ? false : open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <ToolbarBtn label={i18nT('apps.aiStudio.version_history')} icon={<GitCommit size={14} />} disabled={disabled} />
+        <ToolbarBtn label={i18nT('apps.aiStudio.version_history')} icon={<GitCommit size={14} />} disabled={disabled} data-testid="version-history-btn" />
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[320px] p-1.5">
         {entries.length === 0 ? (
@@ -491,7 +511,7 @@ function DiffDialog({ modal, onClose }: { modal: DiffModal; onClose: () => void 
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-[15px] font-semibold text-text-strong">{modal.heading}</h2>
           {onRestore && (
-            <Btn className="ml-auto" onClick={onRestore}>
+            <Btn className="ml-auto" onClick={onRestore} data-testid="restore-version-btn">
               <RotateCcw size={13} className="lucide-inline" /> {i18nT('apps.aiStudio.restore_version')}
             </Btn>
           )}

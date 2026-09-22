@@ -9,6 +9,7 @@ import DeployLog from './DeployLog'
 import DiffView from './DiffView'
 import DocEditor from './DocEditor'
 import NodeDetail from './NodeDetail'
+import type { StudioApi } from './studioApi'
 
 export type WorkTab =
   | { id: string; kind: 'doc'; title: string; docName: string; initialContent: string }
@@ -25,9 +26,11 @@ export interface WorkAreaProps {
   /** Which project the open doc tabs belong to — DocEditor saves against it. */
   projectId: string
   onDocSaved: () => void
+  /** data source for the doc editor; the demo passes its snapshot fake */
+  api?: StudioApi
 }
 
-export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, onDocSaved }: WorkAreaProps) {
+export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, onDocSaved, api }: WorkAreaProps) {
   const active = tabs.find((t) => t.id === activeId) ?? null
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -67,12 +70,17 @@ export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId,
             {i18nT('apps.aiStudio.empty_hint')}
           </div>
         ) : active.kind === 'doc' ? (
+          // the tab id rides in the key so a demo step (which re-keys its
+          // single tab per step) re-mounts the editor wholesale; for the
+          // ordinary path a tab's id is constant, so this stays the same
+          // stable identity the editor has always had
           <DocEditor
-            key={`${projectId}:${active.docName}`}
+            key={`${projectId}:${active.id}:${active.docName}`}
             projectId={projectId}
             docName={active.docName}
             initialContent={active.initialContent}
             onSaved={onDocSaved}
+            api={api}
           />
         ) : active.kind === 'diff' ? (
           <DiffView file={active.file} />

@@ -82,6 +82,15 @@
       }
     },
     "aiStudio": {
+      "demo_badge": "Demo",
+      "demo_counter": "Step {{n}} / {{total}}",
+      "demo_event": "Event: {{event}}",
+      "demo_next": "Next",
+      "demo_pause": "Pause",
+      "demo_play": "Autoplay",
+      "demo_prev": "Prev",
+      "demo_restart": "Restart demo",
+      "demo_unknown": "Unknown demo scenario \"{{scenario}}\". Available scenarios are listed under website/src/apps/ai-studio/demo/steps/.",
       "toggle_panes": "Toggle panes",
       "toggle_chat": "Toggle chat pane",
       "toggle_workspace": "Toggle workspace pane",

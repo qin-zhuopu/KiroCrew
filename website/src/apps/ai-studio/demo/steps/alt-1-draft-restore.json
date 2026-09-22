@@ -1,0 +1,255 @@
+{
+  "project": "demo-website-revamp",
+  "scenario": "alt-1-draft-restore",
+  "steps": [
+    {
+      "action": {
+        "event": "打开「App 官网改版」，requirements.md 停在最近一次提交上"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
+      "fixture": "alt1-001",
+      "highlight": {
+        "hint": "当前：干净态——diff 与修改历史图标是灰的（当前内容==最近提交，0 条未提交记录）。这个「旧版本」就是稍后恢复要去的地方。",
+        "open": [],
+        "target": "toolbar_trio"
+      },
+      "id": "alt1-1",
+      "title": "进入项目：文档干净，图标是灰的"
+    },
+    {
+      "action": {
+        "event": "在编辑器追加「首屏文案·候选 A」草稿段"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
+      "fixture": "alt1-002",
+      "highlight": {
+        "hint": "当前：缓冲比最近提交多了一段候选 A 文案，diff 图标由灰转亮。缓冲内容来自快照，经真实的 Markdown 源视图敲进编辑器。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer"
+        ],
+        "target": "doc_editor"
+      },
+      "id": "alt1-2",
+      "title": "写一版首屏文案（候选 A）"
+    },
+    {
+      "action": {
+        "event": "停手 2 秒，自动保存落下第一条记录"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
+      "fixture": "alt1-003",
+      "highlight": {
+        "hint": "当前：修改历史 1 条——候选 A。点开面板看它的时间与摘要。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer",
+          "draft_history_btn"
+        ],
+        "target": "draft_history_list"
+      },
+      "id": "alt1-3",
+      "title": "防抖到期，候选 A 记为第一条草稿"
+    },
+    {
+      "action": {
+        "event": "把主标题改成「候选 B」并加一行副标题"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
+      "fixture": "alt1-004",
+      "highlight": {
+        "hint": "当前：缓冲换成候选 B，diff 图标保持亮——两版文案的取舍还没定。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer"
+        ],
+        "target": "diff_btn"
+      },
+      "id": "alt1-4",
+      "title": "改主意：把草稿改成候选 B"
+    },
+    {
+      "action": {
+        "event": "再停 2 秒，防抖落下第二条"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 2,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
+      "fixture": "alt1-005",
+      "highlight": {
+        "hint": "当前：两条记录，最新在上——候选 B 在上、候选 A 在下。每一段改过的文字都没有丢。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer",
+          "draft_history_btn"
+        ],
+        "target": "draft_history_list"
+      },
+      "id": "alt1-5",
+      "title": "候选 B 也记下了：现在有两条记录"
+    },
+    {
+      "action": {
+        "event": "打开修改历史，点较早一条（候选 A），在红绿弹窗里点「恢复到该版」"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 2,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 2,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
+      "fixture": "alt1-006",
+      "highlight": {
+        "hint": "当前：缓冲回到了候选 A 的文本。恢复是编辑不是提交：最近提交不动，两条记录也还在——草稿态可以回到过去。",
+        "open": [
+          "markdown_toggle",
+          "set_before_buffer",
+          "draft_history_btn",
+          "draft_row:older",
+          "restore_btn"
+        ],
+        "target": "doc_editor"
+      },
+      "id": "alt1-6",
+      "title": "分支点：回到较早那条（候选 A）"
+    },
+    {
+      "action": {
+        "event": "又 2 秒过去，防抖把恢复后的文本记成第三条"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 3,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 2,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
+      "fixture": "alt1-007",
+      "highlight": {
+        "hint": "当前：三条记录——恢复后的候选 A 与最新一条（候选 B）不同，去重放行，落为新一条。「撤销的撤销」依然找得回。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer",
+          "draft_history_btn"
+        ],
+        "target": "draft_history_list"
+      },
+      "id": "alt1-7",
+      "title": "恢复的文本再被记为第三条"
+    }
+  ],
+  "title": "App 官网改版：从修改历史恢复（分支 A）"
+}
