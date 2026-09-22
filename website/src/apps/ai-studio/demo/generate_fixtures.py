@@ -501,6 +501,113 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+# ---------------------------------------------------------------------------
+# The seven-field acceptance structure (T10 / ACP-732)
+# ---------------------------------------------------------------------------
+# 出处：《AI-Coding 平台-验收文档》(raw/AI-Coding平台-验收文档.zip) 的统一步骤
+# 结构——从哪里开始 → 用户做什么 → 去了哪里 → 用户看到什么 → 页面有什么变化 →
+# 后台发生什么 → 怎样算通过。其中「页面有什么变化」就是既有的 before/after
+# 状态迁移（三件套字段保留），其余六字段全部由派生数据拼装，不手写第二份
+# 事实：startFrom 由 before 观测派生，userAction=现有事件，goesTo=高亮目标
+# 的视图名，userSees=现有提示文案，backendFact 由前后快照的观测差派生，
+# passCriteria 由 after 观测逐项生成（预检逐条校验，剧本测试逐条消费）。
+TARGET_VIEW: dict[str, str] = {
+    "doc_editor": "文档编辑器",
+    "version_view": "版本历史里的版本详情",
+    "diff_btn": "工具栏的 diff 图标",
+    "draft_history_list": "修改历史面板",
+    "diff_dialog": "红绿 diff 弹窗",
+    "commit_summary": "顶栏的待提交汇总",
+    "version_history_list": "版本历史面板",
+    "graph_view": "页底需求图谱面板",
+    "codegen_view": "发版徽章与生成代码面板",
+    "toolbar_trio": "工具栏三图标",
+}
+OBS_LABELS: dict[str, str] = {
+    "dirty": "编辑器脏态（有未提交修改）",
+    "draftRecords": "草稿记录数",
+    "versions": "已提交版本数",
+    "diffDisabled": "diff 图标置灰",
+    "historyDisabled": "修改历史图标置灰",
+    "graphNodes": "图谱节点总数",
+    "graphAddedNodes": "本次新增图谱节点数",
+    "released": "已发版",
+    "generatedFiles": "生成代码文件数",
+}
+# the observable reading of a declared state — exactly the keys the script
+# test's readState() mirrors, so a criterion is always checkable on the DOM
+OBS_FIELDS = list(OBS_LABELS)
+ICON_LABELS = {"gray": "灰", "active": "亮", "list": "列表"}
+
+
+def observables(state: dict[str, Any]) -> dict[str, Any]:
+    """Map a derived state (icon vocabulary) onto the observable reading the
+    test compares against (disabled flags). Mirrors demoScript.test.tsx's
+    declared() — keep the two in lockstep."""
+    out: dict[str, Any] = {
+        "dirty": state["dirty"],
+        "draftRecords": state["draftRecords"],
+        "versions": state["versions"],
+        "diffDisabled": state["diffIcon"] == "gray",
+        "historyDisabled": state["historyIcon"] == "gray",
+    }
+    if "graphNodes" in state:
+        out["graphNodes"] = state["graphNodes"]
+        out["graphAddedNodes"] = state["graphAddedNodes"]
+        out["released"] = state["released"]
+        out["generatedFiles"] = state["generatedFiles"]
+    return out
+
+
+def _fmt(v: Any) -> str:
+    if isinstance(v, bool):
+        return "是" if v else "否"
+    return ICON_LABELS.get(v, str(v))  # type: ignore[arg-type]
+
+
+def derive_backend_fact(fixture: str, before: dict[str, Any], after: dict[str, Any]) -> str:
+    """「后台发生什么」= the snapshot layer's own difference, sentence-cased.
+    Derived, so it can never claim a record count the states do not hold."""
+    ob, oa = observables(before), observables(after)
+    # worlds without the graph vocabulary simply do not speak those fields
+    fields = [k for k in OBS_FIELDS if k in ob and k in oa]
+    parts = [f"{OBS_LABELS[k]} {_fmt(ob[k])}→{_fmt(oa[k])}" for k in fields if ob[k] != oa[k]]
+    if not parts:
+        return f"后台（快照 {fixture}）：状态层无变化，仅展示层落位"
+    return f"后台（快照 {fixture}）：" + "；".join(parts)
+
+
+def derive_pass_criteria(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
+    """「怎样算通过」= this step's assertion list, generated from the after
+    observation. Criteria are the observables the step actually moved; a step
+    that moves nothing (entering a clean project) passes on the core reading,
+    so the list is never empty and every entry is checkable on the real DOM."""
+    ob, oa = observables(before), observables(after)
+    fields = [k for k in OBS_FIELDS if k in ob and k in oa]
+    changed = [k for k in fields if ob[k] != oa[k]]
+    if not changed:
+        changed = ["dirty", "draftRecords", "versions"]
+    return [{"field": k, "eq": oa[k], "note": OBS_LABELS[k]} for k in changed]
+
+
+def check_seven(sid: str, st: dict[str, Any]) -> None:
+    """Schema precheck (T10): every step carries all six authored/derived
+    fields non-empty, at least one pass criterion, and every criterion names
+    a field in the observable vocabulary AND equals the after observation —
+    fail-fast at generation, naming the field."""
+    for f in ("startFrom", "userAction", "goesTo", "userSees", "backendFact"):
+        v = st.get(f)
+        assert isinstance(v, str) and v.strip(), f"{sid}: 七字段缺 {f} 或为空"
+    pcs = st.get("passCriteria")
+    assert isinstance(pcs, list) and len(pcs) >= 1, f"{sid}: passCriteria 至少 1 条"
+    oa = observables(st["after"])
+    for c in pcs:
+        assert c["field"] in OBS_FIELDS, f"{sid}: passCriteria 字段 {c['field']!r} 不在观测词表"
+        assert c["eq"] == oa[c["field"]], (
+            f"{sid}: passCriteria {c['field']}={c['eq']!r} 与 after 观测 {oa[c['field']]!r} 不一致"
+        )
+
+
 def step(
     sid: str,
     title: str,
@@ -513,6 +620,7 @@ def step(
     prev: str | None = None,
     after_fix: str | None = None,
     release_phases: "list[str] | None" = None,
+    goes_to: str | None = None,
 ) -> dict[str, Any]:
     """One script step. `fixture` is the state the step LANDS on (after);
     `prev` is the one it starts from — the script can never claim a before
@@ -557,7 +665,7 @@ def step(
                 f"≠ snapshot diff {sorted(real_nodes)}/{sorted(real_edges)} — "
                 "the highlight must be the snapshots' own difference"
             )
-    return {
+    out = {
         "id": sid,
         "title": title,
         "branch": branch,
@@ -571,11 +679,40 @@ def step(
         # click lands — presentation data the workbench forwards, never a
         # hardcoded timer inside the button.
         **({"releasePhases": release_phases} if release_phases else {}),
+        # --- 三件套（保留）: 事件 + 状态迁移 + UI 反馈 ---
         "before": before,
         "action": {"event": event},
         "after": after,
         "highlight": {"target": target, "hint": hint, "open": open_locators or []},
+        # --- 七字段（T10）：全部派生拼装，出处见 TARGET_VIEW 上方注释 ---
+        # 从哪里开始：进入本步时状态层的读得出画面（before 观测的人话版）
+        "startFrom": _start_from(before),
+        # 用户做什么：既有事件描述，逐字复用，不另写一份
+        "userAction": event,
+        # 去了哪里：本步高亮目标所属的视图（goes_to 可覆写，默认按 target 查表）
+        "goesTo": goes_to or TARGET_VIEW[target],
+        # 用户看到什么：既有提示文案，逐字复用
+        "userSees": hint,
+        # 后台发生什么：前后快照观测差（派生）
+        "backendFact": derive_backend_fact(after_fix or fixture, before, after),
+        # 页面有什么变化：即上面 before/after，不重复存第三份
+        # 怎样算通过：after 观测逐项生成（派生）
+        "passCriteria": derive_pass_criteria(before, after),
     }
+    check_seven(sid, out)
+    return out
+
+
+def _start_from(state: dict[str, Any]) -> str:
+    """「从哪里开始」= the before observation as one readable clause — a
+    rendering of derived data, so it cannot contradict the state machine."""
+    ob = observables(state)
+    bits = [f"{'脏' if ob['dirty'] else '干净'}", f"草稿记录 {ob['draftRecords']} 条", f"已提交 {ob['versions']} 版"]
+    if "graphNodes" in ob:
+        bits.append(f"图谱 {ob['graphNodes']} 节点")
+        if ob["released"]:
+            bits.append(f"已发版（生成 {ob['generatedFiles']} 文件）")
+    return f"{state['doc']}：" + "、".join(bits)
 
 
 SCRIPTS: dict[str, dict[str, Any]] = {

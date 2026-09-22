@@ -60,6 +60,22 @@ export interface DemoStep {
   action: { event: string }
   after: DemoState
   highlight: DemoHighlight
+  // ---- 验收文档七字段（T10 / ACP-732，出处见 generate_fixtures.py 的
+  // TARGET_VIEW 注释）：三件套字段全部保留，以下六项由派生数据拼装；
+  // 「页面有什么变化」即上面的 before/after，不重复存 ----
+  /** 从哪里开始：进入本步时状态层的可读画面（before 观测的渲染） */
+  startFrom: string
+  /** 用户做什么：既有事件描述（与 action.event 逐字相同） */
+  userAction: string
+  /** 去了哪里：本步高亮目标所属的视图名 */
+  goesTo: string
+  /** 用户看到什么：既有提示文案（与 highlight.hint 逐字相同） */
+  userSees: string
+  /** 后台发生什么：前后快照观测差的一句话（派生） */
+  backendFact: string
+  /** 怎样算通过：本步断言清单，由 after 观测逐项生成；预检逐条校验
+   * （字段在观测词表内且等于 after 观测），剧本测试逐条消费 */
+  passCriteria: { field: string; eq: boolean | number; note: string }[]
 }
 
 export interface DemoScript {

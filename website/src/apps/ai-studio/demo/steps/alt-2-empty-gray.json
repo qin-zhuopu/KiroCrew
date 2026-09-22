@@ -15,6 +15,7 @@
         "versions": 0,
         "versionsIcon": "gray"
       },
+      "backendFact": "后台（快照 alt2-001）：状态层无变化，仅展示层落位",
       "before": {
         "diffIcon": "gray",
         "dirty": false,
@@ -26,13 +27,34 @@
       },
       "branch": "alt-2",
       "fixture": "alt2-001",
+      "goesTo": "工具栏三图标",
       "highlight": {
         "hint": "当前：diff、修改历史、版本历史三个图标全是灰的。灰不是坏了，是状态机给出的答案——下面逐个解释。",
         "open": [],
         "target": "toolbar_trio"
       },
       "id": "alt2-1",
-      "title": "进入刚创建的项目：三个图标全灰"
+      "passCriteria": [
+        {
+          "eq": false,
+          "field": "dirty",
+          "note": "编辑器脏态（有未提交修改）"
+        },
+        {
+          "eq": 0,
+          "field": "draftRecords",
+          "note": "草稿记录数"
+        },
+        {
+          "eq": 0,
+          "field": "versions",
+          "note": "已提交版本数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 0 版",
+      "title": "进入刚创建的项目：三个图标全灰",
+      "userAction": "打开「空项目示例」，requirements.md 只有种子内容",
+      "userSees": "当前：diff、修改历史、版本历史三个图标全是灰的。灰不是坏了，是状态机给出的答案——下面逐个解释。"
     },
     {
       "action": {
@@ -47,6 +69,7 @@
         "versions": 0,
         "versionsIcon": "gray"
       },
+      "backendFact": "后台（快照 alt2-002）：状态层无变化，仅展示层落位",
       "before": {
         "diffIcon": "gray",
         "dirty": false,
@@ -58,6 +81,7 @@
       },
       "branch": "alt-2",
       "fixture": "alt2-002",
+      "goesTo": "工具栏的 diff 图标",
       "highlight": {
         "hint": "当前：Markdown 源视图里缓冲内容与 docs/ 里的提交内容逐字符相同，状态机判定「干净」→ diff 置灰不可点。没有差异可看时把按钮点亮，才是骗人。",
         "open": [
@@ -66,7 +90,27 @@
         "target": "diff_btn"
       },
       "id": "alt2-2",
-      "title": "diff 为什么灰：当前内容==最近提交"
+      "passCriteria": [
+        {
+          "eq": false,
+          "field": "dirty",
+          "note": "编辑器脏态（有未提交修改）"
+        },
+        {
+          "eq": 0,
+          "field": "draftRecords",
+          "note": "草稿记录数"
+        },
+        {
+          "eq": 0,
+          "field": "versions",
+          "note": "已提交版本数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 0 版",
+      "title": "diff 为什么灰：当前内容==最近提交",
+      "userAction": "尝试点亮 diff 图标",
+      "userSees": "当前：Markdown 源视图里缓冲内容与 docs/ 里的提交内容逐字符相同，状态机判定「干净」→ diff 置灰不可点。没有差异可看时把按钮点亮，才是骗人。"
     },
     {
       "action": {
@@ -81,6 +125,7 @@
         "versions": 0,
         "versionsIcon": "gray"
       },
+      "backendFact": "后台（快照 alt2-003）：状态层无变化，仅展示层落位",
       "before": {
         "diffIcon": "gray",
         "dirty": false,
@@ -92,13 +137,34 @@
       },
       "branch": "alt-2",
       "fixture": "alt2-003",
+      "goesTo": "工具栏三图标",
       "highlight": {
         "hint": "当前：修改历史灰 = 上次提交以来 0 条自动保存；版本历史灰 = 从未提交过（空列表点开也没有行）。灰态即数据态。",
         "open": [],
         "target": "toolbar_trio"
       },
       "id": "alt2-3",
-      "title": "两个历史面板为什么灰：0 条记录 / 从未提交"
+      "passCriteria": [
+        {
+          "eq": false,
+          "field": "dirty",
+          "note": "编辑器脏态（有未提交修改）"
+        },
+        {
+          "eq": 0,
+          "field": "draftRecords",
+          "note": "草稿记录数"
+        },
+        {
+          "eq": 0,
+          "field": "versions",
+          "note": "已提交版本数"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 0 版",
+      "title": "两个历史面板为什么灰：0 条记录 / 从未提交",
+      "userAction": "看修改历史与版本历史图标",
+      "userSees": "当前：修改历史灰 = 上次提交以来 0 条自动保存；版本历史灰 = 从未提交过（空列表点开也没有行）。灰态即数据态。"
     }
   ],
   "title": "空项目示例：为什么图标是灰的（分支 B）"

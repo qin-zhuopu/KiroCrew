@@ -179,6 +179,13 @@ describe('assertions 1+2: 状态迁移 + 引导落位 (all three lines)', () => 
           () => expect(readState(), `${name}/${step.id} after-state`).toEqual(declared(step.after)),
           { timeout: 4000, interval: 50 },
         )
+        // 怎样算通过 (T10 seven-field): the step's passCriteria are consumed
+        // entry by entry against the real DOM reading — the acceptance list
+        // the doc shows is the SAME list the test checks, not a description
+        // of a different one.
+        for (const c of step.passCriteria) {
+          expect(readState()[c.field], `${name}/${step.id} 通过判据 ${c.note}`).toBe(c.eq)
+        }
         // 引导落位: the ring is bound to this step's declared target…
         // (waitFor, same convergence discipline as the state check: a
         // target like the top bar's drafts badge only exists once the
