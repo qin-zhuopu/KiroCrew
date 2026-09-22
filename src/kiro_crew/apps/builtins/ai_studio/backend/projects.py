@@ -330,6 +330,44 @@ def save_draft(project_id: str, name: str, content: str) -> dict[str, Any]:
     return {"name": base, "content": content, "deduped": deduped, "record": record}
 
 
+def list_draft_docs(project_id: str) -> list[dict[str, Any]]:
+    """Every doc with a current draft: ``{name, content, changed}``.
+
+    The project-level commit reads this to know which docs are uncommitted
+    (the drafts layer is the truth: the autosave persists even after the tab
+    closes, so the top bar cannot derive the answer from open editors alone).
+    ``changed`` compares the draft against the committed doc — a draft saved
+    with content identical to the last commit still counts as a draft (the
+    project-level commit clears it), but the summary should not show it as a
+    pending change. File-name convention from ``save_draft``: the current
+    draft is ``<doc>.md.md``, so a bare ``<doc>.md`` in the drafts directory
+    is the per-record history directory, never a current draft.
+    """
+    project = get_project(project_id)
+    if project is None:
+        return []
+    drafts_dir = projects_root() / project_id / "drafts"
+    if not drafts_dir.is_dir():
+        return []
+    docs_dir = projects_root() / project_id / "docs"
+    out: list[dict[str, Any]] = []
+    for path in sorted(drafts_dir.iterdir()):
+        if not path.is_file() or not path.name.endswith(".md.md"):
+            continue
+        doc_name = path.name[: -len(".md")]
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        committed = ""
+        try:
+            committed = (docs_dir / doc_name).read_text(encoding="utf-8")
+        except OSError:
+            pass
+        out.append({"name": doc_name, "content": content, "changed": content != committed})
+    return out
+
+
 def list_draft_versions(project_id: str, name: str) -> list[dict[str, Any]]:
     """Draft records since the last commit, newest first.
 

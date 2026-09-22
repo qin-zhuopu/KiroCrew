@@ -43,6 +43,16 @@ export interface StudioVersion {
   diff: string
 }
 
+/** One doc holding a current autosave draft (ACP-727: the project-level
+ * commit reads the whole list to know what to promote). `changed` is the
+ * draft-vs-committed comparison the top-bar summary uses to skip showing a
+ * draft that no longer differs from the doc. */
+export interface StudioDraftDoc {
+  name: string
+  content: string
+  changed: boolean
+}
+
 export class StudioApiError extends Error {
   readonly code: string
   readonly status: number
@@ -110,6 +120,10 @@ export const studioApi: StudioApi = {
       method: 'POST',
       body: JSON.stringify({ name, content }),
     }),
+  // Every doc with a current draft in one read — the project-level commit's
+  // work list (ACP-727).
+  listDraftDocs: (id: string) =>
+    request<{ drafts: StudioDraftDoc[] }>(`/projects/${encodeURIComponent(id)}/drafts`),
   // Autosave one draft (ACP-721: overwrites drafts/<doc>.md and appends a
   // record unless identical to the last one). Best-effort from the editor's
   // debounce — a failed autosave is not user-visible, the next tick retries.

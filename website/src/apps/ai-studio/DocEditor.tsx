@@ -13,12 +13,15 @@
 // Switching modes re-parses the buffer (setContent({contentType:'markdown'})),
 // so the two views never drift — the source of truth is always `draft`.
 //
-// Edit persistence is two-tier (ACP-722): a burst of keystrokes autosaves a
-// DRAFT ~2s after the last change (POST docs/draft — the backend dedupes a
-// record identical to the previous one), while the Commit button promotes the
-// buffer to the committed doc (POST docs: the backend snapshots the old
-// content into versions/ and clears the draft records). The toolbar's right
-// side carries the three read-backs of that model:
+// Edit persistence is two-tier (ACP-722, and ACP-727 moved the second tier
+// out of this component): a burst of keystrokes autosaves a DRAFT ~2s after
+// the last change (POST docs/draft — the backend dedupes a record identical
+// to the previous one), and that is ALL the editor does. Committing is a
+// PROJECT-level operation now — the workspace top bar commits every doc with
+// a draft at once, because a commit feeds the requirements graph for the
+// whole project, not for one file. The doc's name is not shown either (the
+// tab already carries it). The toolbar's right side carries the three
+// read-backs of the model:
 //   - diff: current buffer vs the last commit, only clickable while dirty;
 //   - autosave history: draft records since the last commit, each opening a
 //     diff against the current buffer with a restore action;
@@ -26,9 +29,10 @@
 //     diff against its predecessor ("back to editing" exits).
 // The two lists are React Query reads; while the backend endpoints are still
 // landing (ACP-721) a failed query reads as empty, which keeps the icons grey
-// without an error surface. The tab is keyed on project+doc in WorkArea, so
-// switching tabs re-mounts with fresh content and an un-committed, un-autosaved
-// edit in a closed tab is honestly lost — the footer says so.
+// without an error surface. The tab is keyed on project+doc+commitRev in
+// WorkArea, so switching tabs — and a project-level commit from the top bar,
+// which bumps the rev — re-mounts with fresh content, while an un-autosaved
+// edit in a closed tab is honestly lost (the footer says so).
 import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -39,10 +43,9 @@ import { Markdown } from '@tiptap/markdown'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bold, Code, GitCompareArrows, GitCommit, Heading1, Heading2, History, Italic,
-  List, ListOrdered, Quote, Redo2, RotateCcw, Save, Strikethrough, Undo2, X,
+  List, ListOrdered, Quote, Redo2, RotateCcw, Strikethrough, Undo2, X,
 } from 'lucide-react'
 import Clickable from '../../components/Clickable'
-import ErrorNotice from '../../components/ErrorNotice'
 import { useDialogFocusTrap } from '../../hooks/useDialogFocusTrap'
 import { Btn } from '../../components/ui'
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
@@ -66,19 +69,20 @@ interface DiffModal {
   restore?: () => void
 }
 
-export default function DocEditor({ projectId, docName, initialContent, onSaved, api = studioApi }: {
+export default function DocEditor({ projectId, docName, initialContent, api = studioApi }: {
   projectId: string
   docName: string
   initialContent: string
-  onSaved?: () => void
   /** the data source, injectable for the demo's snapshot fake; the ordinary
    * path uses the real client and never passes this */
   api?: StudioApi
 }) {
   const [draft, setDraft] = useState(initialContent)
-  const [saved, setSaved] = useState(initialContent)
-  const [saving, setSaving] = useState(false)
-  const [saveErr, setSaveErr] = useState<string | null>(null)
+  // The committed baseline IS the initial buffer: since ACP-727 nothing in
+  // this component commits, so nothing moves the baseline — a project-level
+  // commit from the top bar re-mounts the tab (new WorkArea content) rather
+  // than mutating this state.
+  const saved = initialContent
   const [raw, setRaw] = useState(false)
   const [diffModal, setDiffModal] = useState<DiffModal | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -176,40 +180,6 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved,
     if (editor && !editor.isDestroyed) fn(editor)
   }, [editor])
 
-  const refreshHistory = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['ai-studio', 'draft-versions', projectId, docName] })
-    queryClient.invalidateQueries({ queryKey: ['ai-studio', 'versions', projectId, docName] })
-  }, [queryClient, projectId, docName])
-
-  // "Commit version": the store snapshots the previous content into versions/,
-  // promotes this buffer to the committed doc, and clears the draft records —
-  // which is why both history queries and the last-commit baseline move.
-  const save = useCallback(async () => {
-    setSaving(true)
-    setSaveErr(null)
-    try {
-      // Snapshot the Rich buffer first: while Raw is shown the textarea owns
-      // the buffer and `draft` is current, but from Rich the textarea does
-      // not exist — same reasoning as the flip handlers.
-      const content = raw || !editor || editor.isDestroyed ? draft : editor.getMarkdown()
-      await api.saveDoc(projectId, docName, content)
-      setDraft(content)
-      setSaved(content)
-      lastAutosavedRef.current = null
-      setDiffModal(null)
-      refreshHistory()
-      onSaved?.()
-    } catch (err) {
-      setSaveErr(
-        err instanceof StudioApiError && err.code === 'project_not_found'
-          ? i18nT('apps.aiStudio.err_project_missing')
-          : err instanceof Error ? err.message : String(err),
-      )
-    } finally {
-      setSaving(false)
-    }
-  }, [draft, editor, onSaved, projectId, docName, raw, refreshHistory])
-
   // Restore one autosave record: the buffer takes its text, which re-marks the
   // doc dirty (the autosave debounce then records the restored text as the
   // newest draft entry — the undo-the-undo stays recoverable). The committed
@@ -239,8 +209,9 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved,
       data-version-count={versions.length}
     >
       <div className="flex items-center gap-1.5 px-4 h-[38px] shrink-0 border-b border-border">
-        <span className="text-[13px] text-muted">{docName}</span>
-        <span className="flex-1" />
+        {/* ACP-727 layout: formatting left, the read-back trio right. The
+            flex-1 spacer sits between the two groups (it used to sit before
+            the format group, which is what pushed it right). */}
         {!raw && !viewingVersion && (
           <div className="flex items-center gap-0.5" role="toolbar" aria-label={i18nT('apps.aiStudio.format_toolbar')}>
             <ToolbarBtn label={i18nT('apps.aiStudio.fmt_bold')} icon={<Bold size={14} />}
@@ -269,6 +240,7 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved,
               disabled={!editor?.can().redo()} onRun={(e) => e.chain().focus().redo().run()} run={run} />
           </div>
         )}
+        <span className="flex-1" />
         <span className="w-px h-4 bg-border mx-1" aria-hidden />
         {/* The history trio is one addressable group: its three icons are the
          * read-backs of the draft/version model, so tests (and the demo's
@@ -315,11 +287,6 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved,
             Markdown
           </button>
         )}
-        {!viewingVersion && (
-          <Btn primary onClick={save} disabled={!dirty || saving} className="ml-1" data-testid="commit-btn">
-            <Save size={13} className="lucide-inline" /> {i18nT('apps.aiStudio.commit_version')}
-          </Btn>
-        )}
       </div>
       {viewingVersion ? (
         // Read-only takeover: the version's diff against its predecessor,
@@ -352,14 +319,6 @@ export default function DocEditor({ projectId, docName, initialContent, onSaved,
               <EditorContent editor={editor} />
             </div>
           )}
-        </div>
-      )}
-      {saveErr && (
-        <div className="px-4 pt-2 shrink-0">
-          {/* askAgent stays off: there is an unsaved buffer right here that
-              the hand-off's navigation would destroy. */}
-          {/* No hand-off: the draft buffer in this component dies with it. */}
-          <ErrorNotice message={saveErr} askAgent={false} onDismiss={() => setSaveErr(null)} />
         </div>
       )}
       <div className="px-4 py-1.5 border-t border-border text-[11px] text-muted shrink-0">
