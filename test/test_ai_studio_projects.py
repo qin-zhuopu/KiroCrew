@@ -132,7 +132,7 @@ def test_draft_save_dedupes_and_lists_newest_first(home):
 
     drafts = projects.list_draft_versions(pid, "workflow.md")
     assert [d["content"] for d in drafts] == ["b\n", "a\n"]  # newest first
-    assert all(d["ts"] and d["name"] for d in drafts)
+    assert all(d["time"] and d["name"] for d in drafts)
 
     # the current-draft file is the latest word, overwritten in place
     cur = projects.projects_root() / pid / "drafts" / "workflow.md.md"
@@ -161,21 +161,24 @@ def test_commit_snapshots_versions_and_clears_drafts(home):
         ln for ln in versions[0]["diff"].splitlines() if ln.startswith("-") and not ln.startswith("---")
     ]
 
-    # draft, then commit: the draft's content is what gets promoted
+    # draft, then commit: the request buffer is authoritative (it is newer
+    # than or equal to what the debounced autosave persisted), and the whole
+    # drafts layer clears with the commit
     projects.save_draft(pid, "workflow.md", "# v2 draft\n")
     projects.save_draft(pid, "workflow.md", "# v2 draft more\n")
     assert len(projects.list_draft_versions(pid, "workflow.md")) == 2
-    committed = projects.save_doc(pid, "workflow.md", "# stale request body\n")
-    assert committed["content"] == "# v2 draft more\n"
+    committed = projects.save_doc(pid, "workflow.md", "# v2 committed\n")
+    assert committed["content"] == "# v2 committed\n"
     assert projects.list_draft_versions(pid, "workflow.md") == []
     cur = projects.projects_root() / pid / "drafts" / "workflow.md.md"
     assert not cur.exists()
 
-    # the trail lists every commit; row N diffs against row N-1
+    # the trail lists every change, newest first; each row diffs against the
+    # version committed before it
     versions = projects.list_versions(pid, "workflow.md")
     assert len(versions) == 2
-    assert "+# v2 draft more" in versions[1]["diff"]
-    assert "-# v1" in versions[1]["diff"]
+    assert "+# v2 committed" in versions[0]["diff"]
+    assert "-# v1" in versions[0]["diff"]
 
     # a commit without a draft writes the request body
     projects.save_doc(pid, "workflow.md", "# v3\n")
@@ -266,10 +269,10 @@ async def test_routes_draft_and_histories(home, monkeypatch):
         )
         pid = (await resp.json())["project"]["id"]
 
-        # empty until a draft exists
+        # empty until a draft exists; both history reads key ``versions``
         resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
         assert resp.status == 200
-        assert (await resp.json())["draftVersions"] == []
+        assert (await resp.json())["versions"] == []
 
         resp = await client.post(
             f"/api/apps/ai-studio/projects/{pid}/docs/draft",
@@ -280,23 +283,25 @@ async def test_routes_draft_and_histories(home, monkeypatch):
         assert body["deduped"] is False and body["record"] is not None
 
         resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
-        drafts = (await resp.json())["draftVersions"]
+        drafts = (await resp.json())["versions"]
         assert [d["content"] for d in drafts] == ["编辑中\n"]
+        assert "time" in drafts[0]
 
         resp = await client.post(
             f"/api/apps/ai-studio/projects/{pid}/docs",
-            json={"name": "workflow.md", "content": "ignored"},
+            json={"name": "workflow.md", "content": "编辑中\n"},
         )
         assert (await resp.json())["doc"]["content"] == "编辑中\n"
 
         # committing clears the draft history
         resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
-        assert (await resp.json())["draftVersions"] == []
+        assert (await resp.json())["versions"] == []
 
         resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/versions")
         assert resp.status == 200
         versions = (await resp.json())["versions"]
         assert len(versions) == 1 and "+编辑中" in versions[0]["diff"]
+        assert "time" in versions[0]
 
 
 @pytest.mark.asyncio

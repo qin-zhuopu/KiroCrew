@@ -142,7 +142,9 @@ async def _handle_doc_draft_versions(request: web.Request) -> web.StreamResponse
         records = await asyncio.to_thread(projects.list_draft_versions, project_id, name)
     except projects.ProjectError as exc:
         return _error(str(exc), exc.code, exc.status)
-    return web.json_response({"draftVersions": records})
+    # Key ``versions`` (not ``draftVersions``): the editor client types both
+    # history reads the same shape, one key name for both endpoints.
+    return web.json_response({"versions": records})
 
 
 async def _handle_doc_versions(request: web.Request) -> web.StreamResponse:

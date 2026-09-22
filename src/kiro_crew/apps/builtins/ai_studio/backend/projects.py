@@ -260,18 +260,19 @@ def _unified_diff(old: str, new: str) -> str:
 
 
 def save_doc(project_id: str, name: str, content: str) -> dict[str, str]:
-    """Commit one doc: promote the draft into ``docs/`` and snapshot it.
+    """Commit one doc: write the buffer, snapshot it, clear its drafts.
 
-    The semantics the editor's Save button carries. A current draft, if any,
-    is promoted into ``docs/`` instead of being overwritten by the request
-    body — the draft is the autosaved truth of the buffer, and a commit whose
-    request raced a later keystroke must not roll the buffer back; with no
-    draft (an API caller, a pre-autosave client) the request body is what
-    gets written. The committed content then lands in ``versions/`` as a
-    full-text snapshot: the trail lists every commit, row N diffs against
-    row N-1, and the first row reads as a whole-document addition. Finally
-    the doc's whole drafts layer — the current file and its per-record trail
-    — is deleted: since the last commit, nothing is uncommitted.
+    The semantics the editor's Commit button carries. The request body IS
+    the buffer at click time — newer than or equal to anything the ~2s
+    autosave debounce managed to persist — so it is authoritative and the
+    draft file is not consulted for content. The committed content lands in
+    ``versions/`` as a full-text snapshot (only when it actually differs from
+    what ``docs/`` held: a same-content re-commit would store a row whose
+    diff-vs-predecessor is empty, the same dedup the draft record applies),
+    so the trail lists every change, row N diffs against row N-1, and the
+    first row reads as a whole-document addition. Finally the doc's whole
+    drafts layer — the current file and its per-record trail — is deleted:
+    since the last commit, nothing is uncommitted.
     """
     base = _checked_doc_name(project_id, name)
     project_dir = projects_root() / project_id
@@ -279,36 +280,25 @@ def save_doc(project_id: str, name: str, content: str) -> dict[str, str]:
     docs_dir.mkdir(parents=True, exist_ok=True)
     doc_path = docs_dir / base
 
-    draft_path = project_dir / "drafts" / f"{base}.md"
-    try:
-        draft_content: str | None = draft_path.read_text(encoding="utf-8")
-    except OSError:
-        draft_content = None
-    final = draft_content if draft_content is not None else content
-
     old_content = ""
     try:
         old_content = doc_path.read_text(encoding="utf-8")
     except OSError:
         pass
 
-    doc_path.write_text(final, encoding="utf-8")
+    doc_path.write_text(content, encoding="utf-8")
 
-    # Only a real change gets a version row: re-committing identical content
-    # would store a second snapshot whose diff-vs-predecessor is empty, which
-    # is a row the panel cannot show and the trail does not need (the same
-    # dedup the draft record applies).
-    if final != old_content:
+    if content != old_content:
         _snapshot_path(project_dir / "versions", base, time.time()).write_text(
-            final, encoding="utf-8"
+            content, encoding="utf-8"
         )
 
     shutil.rmtree(project_dir / "drafts" / base, ignore_errors=True)
     try:
-        draft_path.unlink(missing_ok=True)
+        (project_dir / "drafts" / f"{base}.md").unlink(missing_ok=True)
     except OSError:
         pass
-    return {"name": base, "content": final}
+    return {"name": base, "content": content}
 
 
 def save_draft(project_id: str, name: str, content: str) -> dict[str, Any]:
@@ -346,20 +336,26 @@ def list_draft_versions(project_id: str, name: str) -> list[dict[str, Any]]:
     The panel wants the most recent on top, so the store's oldest-first read
     is reversed at the boundary; the content rides along because the diff
     view needs the old buffer and a second round trip per row would be a
-    fetch storm for a three-row panel.
+    fetch storm for a three-row panel. ``time`` is epoch seconds (the key
+    name the editor's StudioDraftVersion type reads).
     """
     base = _checked_doc_name(project_id, name)
     drafts_dir = projects_root() / project_id / "drafts"
-    return list(reversed(_read_snapshots(drafts_dir, base)))
+    return [
+        {"name": r["name"], "content": r["content"], "time": r["ts"]}
+        for r in reversed(_read_snapshots(drafts_dir, base))
+    ]
 
 
 def list_versions(project_id: str, name: str) -> list[dict[str, Any]]:
     """Committed versions with the diff against their predecessor.
 
-    Row N's diff is version N vs version N-1 (empty baseline for the first,
-    which reads as a whole-document addition — the honest shape, not an
-    error). Oldest first matches commit order; the UI displays the list as
-    given, newest version last.
+    Each row's diff is that version vs the one committed before it (empty
+    baseline for the first, which reads as a whole-document addition — the
+    honest shape, not an error). Newest first, matching the draft-history
+    list and what the editor's version panel renders top-down; ``time`` is
+    epoch seconds (the editor keys and labels rows by it, and its commit
+    order is the display order).
     """
     base = _checked_doc_name(project_id, name)
     versions_dir = projects_root() / project_id / "versions"
@@ -370,13 +366,13 @@ def list_versions(project_id: str, name: str) -> list[dict[str, Any]]:
         out.append(
             {
                 "name": snap["name"],
-                "ts": snap["ts"],
+                "time": snap["ts"],
                 "size": len(snap["content"]),
                 "diff": _unified_diff(previous, snap["content"]),
             }
         )
         previous = snap["content"]
-    return out
+    return list(reversed(out))
 
 
 def create_project(name: str, description: str) -> dict[str, Any]:
