@@ -225,9 +225,14 @@ def add(key: str, snap: dict[str, Any]) -> None:
 add("main-001", main.snapshot("requirements.md", REQ_V2, []))
 add("main-002", main.snapshot("requirements.md", REQ_V2, []))
 add("main-003", main.snapshot("requirements.md", REQ_V2, []))
-# main-004: the user appended two lines (dirty, still nothing autosaved).
-add("main-004", main.snapshot("requirements.md", REQ_EDIT, []))
-# main-005: the ~2s debounce fired — one draft record, diff icon lit.
+# main-004: the user appended two lines. ACP-728: the FIRST uncommitted
+# change lands its draft record immediately (the debounce only covers
+# subsequent input), so a dirty buffer never rides with an empty history —
+# the invariant the store now guarantees and every dirty snapshot carries.
+add("main-004", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)]))
+# main-005: idling past the debounce adds nothing (dedupe: identical to the
+# newest record). The record count is the state; the step only opens the
+# panel that reads it.
 add("main-005", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)]))
 # main-006/007: same state; the steps only change what the overlay opens.
 add("main-006", main.snapshot("requirements.md", REQ_EDIT, [(T0 + 172800, REQ_EDIT)]))
@@ -243,9 +248,17 @@ add("main-008", main.snapshot("requirements.md", REQ_EDIT, []))
 # OLDER record and restore → the restored text is recorded as a third entry
 # (dedupe only compares against the newest record, and the newest was B).
 add("alt1-001", site.snapshot("requirements.md", SITE_V1, []))
-add("alt1-002", site.snapshot("requirements.md", SITE_D1, []))
+# alt1-002: candidate A typed — and under ACP-728 its record landed the
+# moment the buffer first changed (immediate first save, the debounce only
+# covers the input after it). alt1-003 is the same state with the panel
+# opened: idling past the debounce adds nothing (dedupe).
+add("alt1-002", site.snapshot("requirements.md", SITE_D1, [(T0 + 1800, SITE_D1)]))
 add("alt1-003", site.snapshot("requirements.md", SITE_D1, [(T0 + 1800, SITE_D1)]))
-add("alt1-004", site.snapshot("requirements.md", SITE_D2, [(T0 + 1800, SITE_D1)]))
+# alt1-004: candidate B — again the record lands with the change itself
+# (each demo step re-enters through the snapshot load, so the typed buffer
+# is a first change: immediate save). alt1-005 is the same state with the
+# panel open; idling dedupes.
+add("alt1-004", site.snapshot("requirements.md", SITE_D2, [(T0 + 1800, SITE_D1), (T0 + 3600, SITE_D2)]))
 add("alt1-005", site.snapshot("requirements.md", SITE_D2, [(T0 + 1800, SITE_D1), (T0 + 3600, SITE_D2)]))
 # the restore lands on the older record's text — an edit, not a commit, so
 # the two records stand and the baseline is unmoved.
@@ -312,14 +325,26 @@ def step(
     next snapshot in the chain is exactly where the real click goes.
     """
     snap = SNAPS[fixture]
+    before = derive(SNAPS[prev]) if prev else derive(snap)
+    after = derive(SNAPS[after_fix]) if after_fix else derive(snap)
+    # ACP-728 cross-check — the store now guarantees dirty ⇒ at least one
+    # autosave record, so no step (its before OR its after) may claim a lit
+    # diff over an empty history. A snapshot that violates it is a broken
+    # model: fix the fixture, never the assertion.
+    for label, st in (("before", before), ("after", after)):
+        if st["dirty"] and st["draftRecords"] == 0:
+            raise AssertionError(
+                f"{sid}.{label}: dirty diff with 0 draft records violates the "
+                "dirty⇒has-records invariant (ACP-728) — seed the snapshot"
+            )
     return {
         "id": sid,
         "title": title,
         "branch": branch,
         "fixture": fixture,
-        "before": derive(SNAPS[prev]) if prev else derive(snap),
+        "before": before,
         "action": {"event": event},
-        "after": derive(SNAPS[after_fix]) if after_fix else derive(snap),
+        "after": after,
         "highlight": {"target": target, "hint": hint, "open": open_locators or []},
     }
 
@@ -363,21 +388,21 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 "main-4",
                 "用户追加两行验收标准（快照重放）",
                 "main-004",
-                "在编辑器追加两行验收标准，停手",
+                "在编辑器追加两行验收标准——首次变更立即落一条草稿记录",
                 "diff_btn",
-                "当前：缓冲已变（追加了优惠券有效期与「积分抵现」排除项），页脚提示未保存，diff 图标由灰转亮——存在未提交修改。缓冲内容来自快照，经编辑器真实的 Markdown 源视图落位，不碰真实后端。",
+                "当前：缓冲已变（追加了优惠券有效期与「积分抵现」排除项），页脚提示未保存，diff 图标由灰转亮。规则：diff 亮必有记录——首次变更立即自动保存落第一条记录，不存在「diff 亮着、修改历史 0 条」的窗口。",
                 ["markdown_toggle", "set_buffer"],prev="main-003",
-                
+
             ),
             step(
                 "main-5",
-                "防抖 2s 到期，自动保存记下一条草稿",
+                "停手 2 秒：没有第二条（去重）",
                 "main-005",
-                "停手 2 秒，防抖自动保存把当前缓冲记成一条草稿记录",
+                "停手 2 秒，防抖到期——内容与最新记录相同，不落新条",
                 "draft_history_list",
-                "当前：修改历史面板出现 1 条记录。规则：内容与上一条相同不落新条——光标再动多久都不会灌出重复记录。",
+                "当前：修改历史面板 1 条记录。规则：内容与上一条相同不落新条——后续输入走 2s 防抖，且去重只比最新一条，光标再动多久都不会灌出重复记录。",
                 ["markdown_toggle", "set_buffer", "draft_history_btn"],prev="main-004",
-                
+
             ),
             step(
                 "main-6",
@@ -431,20 +456,20 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 "alt1-2",
                 "写一版首屏文案（候选 A）",
                 "alt1-002",
-                "在编辑器追加「首屏文案·候选 A」草稿段",
+                "在编辑器追加「首屏文案·候选 A」草稿段——首次变更立即落第一条记录",
                 "doc_editor",
-                "当前：缓冲比最近提交多了一段候选 A 文案，diff 图标由灰转亮。缓冲内容来自快照，经真实的 Markdown 源视图敲进编辑器。",
+                "当前：缓冲比最近提交多了一段候选 A 文案，diff 图标由灰转亮；首次变更同步落了第一条草稿记录——diff 亮的那一刻起，修改历史就不是空的。",
                 ["markdown_toggle", "set_buffer"],
                 prev="alt1-001",
                 branch="alt-1",
             ),
             step(
                 "alt1-3",
-                "防抖到期，候选 A 记为第一条草稿",
+                "打开修改历史：候选 A 已在列",
                 "alt1-003",
-                "停手 2 秒，自动保存落下第一条记录",
+                "点开修改历史面板确认记录已在（停手到期也不落重复条）",
                 "draft_history_list",
-                "当前：修改历史 1 条——候选 A。点开面板看它的时间与摘要。",
+                "当前：修改历史 1 条——候选 A。内容与最新一条相同不再落新条：去重只比最新一条。",
                 ["markdown_toggle", "set_buffer", "draft_history_btn"],
                 prev="alt1-002",
                 branch="alt-1",
@@ -453,20 +478,20 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 "alt1-4",
                 "改主意：把草稿改成候选 B",
                 "alt1-004",
-                "把主标题改成「候选 B」并加一行副标题",
+                "把主标题改成「候选 B」并加一行副标题——内容与最新记录不同，立刻落了第二条",
                 "diff_btn",
-                "当前：缓冲换成候选 B，diff 图标保持亮——两版文案的取舍还没定。",
+                "当前：缓冲换成候选 B，diff 图标保持亮；B 与最新记录（A）不同，落为第二条——每一段改过的文字都没有丢。",
                 ["markdown_toggle", "set_buffer"],
                 prev="alt1-003",
                 branch="alt-1",
             ),
             step(
                 "alt1-5",
-                "候选 B 也记下了：现在有两条记录",
+                "两条记录都在：最新在上",
                 "alt1-005",
-                "再停 2 秒，防抖落下第二条",
+                "打开修改历史面板看两条记录",
                 "draft_history_list",
-                "当前：两条记录，最新在上——候选 B 在上、候选 A 在下。每一段改过的文字都没有丢。",
+                "当前：两条记录，最新在上——候选 B 在上、候选 A 在下。停手到期也不会再多落条（与最新一条相同）。",
                 ["markdown_toggle", "set_buffer", "draft_history_btn"],
                 prev="alt1-004",
                 branch="alt-1",

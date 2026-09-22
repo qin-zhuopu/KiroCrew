@@ -106,14 +106,14 @@
     },
     {
       "action": {
-        "event": "在编辑器追加两行验收标准，停手"
+        "event": "在编辑器追加两行验收标准——首次变更立即落一条草稿记录"
       },
       "after": {
         "diffIcon": "active",
         "dirty": true,
         "doc": "requirements.md",
-        "draftRecords": 0,
-        "historyIcon": "gray",
+        "draftRecords": 1,
+        "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
       },
@@ -129,7 +129,7 @@
       "branch": null,
       "fixture": "main-004",
       "highlight": {
-        "hint": "当前：缓冲已变（追加了优惠券有效期与「积分抵现」排除项），页脚提示未保存，diff 图标由灰转亮——存在未提交修改。缓冲内容来自快照，经编辑器真实的 Markdown 源视图落位，不碰真实后端。",
+        "hint": "当前：缓冲已变（追加了优惠券有效期与「积分抵现」排除项），页脚提示未保存，diff 图标由灰转亮。规则：diff 亮必有记录——首次变更立即自动保存落第一条记录，不存在「diff 亮着、修改历史 0 条」的窗口。",
         "open": [
           "markdown_toggle",
           "set_buffer"
@@ -141,7 +141,7 @@
     },
     {
       "action": {
-        "event": "停手 2 秒，防抖自动保存把当前缓冲记成一条草稿记录"
+        "event": "停手 2 秒，防抖到期——内容与最新记录相同，不落新条"
       },
       "after": {
         "diffIcon": "active",
@@ -156,15 +156,15 @@
         "diffIcon": "active",
         "dirty": true,
         "doc": "requirements.md",
-        "draftRecords": 0,
-        "historyIcon": "gray",
+        "draftRecords": 1,
+        "historyIcon": "list",
         "versions": 2,
         "versionsIcon": "list"
       },
       "branch": null,
       "fixture": "main-005",
       "highlight": {
-        "hint": "当前：修改历史面板出现 1 条记录。规则：内容与上一条相同不落新条——光标再动多久都不会灌出重复记录。",
+        "hint": "当前：修改历史面板 1 条记录。规则：内容与上一条相同不落新条——后续输入走 2s 防抖，且去重只比最新一条，光标再动多久都不会灌出重复记录。",
         "open": [
           "markdown_toggle",
           "set_buffer",
@@ -173,7 +173,7 @@
         "target": "draft_history_list"
       },
       "id": "main-5",
-      "title": "防抖 2s 到期，自动保存记下一条草稿"
+      "title": "停手 2 秒：没有第二条（去重）"
     },
     {
       "action": {

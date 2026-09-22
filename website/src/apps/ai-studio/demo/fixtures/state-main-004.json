@@ -14,7 +14,13 @@
       "name": "ui-spec.md"
     }
   ],
-  "draftVersions": [],
+  "draftVersions": [
+    {
+      "content": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠、积分抵现\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券\n- [ ] 优惠券 7 天内有效，过期自动退回积分\n",
+      "name": "requirements.md",
+      "time": 1758772800
+    }
+  ],
   "focusDoc": "requirements.md",
   "project": {
     "createdAt": 1758600000,

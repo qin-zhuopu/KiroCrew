@@ -36,14 +36,14 @@
     },
     {
       "action": {
-        "event": "在编辑器追加「首屏文案·候选 A」草稿段"
+        "event": "在编辑器追加「首屏文案·候选 A」草稿段——首次变更立即落第一条记录"
       },
       "after": {
         "diffIcon": "active",
         "dirty": true,
         "doc": "requirements.md",
-        "draftRecords": 0,
-        "historyIcon": "gray",
+        "draftRecords": 1,
+        "historyIcon": "list",
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -59,7 +59,7 @@
       "branch": "alt-1",
       "fixture": "alt1-002",
       "highlight": {
-        "hint": "当前：缓冲比最近提交多了一段候选 A 文案，diff 图标由灰转亮。缓冲内容来自快照，经真实的 Markdown 源视图敲进编辑器。",
+        "hint": "当前：缓冲比最近提交多了一段候选 A 文案，diff 图标由灰转亮；首次变更同步落了第一条草稿记录——diff 亮的那一刻起，修改历史就不是空的。",
         "open": [
           "markdown_toggle",
           "set_buffer"
@@ -71,7 +71,7 @@
     },
     {
       "action": {
-        "event": "停手 2 秒，自动保存落下第一条记录"
+        "event": "点开修改历史面板确认记录已在（停手到期也不落重复条）"
       },
       "after": {
         "diffIcon": "active",
@@ -86,15 +86,15 @@
         "diffIcon": "active",
         "dirty": true,
         "doc": "requirements.md",
-        "draftRecords": 0,
-        "historyIcon": "gray",
+        "draftRecords": 1,
+        "historyIcon": "list",
         "versions": 1,
         "versionsIcon": "list"
       },
       "branch": "alt-1",
       "fixture": "alt1-003",
       "highlight": {
-        "hint": "当前：修改历史 1 条——候选 A。点开面板看它的时间与摘要。",
+        "hint": "当前：修改历史 1 条——候选 A。内容与最新一条相同不再落新条：去重只比最新一条。",
         "open": [
           "markdown_toggle",
           "set_buffer",
@@ -103,46 +103,11 @@
         "target": "draft_history_list"
       },
       "id": "alt1-3",
-      "title": "防抖到期，候选 A 记为第一条草稿"
+      "title": "打开修改历史：候选 A 已在列"
     },
     {
       "action": {
-        "event": "把主标题改成「候选 B」并加一行副标题"
-      },
-      "after": {
-        "diffIcon": "active",
-        "dirty": true,
-        "doc": "requirements.md",
-        "draftRecords": 1,
-        "historyIcon": "list",
-        "versions": 1,
-        "versionsIcon": "list"
-      },
-      "before": {
-        "diffIcon": "active",
-        "dirty": true,
-        "doc": "requirements.md",
-        "draftRecords": 1,
-        "historyIcon": "list",
-        "versions": 1,
-        "versionsIcon": "list"
-      },
-      "branch": "alt-1",
-      "fixture": "alt1-004",
-      "highlight": {
-        "hint": "当前：缓冲换成候选 B，diff 图标保持亮——两版文案的取舍还没定。",
-        "open": [
-          "markdown_toggle",
-          "set_buffer"
-        ],
-        "target": "diff_btn"
-      },
-      "id": "alt1-4",
-      "title": "改主意：把草稿改成候选 B"
-    },
-    {
-      "action": {
-        "event": "再停 2 秒，防抖落下第二条"
+        "event": "把主标题改成「候选 B」并加一行副标题——内容与最新记录不同，立刻落了第二条"
       },
       "after": {
         "diffIcon": "active",
@@ -163,9 +128,44 @@
         "versionsIcon": "list"
       },
       "branch": "alt-1",
+      "fixture": "alt1-004",
+      "highlight": {
+        "hint": "当前：缓冲换成候选 B，diff 图标保持亮；B 与最新记录（A）不同，落为第二条——每一段改过的文字都没有丢。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer"
+        ],
+        "target": "diff_btn"
+      },
+      "id": "alt1-4",
+      "title": "改主意：把草稿改成候选 B"
+    },
+    {
+      "action": {
+        "event": "打开修改历史面板看两条记录"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 2,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 2,
+        "historyIcon": "list",
+        "versions": 1,
+        "versionsIcon": "list"
+      },
+      "branch": "alt-1",
       "fixture": "alt1-005",
       "highlight": {
-        "hint": "当前：两条记录，最新在上——候选 B 在上、候选 A 在下。每一段改过的文字都没有丢。",
+        "hint": "当前：两条记录，最新在上——候选 B 在上、候选 A 在下。停手到期也不会再多落条（与最新一条相同）。",
         "open": [
           "markdown_toggle",
           "set_buffer",
@@ -174,7 +174,7 @@
         "target": "draft_history_list"
       },
       "id": "alt1-5",
-      "title": "候选 B 也记下了：现在有两条记录"
+      "title": "两条记录都在：最新在上"
     },
     {
       "action": {

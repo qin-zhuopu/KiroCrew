@@ -14,8 +14,10 @@
 // so the two views never drift — the source of truth is always `draft`.
 //
 // Edit persistence is two-tier (ACP-722, and ACP-727 moved the second tier
-// out of this component): a burst of keystrokes autosaves a DRAFT ~2s after
-// the last change (POST docs/draft — the backend dedupes a record identical
+// out of this component): the FIRST change since a commit autosaves a DRAFT
+// record immediately (ACP-728: the diff icon must never be lit while the
+// history reads empty), and later keystrokes ride a ~2s debounce after the
+// last change (POST docs/draft — the backend dedupes a record identical
 // to the previous one), and that is ALL the editor does. Committing is a
 // PROJECT-level operation now — the workspace top bar commits every doc with
 // a draft at once, because a commit feeds the requirements graph for the
@@ -123,16 +125,47 @@ export default function DocEditor({ projectId, docName, initialContent, api = st
   const dirty = draft !== saved
   const draftContent = raw || !editor || editor.isDestroyed ? draft : editor.getMarkdown()
 
-  // Draft autosave: `draft` is the single source of truth in both modes, so
-  // one debounced effect over it covers the Rich surface and the textarea
-  // alike. The timer is re-armed on every change (a burst is one POST), and
-  // an identical-to-last-save tick no-ops via the ref, so toggling modes —
-  // which re-serializes but may not change a character — writes nothing.
-  // Best-effort by design: a failed autosave leaves the timer ref empty so
+  // Draft autosave (ACP-728: the dirty ⇒ has-records invariant): the FIRST
+  // uncommitted change lands its record IMMEDIATELY, so the diff icon is
+  // never lit while the autosave history still reads empty — the old 2s
+  // window showed "diff active, 0 records", which contradicted the model
+  // the toolbar teaches. The ref carries "a record exists since the last
+  // commit": a project-level commit re-mounts this component (WorkArea keys
+  // on commitRev), so the ref resets with it and the next edit is a first
+  // change again. Subsequent changes keep the debounce: a typing burst is
+  // still one POST, and the identical-to-last-save tick no-ops, so toggling
+  // modes — which re-serializes but may not change a character — writes
+  // nothing. Best-effort by design: a failed save leaves the ref unset so
   // the next edit retries; the buffer itself can never be lost from here.
   const lastAutosavedRef = useRef<string | null>(null)
+  const hasRecordSinceCommitRef = useRef(false)
   useEffect(() => {
     if (!dirty) return
+    if (!hasRecordSinceCommitRef.current) {
+      if (draft === lastAutosavedRef.current) return
+      // optimistic flag: set BEFORE the await. The invariant is a UI fact —
+      // dirty must never coexist with a visibly empty history — and a
+      // failed POST stays best-effort like every other autosave path (the
+      // next edit, now debounced, retries; the backend dedupes an
+      // identical-to-newest record, so the retry cannot double-write).
+      // lastAutosavedRef carries the content too: the immediate save IS the
+      // save for this buffer, so a later debounce tick on unchanged text
+      // no-ops instead of re-POSTing what just landed.
+      hasRecordSinceCommitRef.current = true
+      lastAutosavedRef.current = draft
+      api.saveDraft(projectId, docName, draft)
+        .then(() => {
+          // invalidate only AFTER the record landed: invalidating before the
+          // POST resolves lets the refetch race the write and re-cache the
+          // empty list — the exact "dirty but 0 records" frame the whole
+          // branch exists to remove.
+          queryClient.invalidateQueries({ queryKey: ['ai-studio', 'draft-versions', projectId, docName] })
+        })
+        .catch(() => {
+          lastAutosavedRef.current = null
+        })
+      return
+    }
     const t = setTimeout(() => {
       if (draft === lastAutosavedRef.current) return
       api.saveDraft(projectId, docName, draft)
@@ -144,7 +177,7 @@ export default function DocEditor({ projectId, docName, initialContent, api = st
         .catch(() => { /* next keystroke retries */ })
     }, DRAFT_DEBOUNCE_MS)
     return () => clearTimeout(t)
-  }, [draft, dirty, projectId, docName, queryClient])
+  }, [draft, dirty, projectId, docName, queryClient, api])
 
   const draftVersionsQuery = useQuery({
     queryKey: ['ai-studio', 'draft-versions', projectId, docName],

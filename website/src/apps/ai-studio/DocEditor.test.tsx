@@ -3,9 +3,10 @@
 // view, which shows the same buffer as text), and the Raw→Rich flip re-parses
 // an edited source. ACP-727 moved committing OUT of the editor (the workspace
 // top bar commits every drafted doc — see AiStudioPage.test), so the editor
-// owns only editing plus the debounced draft autosave; the old commit-button
-// cases are gone with the button. The ACP-722 toolbar trio is covered too:
-// the diff button gates on dirty, edits autosave a draft on a ~2s debounce,
+// owns only editing plus the draft autosave (ACP-728: the first change since
+// a commit lands its record immediately, later ones ride a ~2s debounce);
+// the old commit-button cases are gone with the button. The ACP-722 toolbar
+// trio is covered too: the diff button gates on dirty, edits autosave a draft,
 // the autosave-history popover lists records and restores one, and the
 // version-history popover opens the read-only version diff. The editor now
 // reads history through React Query, so every render goes through the
@@ -14,8 +15,9 @@
 // asserted as data. Tiptap is created in an effect (immediatelyRender false),
 // so every first read goes through findBy.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within, waitFor } from '@testing-library/react'
+import { act, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { clickEl, typeInto } from './demo/locators'
 
 // saveDoc is deliberately absent: since ACP-727 the editor never commits —
 // a call reaching it from here would mean the removed button crept back.
@@ -31,6 +33,10 @@ import DocEditor from './DocEditor'
 import { renderStudio } from './testUtils'
 
 const WF = '# 流程设计\n\n阶段流转\n'
+// the rich editor's re-serialisation drops a trailing newline, so flipping a
+// doc holding this to Raw and back is a no-op on content — used where the
+// test needs the mode flip itself to be the non-event it looks like
+const WF_NO_TL = '# 流程设计\n\n阶段流转'
 
 beforeEach(() => {
   saveDraft.mockClear()
@@ -144,27 +150,73 @@ describe('DocEditor', () => {
     expect(within(dialog).queryByRole('button', { name: /Restore/i })).not.toBeInTheDocument()
   })
 
-  it('autosaves the draft on a ~2s debounce, one POST per burst', async () => {
-    // real timers: the debounce is 2s, so this test spends ~3s of wall clock.
-    // (user.type itself ticks each keystroke well inside that, and the timer
-    // re-arms per change — a burst stays one POST.)
+  it('lands the first draft record immediately, later changes stay debounced (ACP-728)', async () => {
+    // real timers: the debounce is 2s, so the burst half spends ~3s of wall
+    // clock. WF_NO_TL round-trips Rich→Raw unchanged (getMarkdown drops a
+    // trailing newline the committed text would otherwise carry), so the
+    // mode flip stays clean and the FIRST change is the test's own edit.
     const user = userEvent.setup()
-    renderEditor()
+    renderEditor({ initialContent: WF_NO_TL })
     const doc = await screen.findByTestId('doc-workflow.md')
     await within(doc).findByText('流程设计')
     await user.click(within(doc).getByRole('button', { name: 'Markdown' }))
     const src = screen.getByRole('textbox', { name: 'workflow.md' }) as HTMLTextAreaElement
+    expect(saveDraft).not.toHaveBeenCalled() // the flip itself dirtied nothing
     await user.clear(src)
+    // 0ms of the debounce window: the FIRST change already POSTed its
+    // record. The invariant — a lit diff never rides on an empty autosave
+    // history — holds from the instant the buffer goes dirty, not 2s later.
+    await waitFor(() => expect(saveDraft).toHaveBeenCalledWith('p1', 'workflow.md', ''))
     await user.type(src, 'abc')
-    // mid-window: nothing posted yet
-    expect(saveDraft).not.toHaveBeenCalled()
-    await waitFor(() => expect(saveDraft).toHaveBeenCalled(), { timeout: 4000, interval: 100 })
-    expect(saveDraft).toHaveBeenCalledWith('p1', 'workflow.md', 'abc')
+    // mid-window: the burst posts nothing further (a record exists, so this
+    // input is on the debounce path)
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(saveDraft).toHaveBeenCalledTimes(2), { timeout: 4000, interval: 100 })
+    expect(saveDraft).toHaveBeenLastCalledWith('p1', 'workflow.md', 'abc')
     // idling changes nothing, so nothing re-posts (the client should not even
     // send a duplicate the backend would dedupe)
     await new Promise((r) => setTimeout(r, 2500))
-    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(saveDraft).toHaveBeenCalledTimes(2)
   }, 15000)
+
+  it('the first change saves at 0ms — no empty-history window under a lit diff (ACP-728)', async () => {
+    // The acceptance point made literal: with the 2s debounce NEVER
+    // advanced (fake timers, nothing ticked past ~0), the first change's
+    // record still lands — posted straight from the effect, not from a
+    // timer — and the history read-back stops reading empty. Keystrokes go
+    // through the demo locators' typeInto: the same native-setter + input
+    // event a real press produces.
+    renderEditor({ initialContent: WF_NO_TL })
+    const doc = await screen.findByTestId('doc-workflow.md')
+    await within(doc).findByText('流程设计')
+    const store: { name: string; time: number; content: string }[] = []
+    saveDraft.mockImplementation(async (_id: string, name: string, content: string) => {
+      if (store[0]?.content !== content) store.unshift({ name, time: 1, content })
+      return { ok: true }
+    })
+    listDraftVersions.mockImplementation(async () => ({ versions: [...store] }))
+    vi.useFakeTimers()
+    try {
+      const toggle = within(doc).getByRole('button', { name: 'Markdown' })
+      await act(async () => { clickEl(toggle) })
+      const src = screen.getByRole('textbox', { name: 'workflow.md' }) as HTMLTextAreaElement
+      const typed = '# 流程设计\n\n阶段流转\n\n新增一段\n'
+      await act(async () => { typeInto(src, typed) })
+      // 0ms in: the POST already happened (the debounce timer never ran)
+      expect(saveDraft).toHaveBeenCalledWith('p1', 'workflow.md', typed)
+      // and the invariant holds on the DOM: dirty…
+      expect(doc.getAttribute('data-doc-dirty')).toBe('true')
+      // …with the history landing the record (list read + attribute flush).
+      // React Query batches its notify callbacks through a setTimeout, so
+      // under fake timers the refetch result only reaches the DOM once that
+      // tick fires — inside act, so the re-render commits too.
+      await act(async () => { await vi.advanceTimersByTimeAsync(10) })
+      expect(Number(doc.getAttribute('data-draft-count'))).toBeGreaterThanOrEqual(1)
+      expect(saveDraft).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('the autosave history lists records, opens one as a diff, and restores it', async () => {
     listDraftVersions.mockResolvedValue({
