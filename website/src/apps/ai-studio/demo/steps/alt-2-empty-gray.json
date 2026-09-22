@@ -1,0 +1,105 @@
+{
+  "project": "demo-empty-project",
+  "scenario": "alt-2-empty-gray",
+  "steps": [
+    {
+      "action": {
+        "event": "打开「空项目示例」，requirements.md 只有种子内容"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 0,
+        "versionsIcon": "gray"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 0,
+        "versionsIcon": "gray"
+      },
+      "branch": "alt-2",
+      "fixture": "alt2-001",
+      "highlight": {
+        "hint": "当前：diff、修改历史、版本历史三个图标全是灰的。灰不是坏了，是状态机给出的答案——下面逐个解释。",
+        "open": [],
+        "target": "toolbar_trio"
+      },
+      "id": "alt2-1",
+      "title": "进入刚创建的项目：三个图标全灰"
+    },
+    {
+      "action": {
+        "event": "尝试点亮 diff 图标"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 0,
+        "versionsIcon": "gray"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 0,
+        "versionsIcon": "gray"
+      },
+      "branch": "alt-2",
+      "fixture": "alt2-002",
+      "highlight": {
+        "hint": "当前：Markdown 源视图里缓冲内容与 docs/ 里的提交内容逐字符相同，状态机判定「干净」→ diff 置灰不可点。没有差异可看时把按钮点亮，才是骗人。",
+        "open": [
+          "markdown_toggle"
+        ],
+        "target": "diff_btn"
+      },
+      "id": "alt2-2",
+      "title": "diff 为什么灰：当前内容==最近提交"
+    },
+    {
+      "action": {
+        "event": "看修改历史与版本历史图标"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 0,
+        "versionsIcon": "gray"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 0,
+        "versionsIcon": "gray"
+      },
+      "branch": "alt-2",
+      "fixture": "alt2-003",
+      "highlight": {
+        "hint": "当前：修改历史灰 = 上次提交以来 0 条自动保存；版本历史灰 = 从未提交过（空列表点开也没有行）。灰态即数据态。",
+        "open": [],
+        "target": "toolbar_trio"
+      },
+      "id": "alt2-3",
+      "title": "两个历史面板为什么灰：0 条记录 / 从未提交"
+    }
+  ],
+  "title": "空项目示例：为什么图标是灰的（分支 B）"
+}

@@ -1,0 +1,37 @@
+{
+  "buffer": "# App 官网改版 需求说明\n\n> 品牌升级：官网首屏与信息架构重做\n\n## 目标\n\n- 首屏传达新品牌视觉\n- 下载入口一屏可见\n\n## 范围\n\n- 包含：首页、产品页、下载页\n- 不包含：后台管理系统\n\n## 草稿：首屏文案\n\n- 主标题候选 A：让协作更自然\n",
+  "docs": [
+    {
+      "content": "# App 官网改版 需求说明\n\n> 品牌升级：官网首屏与信息架构重做\n\n## 目标\n\n- 首屏传达新品牌视觉\n- 下载入口一屏可见\n\n## 范围\n\n- 包含：首页、产品页、下载页\n- 不包含：后台管理系统\n",
+      "name": "requirements.md"
+    },
+    {
+      "content": "# App 官网改版 界面设计\n\n## 页面清单\n\n- 首页（新品牌视觉）\n- 下载引导页\n",
+      "name": "ui-spec.md"
+    }
+  ],
+  "draftVersions": [],
+  "focusDoc": "requirements.md",
+  "project": {
+    "createdAt": 1758340800,
+    "description": "品牌升级：官网首屏与信息架构重做",
+    "id": "demo-website-revamp",
+    "name": "App 官网改版"
+  },
+  "versions": {
+    "requirements.md": [
+      {
+        "diff": "--- previous\n+++ current\n@@ -0,0 +1,13 @@\n+# App 官网改版 需求说明\n+\n+> 品牌升级：官网首屏与信息架构重做\n+\n+## 目标\n+\n+- 首屏传达新品牌视觉\n+- 下载入口一屏可见\n+\n+## 范围\n+\n+- 包含：首页、产品页、下载页\n+- 不包含：后台管理系统\n",
+        "name": "1758340800.md",
+        "time": 1758340800
+      }
+    ],
+    "ui-spec.md": [
+      {
+        "diff": "--- previous\n+++ current\n@@ -0,0 +1,6 @@\n+# App 官网改版 界面设计\n+\n+## 页面清单\n+\n+- 首页（新品牌视觉）\n+- 下载引导页\n",
+        "name": "1758340800.md",
+        "time": 1758340800
+      }
+    ]
+  }
+}

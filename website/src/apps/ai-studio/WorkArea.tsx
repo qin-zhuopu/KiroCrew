@@ -9,6 +9,7 @@ import DeployLog from './DeployLog'
 import DiffView from './DiffView'
 import DocEditor from './DocEditor'
 import NodeDetail from './NodeDetail'
+import type { StudioApi } from './studioApi'
 
 export type WorkTab =
   | { id: string; kind: 'doc'; title: string; docName: string; initialContent: string }
@@ -24,13 +25,16 @@ export interface WorkAreaProps {
   onClose: (id: string) => void
   /** Which project the open doc tabs belong to — DocEditor autosaves drafts against it. */
   projectId: string
+  /** data source for the doc editor; the demo passes its snapshot fake */
+  api?: StudioApi
   /** Bumped by the workspace top bar after a project-level commit: part of
    * the DocEditor's key, so the open editors re-mount against the tab's
    * freshly committed content instead of showing a stale dirty buffer. */
-  commitRev: number
+  /** omitted by the demo harness, whose script controls re-mounts itself */
+  commitRev?: number
 }
 
-export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, commitRev }: WorkAreaProps) {
+export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, api, commitRev = 0 }: WorkAreaProps) {
   const active = tabs.find((t) => t.id === activeId) ?? null
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -70,11 +74,17 @@ export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId,
             {i18nT('apps.aiStudio.empty_hint')}
           </div>
         ) : active.kind === 'doc' ? (
+          // the tab id rides in the key so a demo step (which re-keys its
+          // single tab per step) re-mounts the editor wholesale; for the
+          // ordinary path a tab's id is constant, so this stays the same
+          // stable identity the editor has always had. commitRev carries
+          // ACP-727's project-commit re-mount.
           <DocEditor
-            key={`${projectId}:${active.docName}:${commitRev}`}
+            key={`${projectId}:${active.id}:${active.docName}:${commitRev}`}
             projectId={projectId}
             docName={active.docName}
             initialContent={active.initialContent}
+            api={api}
           />
         ) : active.kind === 'diff' ? (
           <DiffView file={active.file} />

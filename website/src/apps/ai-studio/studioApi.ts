@@ -63,7 +63,28 @@ export class StudioApiError extends Error {
   }
 }
 
+/** The client's method shape, so the demo runtime can hand the workbench a
+ * snapshot-backed stand-in (website/src/apps/ai-studio/demo/runtime.ts)
+ * without a type fork at every call site. */
+export type StudioApi = {
+  listProjects: () => Promise<{ projects: StudioProject[] }>
+  createProject: (name: string, description: string) => Promise<{ project: StudioProject }>
+  getProject: (id: string) => Promise<{ project: StudioProject; docs: StudioDoc[] }>
+  saveDoc: (id: string, name: string, content: string) => Promise<{ doc: StudioDoc }>
+  listDraftDocs: (id: string) => Promise<{ drafts: StudioDraftDoc[] }>
+  saveDraft: (id: string, name: string, content: string) => Promise<{ ok: boolean }>
+  listDraftVersions: (id: string, name: string) => Promise<{ versions: StudioDraftVersion[] }>
+  listVersions: (id: string, name: string) => Promise<{ versions: StudioVersion[] }>
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Demo mode replaces this whole client with the snapshot-backed fake; the
+  // guard is the §5 promise written down — if a code path still reaches for
+  // the network while a demo snapshot is loaded, it fails here instead of
+  // quietly writing into the operator's real project store.
+  if (window.location.search.includes('demo=')) {
+    throw new StudioApiError(400, 'demo_mode', 'demo mode never reads or writes the real store')
+  }
   const res = await fetch(API + path, {
     credentials: 'same-origin',
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -84,7 +105,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export const studioApi = {
+export const studioApi: StudioApi = {
   listProjects: () => request<{ projects: StudioProject[] }>('/projects'),
   createProject: (name: string, description: string) =>
     request<{ project: StudioProject }>('/projects', {

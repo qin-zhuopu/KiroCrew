@@ -1,0 +1,288 @@
+{
+  "project": "demo-membership-points",
+  "scenario": "main-membership-points",
+  "steps": [
+    {
+      "action": {
+        "event": "打开「会员积分系统」，requirements.md 已在编辑器打开"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-001",
+      "highlight": {
+        "hint": "当前：requirements.md 已打开，处于「干净」态——diff 与修改历史图标是灰的（当前内容==最近提交，0 条未提交修改）；版本历史图标是亮的（已提交 2 版）。",
+        "open": [],
+        "target": "doc_editor"
+      },
+      "id": "main-1",
+      "title": "进入项目，打开需求文档"
+    },
+    {
+      "action": {
+        "event": "点开工具栏「版本历史」，选最新一行"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-002",
+      "highlight": {
+        "hint": "当前：v2 相对 v1 的 unified diff——新版只加了一行兑换规则（绿行），v1 的内容原样保留。",
+        "open": [
+          "versions_btn",
+          "version_row:newest"
+        ],
+        "target": "version_view"
+      },
+      "id": "main-2",
+      "title": "版本历史：看最新一版（v2）的增量 diff"
+    },
+    {
+      "action": {
+        "event": "（返回编辑）再开「版本历史」选最早一行"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-003",
+      "highlight": {
+        "hint": "当前：v1 没有前驱版本，diff 引擎拿空基线比对，整篇读作新增——最早版本的诚实形状，不是错误。上一步的只读视图已随步骤切换自动退出（每步整体换快照、整体重挂载）。",
+        "open": [
+          "versions_btn",
+          "version_row:oldest"
+        ],
+        "target": "version_view"
+      },
+      "id": "main-3",
+      "title": "版本历史：最早版本（v1）整篇按新增展示"
+    },
+    {
+      "action": {
+        "event": "在编辑器追加两行验收标准，停手"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-004",
+      "highlight": {
+        "hint": "当前：缓冲已变（追加了优惠券有效期与「积分抵现」排除项），页脚提示未保存，diff 图标由灰转亮——存在未提交修改。缓冲内容来自快照，经编辑器真实的 Markdown 源视图落位，不碰真实后端。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer"
+        ],
+        "target": "diff_btn"
+      },
+      "id": "main-4",
+      "title": "用户追加两行验收标准（快照重放）"
+    },
+    {
+      "action": {
+        "event": "停手 2 秒，防抖自动保存把当前缓冲记成一条草稿记录"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-005",
+      "highlight": {
+        "hint": "当前：修改历史面板出现 1 条记录。规则：内容与上一条相同不落新条——光标再动多久都不会灌出重复记录。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer",
+          "draft_history_btn"
+        ],
+        "target": "draft_history_list"
+      },
+      "id": "main-5",
+      "title": "防抖 2s 到期，自动保存记下一条草稿"
+    },
+    {
+      "action": {
+        "event": "点亮 diff 图标，点开「与最近提交对比」"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-006",
+      "highlight": {
+        "hint": "当前：红行是上一版内容，绿行是缓冲新增——就是刚才追加的两行。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer",
+          "diff_btn"
+        ],
+        "target": "diff_dialog"
+      },
+      "id": "main-6",
+      "title": "打开红绿 diff：当前缓冲 vs 最近提交"
+    },
+    {
+      "action": {
+        "event": "确认红绿无误，看顶栏的待提交汇总（ACP-727 后提交是项目级操作）"
+      },
+      "after": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-007",
+      "highlight": {
+        "hint": "当前：顶栏徽章列出了所有含未提交草稿的文档——提交喂给整个项目的需求图谱，不再是单文档操作。下一步点「提交全部」真实走一遍提交路径。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer"
+        ],
+        "target": "commit_summary"
+      },
+      "id": "main-7",
+      "title": "确认提交范围：顶栏汇总待提交文档"
+    },
+    {
+      "action": {
+        "event": "点顶栏「提交全部」——旧内容进版本快照、草稿记录整体清空、编辑器重挂到已提交基线"
+      },
+      "after": {
+        "diffIcon": "gray",
+        "dirty": false,
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "historyIcon": "gray",
+        "versions": 3,
+        "versionsIcon": "list"
+      },
+      "before": {
+        "diffIcon": "active",
+        "dirty": true,
+        "doc": "requirements.md",
+        "draftRecords": 1,
+        "historyIcon": "list",
+        "versions": 2,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-007",
+      "highlight": {
+        "hint": "当前：提交刚真实发生（同一个顶栏按钮、同一套业务逻辑，数据来自快照 fake）——版本历史 3 版（v3 即刚才的提交），修改历史 0 条（提交即清空），diff 图标回灰——闭环走完。",
+        "open": [
+          "markdown_toggle",
+          "set_buffer",
+          "commit_all_btn",
+          "versions_btn"
+        ],
+        "target": "version_history_list"
+      },
+      "id": "main-8",
+      "title": "点「提交全部」：版本 +1、修改历史清空、图标回灰"
+    }
+  ],
+  "title": "会员积分系统：编辑 → 自动保存 → 提交闭环"
+}
