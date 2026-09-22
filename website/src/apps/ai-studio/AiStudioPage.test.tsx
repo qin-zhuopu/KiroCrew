@@ -7,7 +7,7 @@
 // leaves the test. UI strings assert the English catalog (tests pin en);
 // project/doc content is Chinese by design and asserted as data.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -32,6 +32,7 @@ const api = vi.hoisted(() => ({
   getProject: vi.fn(),
   saveDoc: vi.fn(),
   saveDraft: vi.fn(async () => ({ ok: true })),
+  listDraftDocs: vi.fn(async () => ({ drafts: [] as unknown[] })),
   listDraftVersions: vi.fn(async () => ({ versions: [] })),
   listVersions: vi.fn(async () => ({ versions: [] })),
 }))
@@ -47,6 +48,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.getProject.mockResolvedValue({ project: TEST_PROJECT, docs: TEST_DOCS })
   api.listProjects.mockResolvedValue({ projects: [TEST_PROJECT] })
+  // clearAllMocks does not drop a mockResolvedValue a test set, so the
+  // no-drafts default is re-armed per test (the commit tests override it).
+  api.listDraftDocs.mockResolvedValue({ drafts: [] })
 })
 
 function renderAt(entry: string) {
@@ -116,6 +120,44 @@ describe('workbench shell', () => {
     await user.click(screen.getByTitle('Toggle chat pane'))
     // hiding everything would leave no way back — chat must survive
     expect(await screen.findByTestId('chat-embed-stub')).toBeInTheDocument()
+  })
+})
+
+describe('project-level commit', () => {
+  it('lists drafted docs in the header and commits every one of them', async () => {
+    const user = userEvent.setup()
+    api.listDraftDocs.mockResolvedValue({
+      drafts: [
+        { name: 'requirements.md', content: '# 草稿', changed: true },
+        { name: 'workflow.md', content: '# 流程草稿', changed: true },
+      ],
+    })
+    api.saveDoc.mockResolvedValue({ doc: { name: 'x', content: 'x' } })
+    renderAt('/ai-studio/projects/p1')
+    await screen.findByTestId('ai-studio')
+    // the summary names the drafted docs next to the button; waiting on it
+    // also waits for the drafts query to land, so the click below cannot
+    // race the query's first resolution
+    const badge = await screen.findByTitle(/requirements\.md, workflow\.md/)
+    expect(badge).toBeInTheDocument()
+    const commitBtn = screen.getByRole('button', { name: /Commit all/i })
+    expect(commitBtn).toBeEnabled()
+    await user.click(commitBtn)
+    // one existing-API commit per drafted doc
+    await waitFor(() => expect(api.saveDoc).toHaveBeenCalledTimes(2))
+    expect(api.saveDoc).toHaveBeenCalledWith('p1', 'requirements.md', '# 草稿')
+    expect(api.saveDoc).toHaveBeenCalledWith('p1', 'workflow.md', '# 流程草稿')
+    // the drafts query refetched; it still reports the list, so re-enabling
+    // the button would be the honest state after a refetch that kept the
+    // drafts — here we only assert the calls happened exactly twice.
+    expect(api.listDraftDocs).toHaveBeenCalledTimes(2)
+  })
+
+  it('the commit button is disabled while nothing is drafted', async () => {
+    renderAt('/ai-studio/projects/p1')
+    await screen.findByTestId('ai-studio')
+    expect(screen.getByRole('button', { name: /Commit all/i })).toBeDisabled()
+    expect(api.saveDoc).not.toHaveBeenCalled()
   })
 })
 
