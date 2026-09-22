@@ -31,6 +31,9 @@ const api = vi.hoisted(() => ({
   createProject: vi.fn(),
   getProject: vi.fn(),
   saveDoc: vi.fn(),
+  saveDraft: vi.fn(async () => ({ ok: true })),
+  listDraftVersions: vi.fn(async () => ({ versions: [] })),
+  listVersions: vi.fn(async () => ({ versions: [] })),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')

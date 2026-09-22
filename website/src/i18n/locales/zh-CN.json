@@ -360,7 +360,18 @@
       "no_docs": "暂无文档",
       "save": "保存",
       "draft_saved": "已保存",
-      "draft_dirty": "有未保存的修改"
+      "draft_dirty": "有未保存的修改",
+      "commit_version": "提交版本",
+      "diff_vs_committed": "与最近提交对比",
+      "draft_history": "修改历史",
+      "draft_history_empty": "上次提交以来暂无自动保存记录",
+      "version_history": "版本历史",
+      "version_history_empty": "暂无已提交版本",
+      "version_diff": "版本差异",
+      "back_to_editing": "返回编辑",
+      "restore_version": "恢复到该版",
+      "diff_no_change": "无差异",
+      "close": "关闭"
     },
     "autoImprovement": {
       "findingDetail": {

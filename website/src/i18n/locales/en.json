@@ -152,7 +152,18 @@
       "no_docs": "No documents yet",
       "save": "Save",
       "draft_saved": "Saved",
-      "draft_dirty": "Unsaved changes"
+      "draft_dirty": "Unsaved changes",
+      "commit_version": "Commit version",
+      "diff_vs_committed": "Diff against last commit",
+      "draft_history": "Autosave history",
+      "draft_history_empty": "No autosaved changes since the last commit",
+      "version_history": "Version history",
+      "version_history_empty": "No committed versions yet",
+      "version_diff": "Version diff",
+      "back_to_editing": "Back to editing",
+      "restore_version": "Restore this version",
+      "diff_no_change": "No differences",
+      "close": "Close"
     },
     "autoImprovement": {
       "findingDetail": {
