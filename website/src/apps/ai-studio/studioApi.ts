@@ -89,6 +89,37 @@ export interface StudioRelease {
   notes: string
 }
 
+/** One structured change the AI distillation proposes for the graph
+ * (ACP-733). Same "type written first" doctrine: no endpoint yet, the demo
+ * snapshot and the future distillation API share one shape. `kind` names
+ * what happens to `target`; `evidenceDoc` is the source paragraph the change
+ * was distilled from, so every candidate is traceable to a document passage
+ * (the acceptance doc's step 8 requirement). */
+export interface StudioDistillCandidate {
+  id: string
+  kind: 'add' | 'modify' | 'remove'
+  /** graph node id this candidate changes */
+  target: string
+  /** one-line summary shown in the candidate list */
+  summary: string
+  /** "doc.md § section" — the paragraph the change was distilled from */
+  evidenceDoc: string
+}
+
+/** A distillation run the AI launched after a release (ACP-733): the
+ * candidate structured changes derived from the frozen documents, plus the
+ * status the panel shows while it runs. `appliedAt` is set once the graph
+ * has absorbed the accepted candidates. */
+export interface StudioDistillation {
+  id: string
+  /** the release whose frozen docs this distilled from */
+  releaseVersion: string
+  status: 'running' | 'done'
+  candidates: StudioDistillCandidate[]
+  /** unix seconds once status=done, absent while running */
+  appliedAt?: number
+}
+
 /** One source file a release generated (ACP-730). `derivedFrom` names the
  * graph nodes (requirements) the file implements — the demo generator
  * cross-checks that set against the graph delta, so "generated code matches

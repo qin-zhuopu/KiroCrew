@@ -33,17 +33,26 @@ const KIND_FILL: Record<StudioGraphNode['kind'], string> = {
   module: 'var(--bg-elevated)',
 }
 
-export default function GraphView({ graph, addedNodeIds, addedEdges }: {
+export default function GraphView({ graph, addedNodeIds, addedEdges, modifiedNodeIds, removedNodeIds }: {
   graph: StudioGraph
   /** nodes this snapshot's story added (the commit's contribution) — ringed
-   * and exposed as data-graph-added for the ring/locator layer */
+   * solid and exposed as data-graph-added for the ring/locator layer */
   addedNodeIds?: string[]
   /** the same for edges, each spelled "from->to" */
   addedEdges?: string[]
+  /** nodes this wave CHANGED (ACP-733's distillation): ringed DASHED — a
+   * different stroke from "added" so a viewer reads the two differently */
+  modifiedNodeIds?: string[]
+  /** nodes the wave REMOVED (ACP-733): by definition absent from `graph`,
+   * so they render as struck-through ids under the canvas — the wave names
+   * its own absences; the human summary of each removal lives in the
+   * distillation candidate list, not in a ghost node faked into the data */
+  removedNodeIds?: string[]
 }) {
   const markerId = useId()
   const addedNodes = new Set(addedNodeIds ?? [])
   const addedEdgeSet = new Set(addedEdges ?? [])
+  const modifiedNodes = new Set(modifiedNodeIds ?? [])
   // slot index within each kind's column, in declaration order — the
   // snapshot's node order is the layout order (deterministic replay)
   const seen: Record<string, number> = {}
@@ -91,12 +100,14 @@ export default function GraphView({ graph, addedNodeIds, addedEdges }: {
         })}
         {nodes.map(({ node, x, y }) => {
           const added = addedNodes.has(node.id)
+          const modified = modifiedNodes.has(node.id)
           return (
             <g
               key={node.id}
               data-graph-node={node.id}
               data-graph-node-kind={node.kind}
               data-graph-added={added ? 'true' : undefined}
+              data-graph-modified={modified ? 'true' : undefined}
             >
               <rect
                 x={x - NODE_W / 2}
@@ -105,8 +116,9 @@ export default function GraphView({ graph, addedNodeIds, addedEdges }: {
                 height={NODE_H}
                 rx={9}
                 fill={KIND_FILL[node.kind]}
-                stroke={added ? 'var(--accent)' : 'var(--border)'}
-                strokeWidth={added ? 2.5 : 1}
+                stroke={added || modified ? 'var(--accent)' : 'var(--border)'}
+                strokeWidth={added || modified ? 2.5 : 1}
+                strokeDasharray={modified ? '6 4' : undefined}
               />
               <text x={x} y={y - (node.doc ? 2 : -5)} textAnchor="middle" fontSize={13} fill="var(--text)">
                 {node.label}
@@ -120,6 +132,14 @@ export default function GraphView({ graph, addedNodeIds, addedEdges }: {
           )
         })}
       </svg>
+      {removedNodeIds && removedNodeIds.length > 0 && (
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted" data-testid="graph-removed-row">
+          <span className="shrink-0">{i18nT('apps.aiStudio.graph_removed')}</span>
+          {removedNodeIds.map((id) => (
+            <span key={id} data-graph-removed={id} className="line-through">{id}</span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

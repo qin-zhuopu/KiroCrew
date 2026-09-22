@@ -40,10 +40,10 @@ const SCENARIOS = Object.entries(STEP_FILES).map(([path, mod]) => ({
 /** Business-observable state, read the way a viewer sees it: the editor's
  * data attributes (the state machine's own read-backs) and the icons'
  * enabled/disabled flags (what "grey" means on screen). */
-function readState(): Record<string, boolean | number> {
+function readState(): Record<string, boolean | number | string> {
   const doc = document.querySelector<HTMLElement>('[data-testid^="doc-"]')
   expect(doc, 'editor surface mounted').not.toBeNull()
-  const out: Record<string, boolean | number> = {
+  const out: Record<string, boolean | number | string> = {
     dirty: doc!.dataset.docDirty === 'true',
     draftRecords: Number(doc!.dataset.draftCount),
     versions: Number(doc!.dataset.versionCount),
@@ -64,14 +64,20 @@ function readState(): Record<string, boolean | number> {
     const frame = graph.parentElement
     out.released = frame?.dataset.demoReleased === 'true'
     out.generatedFiles = Number(frame?.dataset.demoGeneratedFiles)
+    // the distillation read-backs (ACP-733) ride the same wrapper: modified /
+    // removed node counts and the run's status/candidate count
+    out.graphModifiedNodes = Number(frame?.dataset.demoGraphModified)
+    out.graphRemovedNodes = Number(frame?.dataset.demoGraphRemoved)
+    out.distillStatus = frame?.dataset.demoDistillStatus ?? 'none'
+    out.distillCandidates = Number(frame?.dataset.demoDistillCandidates)
   }
   return out
 }
 
 /** the §2-vocabulary fields of a declared before/after, mapped onto the
  * observable readings above */
-function declared(s: DemoState): Record<string, boolean | number> {
-  const out: Record<string, boolean | number> = {
+function declared(s: DemoState): Record<string, boolean | number | string> {
+  const out: Record<string, boolean | number | string> = {
     dirty: s.dirty,
     draftRecords: s.draftRecords,
     versions: s.versions,
@@ -83,6 +89,10 @@ function declared(s: DemoState): Record<string, boolean | number> {
     out.graphAddedNodes = s.graphAddedNodes ?? 0
     out.released = s.released ?? false
     out.generatedFiles = s.generatedFiles ?? 0
+    out.graphModifiedNodes = s.graphModifiedNodes ?? 0
+    out.graphRemovedNodes = s.graphRemovedNodes ?? 0
+    out.distillStatus = s.distillStatus ?? 'none'
+    out.distillCandidates = s.distillCandidates ?? 0
   }
   return out
 }
@@ -424,5 +434,72 @@ describe('the release step (ACP-730): replay-consistent and back-recoverable', (
       { timeout: 6000, interval: 50 },
     )
     expect(readState()).toEqual(forward)
+  }, 90000)
+})
+
+describe('the distillation beats (ACP-733): running → candidates → applied graph', () => {
+  // the causal chain 发版→沉淀→结构化设计 is the acceptance doc's steps 7-9.
+  // main-11 is a live-act step (real 开始沉淀 click → running snapshot);
+  // main-12 lists the candidate wave; main-13 shows the graph that absorbed
+  // it. Together they pin that the candidate list and the graph wave are the
+  // same fact (the generator proved it; here the DOM confirms it).
+  it('main-11 lands the running task, main-12 the candidate list, main-13 the applied graph', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    mountDemo(name)
+
+    await walkTo(script, 'main-11')
+    await waitFor(
+      () => expect(readState().distillStatus).toBe('running'),
+      { timeout: 6000, interval: 50 },
+    )
+    expect(readState().distillCandidates).toBe(0)
+    expect(document.querySelector('[data-testid="distill-panel"][data-distill-status="running"]')).not.toBeNull()
+
+    await clickTestId('demo-next')
+    await settleFor('main-12')
+    await waitFor(
+      () => expect(readState().distillCandidates).toBe(3),
+      { timeout: 4000, interval: 50 },
+    )
+    // three candidate rows, and the graph behind has NOT moved yet (main-12's
+    // frame shows the finished list over the still-old graph)
+    expect(document.querySelectorAll('[data-testid^="distill-candidate-"]')).toHaveLength(3)
+    expect(readState().graphModifiedNodes).toBe(0)
+    expect(readState().graphRemovedNodes).toBe(0)
+
+    await clickTestId('demo-next')
+    await settleFor('main-13')
+    await waitFor(
+      () => expect(readState()).toEqual(declared(script.steps.find((s) => s.id === 'main-13')!.after)),
+      { timeout: 4000, interval: 50 },
+    )
+    // the applied graph: +1 added, ~1 modified, -1 removed — one per candidate
+    expect(readState().graphAddedNodes).toBe(1)
+    expect(readState().graphModifiedNodes).toBe(1)
+    expect(readState().graphRemovedNodes).toBe(1)
+    // and the graph view renders all three marks: a dashed-modified node and
+    // a struck-through removed id alongside the added one
+    expect(document.querySelectorAll('[data-graph-added="true"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-graph-modified="true"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-graph-removed]')).toHaveLength(1)
+  }, 90000)
+
+  it('stepping back to main-12 drops the applied graph (no leftover wave)', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    mountDemo(name)
+    await walkTo(script, 'main-13')
+    await waitFor(
+      () => expect(readState().graphRemovedNodes).toBe(1),
+      { timeout: 4000, interval: 50 },
+    )
+    // back to the candidate-list frame: the graph wave was main-13's own
+    // snapshot data, so stepping back re-derives the pre-absorption picture
+    await clickTestId('demo-prev')
+    await settleFor('main-12')
+    await waitFor(
+      () => expect(readState().graphRemovedNodes).toBe(0),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(readState().distillCandidates).toBe(3)
   }, 90000)
 })

@@ -108,6 +108,15 @@ export const LOCATORS: Record<string, DemoLocator> = {
     },
   },
   codegen_view: { find: () => byTestid('codegen-view') },
+  // the AI-distillation panel + its top-bar button (ACP-733), same snapshot-
+  // driven doctrine; the button waits for enabled like the commit/release ones
+  distill_panel: { find: () => byTestid('distill-panel') },
+  distill_btn: {
+    find: () => {
+      const el = byTestid('distill-btn')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
 
   // row picks inside an open popover / dialog
   version_row: { find: (arg) => popoverRows('version-history-list', arg) },

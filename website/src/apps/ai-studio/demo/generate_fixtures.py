@@ -98,6 +98,7 @@ class Project:
         release: "dict[str, Any] | None" = None,
         generated_files: "list[dict[str, str]] | None" = None,
         generated_from: "str | None" = None,
+        distillation: "dict[str, Any] | None" = None,
     ) -> dict[str, Any]:
         """One replayable state: every doc's committed content, the focused
         doc's editor buffer, and its draft records (newest first). `graph`
@@ -130,6 +131,8 @@ class Project:
                 snap["graphDelta"] = graph_delta
         if release is not None:
             snap["release"] = release
+        if distillation is not None:
+            snap["distillation"] = distillation
         if generated_files is not None:
             snap["generatedFiles"] = generated_files
             # the audit anchor: which snapshot's graphDelta these files must
@@ -311,6 +314,79 @@ GENERATED_FILES: list[dict[str, Any]] = [
     },
 ]
 
+# ---- the distillation wave after the release (ACP-733) -----------------------
+# 验收文档口径：图谱的这轮更新不是提交直接出的——发版冻结文档后，AI 把文档
+# 变化「沉淀」为结构化设计事实（候选的新增/修改/删除），图谱随之更新。
+# GRAPH_DISTILLED is GRAPH_AFTER with the accepted candidates applied:
+# mod-coupon-service added, req-redeem's label refined, the orphan
+# doc-workflow removed. check_distillation() proves every candidate's target
+# landed exactly that way — the candidate list and the graph are one fact.
+
+_DISTILL_REDEEM = _node("req-redeem", "积分兑换优惠券（7 天有效）", "requirement", "requirements.md")
+
+GRAPH_DISTILLED: dict[str, Any] = {
+    "nodes": [
+        _DISTILL_REDEEM if n["id"] == "req-redeem" else n
+        for n in GRAPH_AFTER["nodes"]
+        if n["id"] != "doc-workflow"
+    ] + [_node("mod-coupon-service", "优惠券服务模块", "module")],
+    "edges": GRAPH_AFTER["edges"] + [
+        _edge("req-coupon-expiry", "mod-coupon-service", "depends"),
+        _edge("req-redeem", "mod-coupon-service", "depends"),
+    ],
+}
+
+# the three candidates the distillation proposes (add/modify/remove, one per
+# group — the acceptance doc's step-8 list). evidenceDoc names the paragraph
+# each fact was distilled from; targets are machine-checked against the
+# before/after graphs by check_distillation.
+DISTILL_CANDIDATES: list[dict[str, Any]] = [
+    {
+        "id": "dc-add-coupon-service",
+        "kind": "add",
+        "target": "mod-coupon-service",
+        "summary": "新增模块「优惠券服务」：有效期判断与过期退款都归它",
+        "evidenceDoc": "requirements.md § 兑换与有效期",
+    },
+    {
+        "id": "dc-modify-redeem",
+        "kind": "modify",
+        "target": "req-redeem",
+        "summary": "细化「积分兑换优惠券」：兑换出的券带 7 天有效期",
+        "evidenceDoc": "requirements.md § 兑换与有效期",
+    },
+    {
+        "id": "dc-remove-workflow",
+        "kind": "remove",
+        "target": "doc-workflow",
+        "summary": "workflow.md 仍描述旧流程且无需求挂靠，先从设计图谱移除",
+        "evidenceDoc": "workflow.md § 全文",
+    },
+]
+
+# the two frames of the distillation story: the run in flight (candidate list
+# still empty on screen, status tells the panel "processing") and the landed
+# run (candidates grouped for viewing, appliedAt set, graph already updated).
+DISTILL_RUNNING: dict[str, Any] = {
+    "id": "distill-v3",
+    "releaseVersion": RELEASE_V3["version"],
+    "status": "running",
+    "candidates": [],
+}
+
+DISTILL_DONE: dict[str, Any] = {
+    "id": "distill-v3",
+    "releaseVersion": RELEASE_V3["version"],
+    "status": "done",
+    "candidates": DISTILL_CANDIDATES,
+}
+
+# the landed frame carries appliedAt with it (the run finished AND the graph
+# absorbed the accepted candidates — check_distillation refuses appliedAt on
+# a snapshot whose graph has not moved, and refuses an unmoved done-frame
+# claiming appliedAt)
+DISTILL_APPLIED: dict[str, Any] = {**DISTILL_DONE, "appliedAt": RELEASE_V3["time"] + 600}
+
 # ---- branch A: App 官网改版 (half-done draft, restore branch) ---------------
 
 site = Project("demo-website-revamp", "App 官网改版", "品牌升级：官网首屏与信息架构重做", T0 - 3 * 86400)
@@ -429,6 +505,63 @@ add(
     ),
 )
 
+add(
+    "main-011",
+    main.snapshot(
+        "requirements.md",
+        REQ_EDIT,
+        [],
+        graph=GRAPH_AFTER,
+        release=RELEASE_V3,
+        generated_files=GENERATED_FILES,
+        generated_from="main-009",
+        distillation=DISTILL_RUNNING,
+    ),
+)
+# main-012: the run is done and its candidate list is finished, but the
+# graph has NOT moved yet (no delta, no appliedAt) — this is step 8's frame:
+# 看沉淀过程, the grouped candidate list with each change naming its source
+# paragraph, over the still-old graph. The absorption lands one frame later.
+add(
+    "main-012",
+    main.snapshot(
+        "requirements.md",
+        REQ_EDIT,
+        [],
+        graph=GRAPH_AFTER,
+        release=RELEASE_V3,
+        generated_files=GENERATED_FILES,
+        generated_from="main-009",
+        distillation=DISTILL_DONE,
+    ),
+)
+# main-013: the applied frame (step 9, 看最新结构化设计) — the graph absorbed
+# the accepted candidates (GRAPH_DISTILLED) and the wave's own delta (added /
+# modified / removed, machine-proven equal to the before/after graph diff)
+# is what the graph highlights. appliedAt names the instant of absorption.
+add(
+    "main-013",
+    main.snapshot(
+        "requirements.md",
+        REQ_EDIT,
+        [],
+        graph=GRAPH_DISTILLED,
+        graph_delta={
+            "nodes": ["mod-coupon-service"],
+            "edges": [
+                "req-coupon-expiry->mod-coupon-service",
+                "req-redeem->mod-coupon-service",
+            ],
+            "modified": ["req-redeem"],
+            "removed": ["doc-workflow"],
+        },
+        release=RELEASE_V3,
+        generated_files=GENERATED_FILES,
+        generated_from="main-009",
+        distillation=DISTILL_APPLIED,
+    ),
+)
+
 # branch A --------------------------------------------------------------------
 # The honest chain (same rhythm as the main line): enter clean → type draft
 # A → autosave it → extend to draft B → autosave → open history → pick the
@@ -498,6 +631,19 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
         # that world states released/generatedFiles (false/0 until the cut).
         state["released"] = snap.get("release") is not None
         state["generatedFiles"] = len(snap.get("generatedFiles", []))
+        # the modified/removed halves of a graph delta (ACP-733): the
+        # distillation wave changes existing nodes and prunes orphans, and the
+        # graph read-backs must be able to say so — 0 for every world/step
+        # whose story is a plain addition.
+        delta = snap.get("graphDelta", {})
+        state["graphModifiedNodes"] = len(delta.get("modified", []))
+        state["graphRemovedNodes"] = len(delta.get("removed", []))
+        # the distillation vocabulary rides the release gate: the AI only
+        # distils after a release froze the docs, so every step of that world
+        # states its status (none/running/done) and the candidate count.
+        dist = snap.get("distillation")
+        state["distillStatus"] = dist["status"] if dist else "none"
+        state["distillCandidates"] = len(dist["candidates"]) if dist else 0
     return state
 
 
@@ -521,6 +667,7 @@ TARGET_VIEW: dict[str, str] = {
     "version_history_list": "版本历史面板",
     "graph_view": "页底需求图谱面板",
     "codegen_view": "发版徽章与生成代码面板",
+    "distill_panel": "AI 沉淀面板",
     "toolbar_trio": "工具栏三图标",
 }
 OBS_LABELS: dict[str, str] = {
@@ -531,13 +678,17 @@ OBS_LABELS: dict[str, str] = {
     "historyDisabled": "修改历史图标置灰",
     "graphNodes": "图谱节点总数",
     "graphAddedNodes": "本次新增图谱节点数",
+    "graphModifiedNodes": "本次修改图谱节点数",
+    "graphRemovedNodes": "本次移除图谱节点数",
     "released": "已发版",
     "generatedFiles": "生成代码文件数",
+    "distillStatus": "沉淀任务状态",
+    "distillCandidates": "沉淀候选变化数",
 }
 # the observable reading of a declared state — exactly the keys the script
 # test's readState() mirrors, so a criterion is always checkable on the DOM
 OBS_FIELDS = list(OBS_LABELS)
-ICON_LABELS = {"gray": "灰", "active": "亮", "list": "列表"}
+ICON_LABELS = {"gray": "灰", "active": "亮", "list": "列表", "none": "无任务", "running": "进行中", "done": "已完成"}
 
 
 def observables(state: dict[str, Any]) -> dict[str, Any]:
@@ -554,8 +705,12 @@ def observables(state: dict[str, Any]) -> dict[str, Any]:
     if "graphNodes" in state:
         out["graphNodes"] = state["graphNodes"]
         out["graphAddedNodes"] = state["graphAddedNodes"]
+        out["graphModifiedNodes"] = state["graphModifiedNodes"]
+        out["graphRemovedNodes"] = state["graphRemovedNodes"]
         out["released"] = state["released"]
         out["generatedFiles"] = state["generatedFiles"]
+        out["distillStatus"] = state["distillStatus"]
+        out["distillCandidates"] = state["distillCandidates"]
     return out
 
 
@@ -644,25 +799,40 @@ def step(
                 f"{sid}.{label}: dirty diff with 0 draft records violates the "
                 "dirty⇒has-records invariant (ACP-728) — seed the snapshot"
             )
-    # ACP-729 cross-check — a step that DECLARES a graph delta must actually
-    # land it: the after snapshot's graph minus the before snapshot's graph is
-    # exactly the declared delta (set difference on node ids and "from->to"
-    # edge spellings). The highlight of "new in this commit" is only honest
-    # if the snapshots' diff says so, never because a step wished it so.
+    # ACP-729/733 cross-check — a step that DECLARES a graph delta must
+    # actually land it: the after snapshot's graph vs the before snapshot's
+    # graph is exactly the declared delta — added nodes/edges by set
+    # difference, removed nodes by reverse difference, modified nodes by label
+    # change. The highlight of "new / changed in this wave" is only honest if
+    # the snapshots' diff says so, never because a step wished it so.
     after_snap = SNAPS[after_fix or fixture]
     before_snap = SNAPS[prev] if prev else SNAPS[fixture]
     delta = after_snap.get("graphDelta")
     if delta is not None:
         ga = after_snap.get("graph") or {}
         gb = before_snap.get("graph") or {}
-        real_nodes = {n["id"] for n in ga.get("nodes", [])} - {n["id"] for n in gb.get("nodes", [])}
+        ga_ids = {n["id"] for n in ga.get("nodes", [])}
+        gb_ids = {n["id"] for n in gb.get("nodes", [])}
+        real_nodes = ga_ids - gb_ids
+        real_removed = gb_ids - ga_ids
+        la = {n["id"]: n["label"] for n in ga.get("nodes", [])}
+        lb = {n["id"]: n["label"] for n in gb.get("nodes", [])}
+        real_modified = {i for i in ga_ids & gb_ids if la[i] != lb[i]}
         real_edges = {f"{e['from']}->{e['to']}" for e in ga.get("edges", [])} - {
             f"{e['from']}->{e['to']}" for e in gb.get("edges", [])
         }
-        if set(delta["nodes"]) != real_nodes or set(delta["edges"]) != real_edges:
+        if (
+            set(delta["nodes"]) != real_nodes
+            or set(delta["edges"]) != real_edges
+            or set(delta.get("modified", [])) != real_modified
+            or set(delta.get("removed", [])) != real_removed
+        ):
             raise AssertionError(
-                f"{sid}: declared graphDelta {sorted(delta['nodes'])}/{sorted(delta['edges'])} "
-                f"≠ snapshot diff {sorted(real_nodes)}/{sorted(real_edges)} — "
+                f"{sid}: declared graphDelta "
+                f"{sorted(delta['nodes'])}/{sorted(delta['edges'])}/"
+                f"{sorted(delta.get('modified', []))}/{sorted(delta.get('removed', []))} "
+                f"≠ snapshot diff {sorted(real_nodes)}/{sorted(real_edges)}/"
+                f"{sorted(real_modified)}/{sorted(real_removed)} — "
                 "the highlight must be the snapshots' own difference"
             )
     out = {
@@ -712,6 +882,8 @@ def _start_from(state: dict[str, Any]) -> str:
         bits.append(f"图谱 {ob['graphNodes']} 节点")
         if ob["released"]:
             bits.append(f"已发版（生成 {ob['generatedFiles']} 文件）")
+        if ob["distillStatus"] != "none":
+            bits.append(f"沉淀{'已完成' if ob['distillStatus'] == 'done' else '进行中'}（候选 {ob['distillCandidates']} 条）")
     return f"{state['doc']}：" + "、".join(bits)
 
 
@@ -823,6 +995,37 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 prev="main-009",
                 after_fix="main-010",
                 release_phases=["解析需求图谱…", "按图谱生成文件清单…", "生成完成，v3 就绪"],
+            ),
+            step(
+                "main-11",
+                "点「开始沉淀」：发版后 AI 把冻结文档沉淀为结构化事实",
+                "main-010",
+                "点顶栏「开始沉淀」——AI 从 v3 冻结的文档提炼结构化设计事实，任务进入进行中",
+                "distill_panel",
+                "当前：沉淀任务已真实启动（同一个顶栏按钮、快照 fake 落任务）——面板显示「进行中」。验收口径：图谱不是提交直接出的，是发版后 AI 沉淀文档变化、图谱随之更新；沉淀完成在下一步的快照里，不是计时器假装。",
+                ["distill_btn"],
+                prev="main-010",
+                after_fix="main-011",
+            ),
+            step(
+                "main-12",
+                "看沉淀过程：3 条候选结构化变化，各标注来源段落",
+                "main-012",
+                "沉淀完成——候选清单按新增/修改/删除分组，每条带来源文档段落（可追溯，不是黑盒）",
+                "distill_panel",
+                "当前：3 条候选——新增「优惠券服务模块」（add）、细化「积分兑换优惠券」标签（modify）、移除无挂靠的 workflow.md（remove），每条注明提炼自哪段文档。图谱还是旧的：应用是下一拍的事。",
+                None,
+                prev="main-011",
+            ),
+            step(
+                "main-13",
+                "看最新结构化设计：图谱亮起本轮沉淀的新增/修改/移除",
+                "main-013",
+                "候选被采纳、图谱吸收——新节点实线亮框、修改节点虚线亮框、孤儿节点消失",
+                "graph_view",
+                "当前：图谱 8 节点——绿框实线是新增的「优惠券服务模块」，绿框虚线是被细化的「积分兑换优惠券」，workflow.md 已被移除。新增/修改/移除三个数都由前后快照的图谱差机器校验，且与候选清单一一对应：发版→沉淀→结构化设计的因果链完整了。",
+                None,
+                prev="main-012",
             ),
         ],
     },
@@ -1012,6 +1215,53 @@ def check_generated_traceability(key: str, snap: dict[str, Any]) -> None:
         )
 
 
+def check_distillation(key: str, snap: dict[str, Any]) -> None:
+    """ACP-733 — the distillation story as DATA, checked at generation:
+    - a candidate list exists only in a released world (AI distils after the
+      docs froze) and only with a non-empty release;
+    - once status=done AND appliedAt is set, the snapshot's graphDelta must
+      exist and its added/modified/removed node sets must equal exactly the
+      candidates' targets by kind — the candidate list the panel groups and
+      the graph wave the view highlights are one and the same fact;
+    - appliedAt without a graph delta (a done-run claiming absorption over an
+      unmoved graph) is rejected here, not on stage."""
+    dist = snap.get("distillation")
+    if dist is None:
+        return
+    assert snap.get("release") is not None, f"{key}: distillation without a release — AI distils frozen docs only"
+    for c in dist["candidates"]:
+        assert c["kind"] in ("add", "modify", "remove"), f"{key}: candidate {c['id']} kind {c['kind']!r}"
+        assert c["evidenceDoc"].strip(), f"{key}: candidate {c['id']} names no source paragraph"
+    if dist["status"] != "done":
+        assert dist.get("appliedAt") is None, f"{key}: distillation appliedAt without status=done"
+        return
+    if dist.get("appliedAt") is None:
+        # a finished run whose graph has not absorbed it yet (step 8's frame:
+        # the candidate list is whole, the graph still old) — no wave to check
+        assert "graphDelta" not in snap, (
+            f"{key}: graph moved but distillation not marked applied — absorption lands with appliedAt"
+        )
+        return
+    delta = snap.get("graphDelta")
+    assert delta is not None, (
+        f"{key}: distillation done+appliedAt but the graph never moved — "
+        "the wave must land in the same frame that marks it applied"
+    )
+    by_kind: dict[str, set] = {"add": set(), "modify": set(), "remove": set()}
+    for c in dist["candidates"]:
+        by_kind[c["kind"]].add(c["target"])
+    if (
+        by_kind["add"] != set(delta["nodes"])
+        or by_kind["modify"] != set(delta.get("modified", []))
+        or by_kind["remove"] != set(delta.get("removed", []))
+    ):
+        raise AssertionError(
+            f"{key}: candidate targets {({k: sorted(v) for k, v in by_kind.items()})} "
+            f"≠ graph wave {sorted(delta['nodes'])}/{sorted(delta.get('modified', []))}/"
+            f"{sorted(delta.get('removed', []))} — 候选清单与图谱更新必须是同一份事实"
+        )
+
+
 def dump(path: Path, data: Any) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1025,6 +1275,7 @@ def main_run() -> None:
     for key, snap in SNAPS.items():
         check_graph_shape(key, snap)
         check_generated_traceability(key, snap)
+        check_distillation(key, snap)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)

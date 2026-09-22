@@ -388,7 +388,18 @@
       "back_to_editing": "返回编辑",
       "restore_version": "恢复到该版",
       "diff_no_change": "无差异",
-      "close": "关闭"
+      "close": "关闭",
+      "distill": "开始沉淀",
+      "distill_title": "AI 沉淀",
+      "distill_hint": "把本次发版冻结的文档沉淀为结构化设计事实",
+      "distill_running": "进行中",
+      "distill_done": "已完成",
+      "distill_running_hint": "正在阅读冻结文档，沉淀结构化变化…",
+      "distill_evidence": "源自 {{doc}}",
+      "distill_group_add": "新增",
+      "distill_group_modify": "修改",
+      "distill_group_remove": "移除",
+      "graph_removed": "已移除："
     },
     "autoImprovement": {
       "findingDetail": {

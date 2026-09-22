@@ -180,7 +180,18 @@
       "back_to_editing": "Back to editing",
       "restore_version": "Restore this version",
       "diff_no_change": "No differences",
-      "close": "Close"
+      "close": "Close",
+      "distill": "Start distillation",
+      "distill_title": "AI distillation",
+      "distill_hint": "Distil the frozen docs of this release into structured design facts",
+      "distill_running": "Running",
+      "distill_done": "Done",
+      "distill_running_hint": "Reading the frozen documents, distilling structured changes…",
+      "distill_evidence": "from {{doc}}",
+      "distill_group_add": "Add",
+      "distill_group_modify": "Modify",
+      "distill_group_remove": "Remove",
+      "graph_removed": "Removed:"
     },
     "autoImprovement": {
       "findingDetail": {

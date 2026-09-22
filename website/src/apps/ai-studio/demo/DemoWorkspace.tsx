@@ -25,6 +25,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import ErrorNotice from '../../../components/ErrorNotice'
 import { i18nT } from '../../../i18n/t'
 import CodeGenView from '../CodeGenView'
+import DistillPanel from '../DistillPanel'
 import GraphView from '../GraphView'
 import ProjectCommitBar from '../ProjectCommitBar'
 import ReleaseControl from '../ReleaseControl'
@@ -52,12 +53,13 @@ export default function DemoWorkspace({ params }: {
   const onDocCommitted = useCallback((fresh: StudioDoc[]) => {
     setLiveCommit((c) => ({ docs: fresh, rev: (c?.rev ?? 0) + 1 }))
   }, [])
-  // main-10's live release act: the click walks the step's phase labels and
-  // then lands — "landed" means swapping the bottom panel to the after-fix
-  // snapshot's payload (the release cut + the generated files). Like
-  // liveCommit, it belongs to the step: leaving the step re-derives the
-  // whole picture from that step's own snapshot, never from leftovers.
-  const [liveRelease, setLiveRelease] = useState(false)
+  // A live act (main-10's release, main-11's distillation) lands by swapping
+  // the bottom panel to the step's after-fix snapshot — the same snapshot the
+  // script test derived the after-state from, so the panel shows data, not a
+  // promise. One flag for both acts: "the real click has landed" is the same
+  // fact whichever button made it. Like liveCommit, it belongs to the step:
+  // leaving the step re-derives the whole picture from its own snapshot.
+  const [liveLanded, setLiveLanded] = useState(false)
 
   // state-layer swap: a new step means a new fake, so every cached
   // ai-studio read (project docs, both histories) is stale by construction.
@@ -67,7 +69,7 @@ export default function DemoWorkspace({ params }: {
   useEffect(() => {
     queryClient.removeQueries({ queryKey: ['ai-studio'] })
     setLiveCommit(null)
-    setLiveRelease(false)
+    setLiveLanded(false)
   }, [stepIndex, queryClient])
 
   // the fake notifies on every live mutation (a presenter clicking Commit
@@ -116,19 +118,29 @@ export default function DemoWorkspace({ params }: {
   // after-fix snapshot carries the payload, so the button is only offered
   // where the script actually has a release to land — every other step and
   // every other world renders the header without it, exactly as before.
-  const canRelease = ctl.afterFixFixture?.release !== undefined
-  const showRelease = liveRelease || ctl.fixture.release !== undefined
-  // which snapshot the bottom panel speaks: once the click has landed, the
-  // after-fix one (release + generated files); until then, the step's own.
-  // Computed inline (not hooks) — these sit below the ctl null-guard, so
-  // wrapping them in useMemo/useCallback would violate rules-of-hooks.
-  const landed: DemoFixture = liveRelease && ctl.afterFixFixture ? ctl.afterFixFixture : ctl.fixture
+  // Each live-act step offers its button only when its after-fix snapshot
+  // actually carries the payload that button lands (release → main-10,
+  // distillation → main-11), so no step ever offers a button whose click
+  // lands on nothing. Both acts land on the SAME after-fix snapshot read —
+  // one `liveLanded` flag, one `landed` fixture — because "the click has
+  // landed" means the same thing for both: show what the snapshot holds.
+  const canRelease = ctl.afterFixFixture?.release !== undefined && ctl.fixture.release === undefined
+  const canDistill = ctl.afterFixFixture?.distillation !== undefined && ctl.fixture.distillation === undefined
+  // the after-fix snapshot takes the panel once its act lands; before that
+  // (and in every world without an act) the step's own fixture speaks.
+  const landed: DemoFixture = liveLanded && ctl.afterFixFixture ? ctl.afterFixFixture : ctl.fixture
   const nodeLabels = Object.fromEntries((landed.graph?.nodes ?? []).map((n) => [n.id, n.label]))
   const onRelease = async () => {
     if (!ctl.afterFixFixture) return
     const phases = ctl.step.releasePhases ?? []
     await new Promise((r) => setTimeout(r, Math.max(phases.length, 1) * RELEASE_PHASE_MS))
-    setLiveRelease(true)
+    setLiveLanded(true)
+  }
+  const onDistill = async () => {
+    // no phase walk: the landing snapshot's own running frame carries the
+    // "进行中" state, so the click resolves straight into it
+    if (!ctl.afterFixFixture) return
+    setLiveLanded(true)
   }
 
   return (
@@ -142,16 +154,22 @@ export default function DemoWorkspace({ params }: {
          * data), running against the snapshot fake */}
         <div className="relative flex items-center gap-2">
           <ProjectCommitBar projectId={ctl.fixture.project.id} api={ctl.api} onCommitted={onDocCommitted} />
-          {/* the release button appears only on the step whose after-fix
-           * snapshot actually carries a release (main-10) — nowhere else,
-           * so no step ever offers a button whose click lands on nothing */}
+          {/* the release / distill buttons appear only on the step whose
+           * after-fix snapshot actually carries that payload (main-10 /
+           * main-11) — nowhere else, so no step ever offers a button whose
+           * click lands on nothing. Once the act has landed the button sits
+           * disabled: the frame it produced is on screen, re-clicking would
+           * replay a business event the snapshot has already absorbed. */}
           {canRelease && (
             <ReleaseControl
               onRelease={onRelease}
               phases={ctl.step.releasePhases}
               phaseMs={RELEASE_PHASE_MS}
-              disabled={showRelease}
+              disabled={liveLanded}
             />
+          )}
+          {canDistill && (
+            <ReleaseControl act="distill" onRelease={onDistill} disabled={liveLanded} />
           )}
         </div>
       </header>
@@ -185,11 +203,17 @@ export default function DemoWorkspace({ params }: {
           // the code panel is mounted; same source as the panel (`landed`)
           data-demo-released={landed.release !== undefined ? 'true' : 'false'}
           data-demo-generated-files={String(landed.generatedFiles?.length ?? 0)}
+          data-demo-graph-modified={String(landed.graphDelta?.modified?.length ?? 0)}
+          data-demo-graph-removed={String(landed.graphDelta?.removed?.length ?? 0)}
+          data-demo-distill-status={landed.distillation?.status ?? 'none'}
+          data-demo-distill-candidates={String(landed.distillation?.candidates.length ?? 0)}
         >
           <GraphView
             graph={landed.graph}
             addedNodeIds={landed.graphDelta?.nodes}
             addedEdges={landed.graphDelta?.edges}
+            modifiedNodeIds={landed.graphDelta?.modified}
+            removedNodeIds={landed.graphDelta?.removed}
           />
         </div>
       )}
@@ -214,6 +238,17 @@ export default function DemoWorkspace({ params }: {
             <span className="text-[11px] text-text truncate">{landed.release.notes}</span>
           </div>
           <CodeGenView files={landed.generatedFiles ?? []} nodeLabels={nodeLabels} />
+        </div>
+      )}
+      {/* the distillation panel (ACP-733): the AI's proposed structured
+       * changes to the graph after the release froze the docs. Snapshot-
+       * driven like every other panel here — it exists exactly where the
+       * loaded frame carries a run, and what it lists (status, candidates,
+       * evidence) is the run's own data, machine-proven to equal the graph
+       * wave the panel above highlights. */}
+      {landed.distillation && (
+        <div className="shrink-0 max-h-[280px] overflow-auto border-t border-border bg-bg">
+          <DistillPanel distillation={landed.distillation} />
         </div>
       )}
       <DemoOverlay ctl={ctl} />
