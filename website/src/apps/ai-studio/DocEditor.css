@@ -1,0 +1,89 @@
+/* Tiptap surface for the AI Studio doc editor. Tiptap ships no stylesheet for
+   v3 (no @tiptap/suggestion prose css to import), so the doc typography lives
+   here on one class the editor is given via editorProps.attributes. Colours are
+   theme tokens only — a literal hex here would break the theming contract. */
+.ai-studio-doc {
+  min-height: 100%;
+  outline: none;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--color-text);
+}
+.ai-studio-doc .tiptap {
+  outline: none;
+}
+.ai-studio-doc .tiptap > * + * {
+  margin-top: 0.65em;
+}
+.ai-studio-doc .tiptap h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+  margin-bottom: 0.4em;
+}
+.ai-studio-doc .tiptap h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  margin-top: 1.1em;
+  margin-bottom: 0.4em;
+}
+.ai-studio-doc .tiptap h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.ai-studio-doc .tiptap p {
+  margin: 0.35em 0;
+}
+.ai-studio-doc .tiptap ul,
+.ai-studio-doc .tiptap ol {
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+}
+.ai-studio-doc .tiptap ul {
+  list-style: disc;
+}
+.ai-studio-doc .tiptap ol {
+  list-style: decimal;
+}
+.ai-studio-doc .tiptap li {
+  margin: 0.15em 0;
+}
+.ai-studio-doc .tiptap blockquote {
+  border-left: 3px solid var(--color-border);
+  padding-left: 1em;
+  color: var(--color-muted);
+  margin: 0.6em 0;
+}
+.ai-studio-doc .tiptap code {
+  background: var(--color-bg-elevated);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.ai-studio-doc .tiptap pre {
+  background: var(--color-bg-elevated);
+  border-radius: 6px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.ai-studio-doc .tiptap pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+}
+.ai-studio-doc .tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1em 0;
+}
+.ai-studio-doc .tiptap del {
+  color: var(--color-muted);
+}
+.ai-studio-doc .tiptap a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}

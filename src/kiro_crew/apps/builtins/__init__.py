@@ -1,6 +1,7 @@
 # Built-in apps package.
 
 BUILTIN_NAMES: list[str] = [
+    "ai_studio",
     "auto_improvement",
     "auto_research",
     "aws_control",
