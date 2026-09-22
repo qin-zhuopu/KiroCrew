@@ -79,6 +79,9 @@ function readState(): Record<string, boolean | number | string> {
     out.devPhasesDone = Number(frame?.dataset.demoDevPhasesDone)
     out.devRunnable = frame?.dataset.demoDevRunnable === 'true'
     out.runOpen = frame?.dataset.demoRunOpen === 'true'
+    // the history read-backs (ACP-736) ride the same wrapper
+    out.historyEvents = Number(frame?.dataset.demoHistoryEvents)
+    out.newRound = frame?.dataset.demoNewRound === 'true'
   }
   return out
 }
@@ -108,6 +111,8 @@ function declared(s: DemoState): Record<string, boolean | number | string> {
     out.devPhasesDone = s.devPhasesDone ?? 0
     out.devRunnable = s.devRunnable ?? false
     out.runOpen = s.runOpen ?? false
+    out.historyEvents = s.historyEvents ?? 0
+    out.newRound = s.newRound ?? false
   }
   return out
 }
@@ -726,4 +731,78 @@ describe('the development beats (ACP-735): record → four phases → result →
     expect(readState()).toEqual(manual)
     ar.unmount()
   }, 120000)
+})
+
+describe('the history loop (ACP-736): full-round timeline, jump-back, next round', () => {
+  // 验收文档步骤 16-17: main-22 opens the project-wide timeline (six events,
+  // one per kind, each link pointing BACK to its cause), main-23 is a
+  // live-act step (real 继续设计 click → the clean next-round frame). Jumping
+  // from a timeline node loads the snapshot that node names — never a
+  // reverse computation (工单硬约束).
+  it('main-22: six events, closed kinds, run links back to dev, jump loads the named snapshot', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    mountDemo(name)
+    await walkTo(script, 'main-22')
+    await waitFor(
+      () => expect(readState().historyEvents).toBe(6),
+      { timeout: 4000, interval: 50 },
+    )
+    const timeline = document.querySelector('[data-testid="history-timeline"]')!
+    expect(timeline.getAttribute('data-history-count')).toBe('6')
+    const rows = [...timeline.querySelectorAll('[data-testid^="history-event-"]')]
+    expect(rows).toHaveLength(6)
+    // closed kind union: exactly the six human/系统事实 kinds, no AI-source
+    // variant (the DAG explicitly does not do 验收文档 steps 3-4)
+    const kinds = rows.map((r) => r.getAttribute('data-history-kind'))
+    expect(new Set(kinds).size).toBe(6)
+    for (const k of ['edit', 'commit', 'release', 'distill', 'dev', 'run'])
+      expect(kinds).toContain(k)
+    // the run event links back to the dev event, and the link renders the
+    // linked event's summary — 追溯沿因果往回走, on screen
+    const runRow = timeline.querySelector('[data-testid="history-event-he-run"]')!
+    expect(runRow.getAttribute('data-history-links')).toBe('he-dev')
+    const devSummary = timeline
+      .querySelector('[data-history-summary="he-dev"]')!
+      .textContent?.trim()
+    expect(runRow.querySelector('[data-history-link="he-dev"]')!.textContent).toContain(devSummary!)
+
+    // jump = load the snapshot the event names. he-edit's ref is main-006,
+    // which step main-6 SHOWS — so the click enters main-6, and the dev-era
+    // data (which main-006 never carried) is gone: the frame is the past
+    // frame, not the present frame with a badge
+    await clickTestId('history-jump-he-edit')
+    await settleFor('main-6')
+    expect(screen.getByTestId('demo-stepper').getAttribute('data-demo-step')).toBe('main-6')
+    expect(readState().historyEvents).toBe(0)
+    expect(readState().devActive).toBe(false)
+  }, 90000)
+
+  it('main-23: real 继续设计 click lands a clean round on v4 with the history kept', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    mountDemo(name)
+    await walkTo(script, 'main-23')
+    await waitFor(
+      () => expect(readState().newRound).toBe(true),
+      { timeout: 6000, interval: 50 },
+    )
+    // the editor landed clean on the previous round's final design: v4 still
+    // there, no dirty buffer, the 设计事实 section from the regen intact
+    expect(readState().dirty).toBe(false)
+    expect(readState().versions).toBe(4)
+    expect(readState().historyEvents).toBe(6)
+    expect(document.querySelector('[data-testid^="doc-"]')!.textContent).toContain('设计事实')
+    // the transition button is gone on the landed frame — same convention as
+    // every other live-act (distill/release/dev/run buttons)
+    expect(document.querySelector('[data-testid="continue-design-btn"]')).toBeNull()
+
+    // back to main-22's entry frame: the new-round flag is main-020's own
+    // data, it re-derives away — no leftover round
+    await clickTestId('demo-prev')
+    await settleFor('main-22')
+    await waitFor(
+      () => expect(readState().newRound).toBe(false),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(readState().historyEvents).toBe(6)
+  }, 90000)
 })

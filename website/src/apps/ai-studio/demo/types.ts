@@ -6,6 +6,7 @@ import type {
   StudioDistillation,
   StudioGeneratedFile,
   StudioGraph,
+  StudioProjectHistory,
   StudioRegeneration,
   StudioRelease,
   StudioRunPreview,
@@ -60,6 +61,11 @@ export interface DemoState {
   devPhasesDone?: number
   devRunnable?: boolean
   runOpen?: boolean
+  /** history vocabulary (ACP-736), same gate: how many events the project
+   * history carries (0 until the closing frames), and whether this frame is
+   * a fresh round standing on the last one's final design */
+  historyEvents?: number
+  newRound?: boolean
 }
 
 /** One step's visual-guidance instruction (§4): what to ring, what the hint
@@ -170,4 +176,11 @@ export interface DemoFixture {
    * internal route onto this data — no server path exists. Its feature list
    * equals the graph's requirement labels (check_devrun). */
   runPreview?: StudioRunPreview
+  /** the project-wide timeline (ACP-736): this round's facts as six linked
+   * events — the closing shot's data. Jumping to an event loads the snapshot
+   * its `ref` names (回放 doctrine), never re-derives it. */
+  history?: StudioProjectHistory
+  /** this frame is a fresh round begun on the last round's final design: the
+   * editor stands clean while `history` keeps the whole previous round */
+  newRound?: boolean
 }

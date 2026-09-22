@@ -215,7 +215,17 @@
       "dev_runnable_ready": "Runnable {{version}} ready",
       "run_open": "Open runnable version",
       "run_preview_note": "built-in preview of dev run {{from}} — no server involved",
-      "run_preview_close": "Back to workbench"
+      "run_preview_close": "Back to workbench",
+      "history_title": "Project history",
+      "history_note": "{{count}} linked events, newest round last",
+      "history_jump": "Back to that moment",
+      "history_kind_edit": "Edit",
+      "history_kind_commit": "Commit",
+      "history_kind_release": "Release",
+      "history_kind_distill": "Distillation",
+      "history_kind_dev": "Development",
+      "history_kind_run": "Run",
+      "continue_design": "Continue designing"
     },
     "autoImprovement": {
       "findingDetail": {

@@ -212,6 +212,35 @@ export interface StudioRunPreview {
   lines: string[]
 }
 
+/** One node of the project-wide history timeline (ACP-736, acceptance-doc
+ * step 16): 修改/提交/发版/沉淀/开发/运行 are five-plus-one DIFFERENT kinds
+ * of fact — the kind union is closed on purpose (no AI-source variant: the
+ * demo models every doc edit as human-made, per the DAG's 显式不做). `links`
+ * are the ids of the events this one was produced from, so any final result
+ * walks back to the first edit by following real references, not by
+ * re-deriving anything. `ref` names the demo snapshot the event's own view
+ * lives in — jumping to an event loads THAT snapshot (回放 doctrine: 跳转=
+ * 加载快照, never reverse-compute). */
+export type StudioHistoryKind = 'edit' | 'commit' | 'release' | 'distill' | 'dev' | 'run'
+
+export interface StudioProjectHistoryEvent {
+  id: string
+  kind: StudioHistoryKind
+  /** epoch seconds, the order the timeline renders */
+  at: number
+  /** the demo snapshot key carrying this event's own view (the jump target) */
+  ref: string
+  summary: string
+  /** ids of the earlier events this one was produced from */
+  links: string[]
+}
+
+/** The whole project history as one snapshot field (the timeline panel's
+ * data; `events` newest-first is not assumed — the view sorts by `at`). */
+export interface StudioProjectHistory {
+  events: StudioProjectHistoryEvent[]
+}
+
 /** One source file a release generated (ACP-730). `derivedFrom` names the
  * graph nodes (requirements) the file implements — the demo generator
  * cross-checks that set against the graph delta, so "generated code matches

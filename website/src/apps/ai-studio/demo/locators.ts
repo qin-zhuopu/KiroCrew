@@ -136,6 +136,15 @@ export const LOCATORS: Record<string, DemoLocator> = {
       return el && !el.hasAttribute('disabled') ? el : null
     },
   },
+  // the project-wide history timeline (ACP-736): the ring target is the
+  // panel itself; 继续设计 waits for enabled like the other act buttons
+  history_timeline: { find: () => byTestid('history-timeline') },
+  continue_design: {
+    find: () => {
+      const el = byTestid('continue-design-btn')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
   regen_doc_view: { find: () => byTestid('regen-doc-view') },
   regen_diff_pair: { find: () => byTestid('regen-diff-pair') },
   diff_group: {

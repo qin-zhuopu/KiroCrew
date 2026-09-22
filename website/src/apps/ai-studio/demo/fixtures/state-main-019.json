@@ -1,0 +1,395 @@
+{
+  "buffer": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠、积分抵现\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券（7 天有效）\n- [ ] 优惠券 7 天内有效，过期自动退回积分\n\n## 设计事实（发版沉淀 · v3）\n\n- 新增模块「优惠券服务」：有效期判断与过期退款都归它\n",
+  "devRun": {
+    "artifacts": [
+      {
+        "kind": "test",
+        "path": "reports/test-v4.json"
+      },
+      {
+        "kind": "build",
+        "path": "dist/points-service-0.4.0.tar.gz"
+      },
+      {
+        "kind": "runtime",
+        "path": "runtime/points-service"
+      }
+    ],
+    "designVersion": "v4 · graph@distill-v3",
+    "id": "dev-v4",
+    "phases": [
+      {
+        "name": "tasks",
+        "status": "done",
+        "summary": "按 v4 冻结设计拆分 5 个开发任务：有效期判断、过期退款、支付方式排除、优惠券服务、数据表"
+      },
+      {
+        "name": "implement",
+        "status": "done",
+        "summary": "实现 4 个生成文件对应的模块，优惠券服务落地 COUPON_TTL=7 天"
+      },
+      {
+        "name": "test",
+        "status": "done",
+        "summary": "23 项测试全部通过：有效期边界 6 项、过期退款 9 项、支付方式排除 8 项"
+      },
+      {
+        "name": "build",
+        "status": "done",
+        "summary": "构建产物 points-service-0.4.0 打包完成，可运行版本就绪"
+      }
+    ],
+    "runnableVersion": "0.4.0"
+  },
+  "diffGroups": [
+    {
+      "candidateId": "dc-add-coupon-service",
+      "point": "优惠券服务模块",
+      "regenDiff": "+- 新增模块「优惠券服务」：有效期判断与过期退款都归它\n",
+      "structuredChanges": [
+        {
+          "evidenceDoc": "requirements.md § 兑换与有效期",
+          "id": "dc-add-coupon-service",
+          "kind": "add",
+          "summary": "新增模块「优惠券服务」：有效期判断与过期退款都归它",
+          "target": "mod-coupon-service"
+        }
+      ],
+      "userDiff": ""
+    },
+    {
+      "candidateId": "dc-modify-redeem",
+      "point": "兑换券 7 天有效",
+      "regenDiff": "+- [ ] 积分满 100 可兑换 5 元优惠券（7 天有效）\n",
+      "structuredChanges": [
+        {
+          "evidenceDoc": "requirements.md § 兑换与有效期",
+          "id": "dc-modify-redeem",
+          "kind": "modify",
+          "summary": "细化「积分兑换优惠券」：兑换出的券带 7 天有效期",
+          "target": "req-redeem"
+        }
+      ],
+      "userDiff": "+- [ ] 优惠券 7 天内有效，过期自动退回积分\n"
+    },
+    {
+      "candidateId": "dc-remove-workflow",
+      "point": "workflow 孤儿移除",
+      "regenDiff": "",
+      "structuredChanges": [
+        {
+          "evidenceDoc": "workflow.md § 全文",
+          "id": "dc-remove-workflow",
+          "kind": "remove",
+          "summary": "workflow.md 仍描述旧流程且无需求挂靠，先从设计图谱移除",
+          "target": "doc-workflow"
+        }
+      ],
+      "userDiff": ""
+    }
+  ],
+  "distillation": {
+    "appliedAt": 1758775200,
+    "candidates": [
+      {
+        "evidenceDoc": "requirements.md § 兑换与有效期",
+        "id": "dc-add-coupon-service",
+        "kind": "add",
+        "summary": "新增模块「优惠券服务」：有效期判断与过期退款都归它",
+        "target": "mod-coupon-service"
+      },
+      {
+        "evidenceDoc": "requirements.md § 兑换与有效期",
+        "id": "dc-modify-redeem",
+        "kind": "modify",
+        "summary": "细化「积分兑换优惠券」：兑换出的券带 7 天有效期",
+        "target": "req-redeem"
+      },
+      {
+        "evidenceDoc": "workflow.md § 全文",
+        "id": "dc-remove-workflow",
+        "kind": "remove",
+        "summary": "workflow.md 仍描述旧流程且无需求挂靠，先从设计图谱移除",
+        "target": "doc-workflow"
+      }
+    ],
+    "id": "distill-v3",
+    "releaseVersion": "v3",
+    "status": "done"
+  },
+  "docs": [
+    {
+      "content": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠、积分抵现\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券（7 天有效）\n- [ ] 优惠券 7 天内有效，过期自动退回积分\n\n## 设计事实（发版沉淀 · v3）\n\n- 新增模块「优惠券服务」：有效期判断与过期退款都归它\n",
+      "name": "requirements.md"
+    },
+    {
+      "content": "# 会员积分系统 流程设计\n\n## 阶段划分\n\n| 阶段 | 负责人 | 产出 |\n| --- | --- | --- |\n| 需求确认 | 产品 | requirements.md |\n\n## 流转规则\n\n- 积分规则变更需产品与运营双确认\n",
+      "name": "workflow.md"
+    },
+    {
+      "content": "# 会员积分系统 界面设计\n\n## 页面清单\n\n- 积分中心页\n- 兑换记录页\n",
+      "name": "ui-spec.md"
+    }
+  ],
+  "draftVersions": [],
+  "focusDoc": "requirements.md",
+  "generatedFiles": [
+    {
+      "content": "# generated from 需求图谱 · 优惠券 7 天有效期\nfrom datetime import timedelta\n\nCOUPON_TTL = timedelta(days=7)\n\ndef is_expired(coupon, now):\n    return now - coupon.issued_at > COUPON_TTL\n",
+      "derivedFrom": [
+        "req-coupon-expiry"
+      ],
+      "language": "python",
+      "path": "points/coupon.py"
+    },
+    {
+      "content": "# generated from 需求图谱 · 优惠券 7 天有效期\nfrom points.coupon import is_expired\n\ndef settle_expired(coupon, now):\n    if not is_expired(coupon, now):\n        return 0\n    refund_points(coupon.cost_points)  # 过期自动退回积分\n    return coupon.cost_points\n",
+      "derivedFrom": [
+        "req-coupon-expiry"
+      ],
+      "language": "python",
+      "path": "points/refund.py"
+    },
+    {
+      "content": "# generated from 需求图谱 · 积分不可抵现\nPAYMENT_METHODS = (\"cash\", \"card\")  # 不含 points：积分抵现不在范围\n",
+      "derivedFrom": [
+        "req-no-cash-offset"
+      ],
+      "language": "python",
+      "path": "points/pay.py"
+    },
+    {
+      "content": "-- generated from 需求图谱 · 优惠券 7 天有效期 / 积分不可抵现\nCREATE TABLE coupon (\n    id INTEGER PRIMARY KEY,\n    cost_points INTEGER NOT NULL,\n    issued_at TIMESTAMP NOT NULL,\n    expires_at TIMESTAMP AS (issued_at + INTERVAL 7 DAY)\n);\n",
+      "derivedFrom": [
+        "req-coupon-expiry",
+        "req-no-cash-offset"
+      ],
+      "language": "sql",
+      "path": "points/schema.sql"
+    }
+  ],
+  "generatedFrom": "main-009",
+  "graph": {
+    "edges": [
+      {
+        "from": "req-signin",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-consume",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-redeem",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-signin",
+        "kind": "depends",
+        "to": "mod-points-center"
+      },
+      {
+        "from": "req-redeem",
+        "kind": "depends",
+        "to": "mod-points-center"
+      },
+      {
+        "from": "req-coupon-expiry",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-no-cash-offset",
+        "kind": "trace",
+        "to": "doc-requirements"
+      },
+      {
+        "from": "req-coupon-expiry",
+        "kind": "depends",
+        "to": "mod-points-center"
+      },
+      {
+        "from": "req-no-cash-offset",
+        "kind": "depends",
+        "to": "mod-points-center"
+      },
+      {
+        "from": "req-coupon-expiry",
+        "kind": "depends",
+        "to": "mod-coupon-service"
+      },
+      {
+        "from": "req-redeem",
+        "kind": "depends",
+        "to": "mod-coupon-service"
+      }
+    ],
+    "nodes": [
+      {
+        "doc": "requirements.md",
+        "id": "req-signin",
+        "kind": "requirement",
+        "label": "每日签到返积分"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-consume",
+        "kind": "requirement",
+        "label": "消费返积分"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-redeem",
+        "kind": "requirement",
+        "label": "积分兑换优惠券（7 天有效）"
+      },
+      {
+        "id": "doc-requirements",
+        "kind": "doc",
+        "label": "requirements.md"
+      },
+      {
+        "id": "mod-points-center",
+        "kind": "module",
+        "label": "积分中心模块"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-coupon-expiry",
+        "kind": "requirement",
+        "label": "优惠券 7 天有效期"
+      },
+      {
+        "doc": "requirements.md",
+        "id": "req-no-cash-offset",
+        "kind": "requirement",
+        "label": "积分不可抵现"
+      },
+      {
+        "id": "mod-coupon-service",
+        "kind": "module",
+        "label": "优惠券服务模块"
+      }
+    ]
+  },
+  "history": {
+    "events": [
+      {
+        "at": 1758772800,
+        "id": "he-edit",
+        "kind": "edit",
+        "links": [],
+        "ref": "main-006",
+        "summary": "手工修改 requirements.md：补上优惠券 7 天有效期与积分不可抵现两行"
+      },
+      {
+        "at": 1758773400,
+        "id": "he-commit",
+        "kind": "commit",
+        "links": [
+          "he-edit"
+        ],
+        "ref": "main-008",
+        "summary": "提交为 v3：两行修改进入版本历史，草稿记录清空"
+      },
+      {
+        "at": 1758774600,
+        "id": "he-release",
+        "kind": "release",
+        "links": [
+          "he-commit"
+        ],
+        "ref": "main-010",
+        "summary": "发布 v3 并生成 4 个代码文件，每个文件标注来源需求节点"
+      },
+      {
+        "at": 1758775200,
+        "id": "he-distill",
+        "kind": "distill",
+        "links": [
+          "he-release"
+        ],
+        "ref": "main-013",
+        "summary": "沉淀 3 条结构化事实并被图谱吸收，重生成文档 v4"
+      },
+      {
+        "at": 1758777000,
+        "id": "he-dev",
+        "kind": "dev",
+        "links": [
+          "he-distill"
+        ],
+        "ref": "main-017",
+        "summary": "按 v4 · graph@distill-v3 开发：四阶段全过，产物三件套就绪"
+      },
+      {
+        "at": 1758777600,
+        "id": "he-run",
+        "kind": "run",
+        "links": [
+          "he-dev"
+        ],
+        "ref": "main-018",
+        "summary": "可运行版本 0.4.0 上线体验，功能清单等于图谱需求节点"
+      }
+    ]
+  },
+  "project": {
+    "createdAt": 1758600000,
+    "description": "签到、消费返积分、积分兑换闭环",
+    "id": "demo-membership-points",
+    "name": "会员积分系统"
+  },
+  "regeneration": {
+    "content": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠、积分抵现\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券（7 天有效）\n- [ ] 优惠券 7 天内有效，过期自动退回积分\n\n## 设计事实（发版沉淀 · v3）\n\n- 新增模块「优惠券服务」：有效期判断与过期退款都归它\n",
+    "docName": "requirements.md",
+    "generatedFrom": "distill-v3",
+    "version": "v4"
+  },
+  "release": {
+    "notes": "冻结 v3：优惠券有效期与积分抵现排除项",
+    "time": 1758774600,
+    "version": "v3"
+  },
+  "versions": {
+    "requirements.md": [
+      {
+        "diff": "--- previous\n+++ current\n@@ -15,5 +15,9 @@\n \n - [ ] 每日签到 +5 积分\n - [ ] 消费 1 元返 1 积分\n-- [ ] 积分满 100 可兑换 5 元优惠券\n+- [ ] 积分满 100 可兑换 5 元优惠券（7 天有效）\n - [ ] 优惠券 7 天内有效，过期自动退回积分\n+\n+## 设计事实（发版沉淀 · v3）\n+\n+- 新增模块「优惠券服务」：有效期判断与过期退款都归它\n",
+        "name": "1758776400.md",
+        "time": 1758776400
+      },
+      {
+        "diff": "--- previous\n+++ current\n@@ -9,10 +9,11 @@\n ## 范围\n \n - 包含：积分获取、积分兑换、积分过期提醒\n-- 不包含：积分转赠\n+- 不包含：积分转赠、积分抵现\n \n ## 验收标准\n \n - [ ] 每日签到 +5 积分\n - [ ] 消费 1 元返 1 积分\n - [ ] 积分满 100 可兑换 5 元优惠券\n+- [ ] 优惠券 7 天内有效，过期自动退回积分\n",
+        "name": "1758772800.md",
+        "time": 1758772800
+      },
+      {
+        "diff": "--- previous\n+++ current\n@@ -15,3 +15,4 @@\n \n - [ ] 每日签到 +5 积分\n - [ ] 消费 1 元返 1 积分\n+- [ ] 积分满 100 可兑换 5 元优惠券\n",
+        "name": "1758513600.md",
+        "time": 1758513600
+      },
+      {
+        "diff": "--- previous\n+++ current\n@@ -0,0 +1,17 @@\n+# 会员积分系统 需求说明\n+\n+> 签到、消费返积分、积分兑换闭环\n+\n+## 目标\n+\n+- 上线积分中心页，支持签到与消费返积分\n+\n+## 范围\n+\n+- 包含：积分获取、积分兑换、积分过期提醒\n+- 不包含：积分转赠\n+\n+## 验收标准\n+\n+- [ ] 每日签到 +5 积分\n+- [ ] 消费 1 元返 1 积分\n",
+        "name": "1758427200.md",
+        "time": 1758427200
+      }
+    ],
+    "ui-spec.md": [
+      {
+        "diff": "--- previous\n+++ current\n@@ -0,0 +1,6 @@\n+# 会员积分系统 界面设计\n+\n+## 页面清单\n+\n+- 积分中心页\n+- 兑换记录页\n",
+        "name": "1758600000.md",
+        "time": 1758600000
+      }
+    ],
+    "workflow.md": [
+      {
+        "diff": "--- previous\n+++ current\n@@ -0,0 +1,11 @@\n+# 会员积分系统 流程设计\n+\n+## 阶段划分\n+\n+| 阶段 | 负责人 | 产出 |\n+| --- | --- | --- |\n+| 需求确认 | 产品 | requirements.md |\n+\n+## 流转规则\n+\n+- 积分规则变更需产品与运营双确认\n",
+        "name": "1758600000.md",
+        "time": 1758600000
+      }
+    ]
+  }
+}

@@ -104,6 +104,8 @@ class Project:
         diff_groups: "list[dict[str, Any]] | None" = None,
         dev_run: "dict[str, Any] | None" = None,
         run_preview: "dict[str, Any] | None" = None,
+        history: "dict[str, Any] | None" = None,
+        new_round: bool = False,
     ) -> dict[str, Any]:
         """One replayable state: every doc's committed content, the focused
         doc's editor buffer, and its draft records (newest first). `graph`
@@ -146,6 +148,10 @@ class Project:
             snap["devRun"] = dev_run
         if run_preview is not None:
             snap["runPreview"] = run_preview
+        if history is not None:
+            snap["history"] = history
+        if new_round:
+            snap["newRound"] = True
         if generated_files is not None:
             snap["generatedFiles"] = generated_files
             # the audit anchor: which snapshot's graphDelta these files must
@@ -496,6 +502,67 @@ DEV_ARTIFACTS: list[dict[str, str]] = [
     {"kind": "runtime", "path": "runtime/points-service"},
 ]
 
+# ---- the project-wide history timeline (ACP-736 / T14) ----------------------
+# 验收文档步骤 16 的口径：修改/提交/发版/沉淀/开发（+运行）是 DIFFERENT 且不
+# 可混淆的事实，任何一个最终结果都能沿真实引用回指到最初那次修改。时间线就
+# 是一条六事件链：每个事件的 links 只指向前因（check_history 校验链接必须回
+# 指、ref 必须是某个快照），点节点跳转 = 加载它 ref 命名的快照（回放铁律：
+# 禁反向计算）。kind 枚举是封闭的——没有 AI 来源变体：本演示的文档修改全部
+# 按人工来源建模（DAG 显式不做），所以这里也绝不新增来源枚举。
+
+HISTORY: dict[str, Any] = {
+    "events": [
+        {
+            "id": "he-edit",
+            "kind": "edit",
+            "at": T0 + 172800,
+            "ref": "main-006",
+            "summary": "手工修改 requirements.md：补上优惠券 7 天有效期与积分不可抵现两行",
+            "links": [],
+        },
+        {
+            "id": "he-commit",
+            "kind": "commit",
+            "at": T0 + 172800 + 600,
+            "ref": "main-008",
+            "summary": "提交为 v3：两行修改进入版本历史，草稿记录清空",
+            "links": ["he-edit"],
+        },
+        {
+            "id": "he-release",
+            "kind": "release",
+            "at": RELEASE_V3["time"],
+            "ref": "main-010",
+            "summary": "发布 v3 并生成 4 个代码文件，每个文件标注来源需求节点",
+            "links": ["he-commit"],
+        },
+        {
+            "id": "he-distill",
+            "kind": "distill",
+            "at": DISTILL_APPLIED["appliedAt"],
+            "ref": "main-013",
+            "summary": "沉淀 3 条结构化事实并被图谱吸收，重生成文档 v4",
+            "links": ["he-release"],
+        },
+        {
+            "id": "he-dev",
+            "kind": "dev",
+            "at": REGEN_TS + 600,
+            "ref": "main-017",
+            "summary": "按 v4 · graph@distill-v3 开发：四阶段全过，产物三件套就绪",
+            "links": ["he-distill"],
+        },
+        {
+            "id": "he-run",
+            "kind": "run",
+            "at": REGEN_TS + 1200,
+            "ref": "main-018",
+            "summary": "可运行版本 0.4.0 上线体验，功能清单等于图谱需求节点",
+            "links": ["he-dev"],
+        },
+    ]
+}
+
 # the three frames of the process: the run just opened (任务生成 in flight),
 # mid-run (实现 done, 测试 in flight), landed (all done, artifacts + runnable)
 DEV_TASKS = _dev_run(
@@ -782,6 +849,35 @@ add(
     ),
 )
 
+# main-019/020: the closing beats (T14, 验收文档步骤 16-17). main-019 is the
+# round's world seen AFTER the experience — the experience overlay is closed
+# (no runPreview), and for the first time the snapshot carries `history`: the
+# six-event chain that ties this whole round together, its links walking back
+# from 运行 to the first edit. main-020 is 继续设计: the SAME round data minus
+# the runPreview the round's own frame already showed, plus newRound — the
+# editor stands clean on v4 (the round's final design IS the new baseline)
+# while the history stays readable, so the loop closes with 上一轮不丢. The
+# round's facts are never rewritten here: same 4 versions, same graph, same
+# devRun — 新一轮的起点就是上一轮的终点，这一句在快照里是数据。
+add(
+    "main-019",
+    main.snapshot(
+        "requirements.md", REQ_REGEN, [], dev_run=DEV_DONE, history=HISTORY, **_DEV_BASE
+    ),
+)
+add(
+    "main-020",
+    main.snapshot(
+        "requirements.md",
+        REQ_REGEN,
+        [],
+        dev_run=DEV_DONE,
+        history=HISTORY,
+        new_round=True,
+        **_DEV_BASE,
+    ),
+)
+
 # branch A --------------------------------------------------------------------
 # The honest chain (same rhythm as the main line): enter clean → type draft
 # A → autosave it → extend to draft B → autosave → open history → pick the
@@ -878,6 +974,12 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
         state["devPhasesDone"] = sum(1 for p in dev["phases"] if p["status"] == "done") if dev else 0
         state["devRunnable"] = bool(dev and dev.get("runnableVersion"))
         state["runOpen"] = snap.get("runPreview") is not None
+        # the history vocabulary (T14) rides the same gate: how many events
+        # the project-wide timeline carries (0 until the closing frames), and
+        # whether this frame is a fresh round standing on the last one's
+        # final design.
+        state["historyEvents"] = len(snap.get("history", {}).get("events", []))
+        state["newRound"] = bool(snap.get("newRound"))
     return state
 
 
@@ -908,6 +1010,7 @@ TARGET_VIEW: dict[str, str] = {
     "dev_process": "开发过程四阶段面板",
     "dev_result": "开发结果与体验入口",
     "run_preview": "可运行版本体验页",
+    "history_timeline": "项目全过程历史时间线",
     "toolbar_trio": "工具栏三图标",
 }
 OBS_LABELS: dict[str, str] = {
@@ -930,6 +1033,8 @@ OBS_LABELS: dict[str, str] = {
     "devPhasesDone": "开发已完成阶段数",
     "devRunnable": "已有可运行版本",
     "runOpen": "可运行体验页已打开",
+    "historyEvents": "全过程历史事件数",
+    "newRound": "新一轮设计已开启",
 }
 # the observable reading of a declared state — exactly the keys the script
 # test's readState() mirrors, so a criterion is always checkable on the DOM
@@ -1139,6 +1244,8 @@ def _start_from(state: dict[str, Any]) -> str:
             bits.append(f"沉淀{'已完成' if ob['distillStatus'] == 'done' else '进行中'}（候选 {ob['distillCandidates']} 条）")
         if ob["regenVersion"]:
             bits.append(f"文档已重生成（成组 Diff {ob['diffGroups']} 组）")
+    if ob.get("historyEvents"):
+        bits.append(f"全过程历史 {ob['historyEvents']} 类事件")
     return f"{state['doc']}：" + "、".join(bits)
 
 
@@ -1363,6 +1470,27 @@ SCRIPTS: dict[str, dict[str, Any]] = {
                 ["run_open_btn"],
                 prev="main-017",
                 after_fix="main-018",
+            ),
+            step(
+                "main-22",
+                "看全过程历史：修改/提交/发版/沉淀/开发/运行是六个可追溯的事实",
+                "main-019",
+                "回到工作台打开项目历史——本轮从最初那次修改到可运行版本的每一类事实，按时间与关联串成一条链",
+                "history_timeline",
+                "当前：时间线六个节点六类图标——编辑、提交、发版、沉淀、开发、运行各是一类事实，不可混淆。每个节点标注它产出的事实并回指前因（链是快照里的数据，生成器校验每条链接必须回指）；点任一节点跳回它当时的画面=加载它命名的快照，不反向计算。从运行节点沿链走回最初修改，验收文档步骤 16 的追溯在数据里成立。",
+                None,
+                prev="main-018",
+            ),
+            step(
+                "main-23",
+                "点「继续设计」：上一轮终点即新起点，历史仍在手边",
+                "main-019",
+                "点时间线底部的「继续设计」——编辑器落在 v4 干净态开始新一轮，时间线保留上一轮全部六类事件",
+                "doc_editor",
+                "当前：编辑器已落在上一轮的最终设计 v4 上，干净、可直接开始下一轮修改；版本历史、图谱、开发记录、六事件时间线一件不少——闭环不是重开一局，是在成果上续写。点下一步/重开可再看一遍整条链。",
+                ["continue_design"],
+                prev="main-019",
+                after_fix="main-020",
             ),
         ],
     },
@@ -1758,6 +1886,52 @@ def check_devrun(key: str, snap: dict[str, Any]) -> None:
     )
 
 
+def check_history(key: str, snap: dict[str, Any], jumpable: "set[str]") -> None:
+    """ACP-736 — the project history as DATA, checked at generation:
+    - the kind union is closed (six facts, NO AI-source variant: the demo
+      models every doc edit as human-made — the DAG's 显式不做);
+    - event ids are unique, links only name events that exist, and every
+      link points BACK in time (追溯 follows causes, never forward);
+    - every `ref` names a snapshot some step actually lands on — 跳转=加载
+      快照, so a timeline node can never point at a frame the script cannot
+      show;
+    - the five acceptance facts (edit/commit/release/distill/dev) all appear
+      (run is the sixth, the round's product);
+    - newRound only on a frame that still carries the history it continues."""
+    hist = snap.get("history")
+    if hist is None:
+        assert not snap.get("newRound"), f"{key}: newRound without history — 新一轮必须带着上一轮的历史"
+        return
+    events = hist["events"]
+    ids = set()
+    at_of: dict[str, int] = {}
+    kinds = set()
+    for e in events:
+        assert e["kind"] in ("edit", "commit", "release", "distill", "dev", "run"), (
+            f"{key}: history event {e['id']} kind {e['kind']!r} outside the closed union "
+            "(no AI-source variants — every doc edit is modelled human-made)"
+        )
+        assert e["id"] not in ids, f"{key}: duplicate history event id {e['id']}"
+        ids.add(e["id"])
+        assert isinstance(e["at"], int)
+        at_of[e["id"]] = e["at"]
+        assert e["ref"] in SNAPS, f"{key}: event {e['id']} refs snapshot {e['ref']!r} that does not exist"
+        assert e["ref"] in jumpable, (
+            f"{key}: event {e['id']} refs {e['ref']!r} — no script step lands on that "
+            "snapshot, so the jump would have no frame to load"
+        )
+        assert e["summary"].strip(), f"{key}: history event {e['id']} has no summary"
+        kinds.add(e["kind"])
+    for e in events:
+        for link in e["links"]:
+            assert link in ids, f"{key}: event {e['id']} links to unknown event {link!r}"
+            assert at_of[link] <= e["at"], (
+                f"{key}: event {e['id']} links forward to {link!r} — 追溯沿因果往回走"
+            )
+    missing = {"edit", "commit", "release", "distill", "dev"} - kinds
+    assert not missing, f"{key}: history misses the five facts {sorted(missing)} — 五类事实必须齐全"
+
+
 def dump(path: Path, data: Any) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1768,12 +1942,17 @@ def dump(path: Path, data: Any) -> None:
 def main_run() -> None:
     FIXTURES.mkdir(parents=True, exist_ok=True)
     STEPS.mkdir(parents=True, exist_ok=True)
+    # every snapshot a step can SHOW — its entry fixture or a live-act's
+    # landing frame: the only frames a history jump may load
+    jumpable = {s["fixture"] for script in SCRIPTS.values() for s in script["steps"]}
+    jumpable |= {s["afterFix"] for script in SCRIPTS.values() for s in script["steps"] if "afterFix" in s}
     for key, snap in SNAPS.items():
         check_graph_shape(key, snap)
         check_generated_traceability(key, snap)
         check_distillation(key, snap)
         check_regen(key, snap)
         check_devrun(key, snap)
+        check_history(key, snap, jumpable)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)

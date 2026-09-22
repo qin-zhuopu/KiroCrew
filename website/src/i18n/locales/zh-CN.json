@@ -423,7 +423,17 @@
       "dev_runnable_ready": "可运行版本 {{version}} 就绪",
       "run_open": "打开可运行版本",
       "run_preview_note": "内置体验页 · 来自 {{from}} —— 不起任何服务器",
-      "run_preview_close": "返回工作台"
+      "run_preview_close": "返回工作台",
+      "history_title": "项目全过程历史",
+      "history_note": "{{count}} 条关联事件，最新一轮在后",
+      "history_jump": "回到当时画面",
+      "history_kind_edit": "修改",
+      "history_kind_commit": "提交",
+      "history_kind_release": "发版",
+      "history_kind_distill": "沉淀",
+      "history_kind_dev": "开发",
+      "history_kind_run": "运行",
+      "continue_design": "继续设计"
     },
     "autoImprovement": {
       "findingDetail": {

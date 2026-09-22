@@ -185,6 +185,11 @@ export interface DemoController {
   restart: () => void
   togglePlay: () => void
   markSettled: (stepId: string) => void
+  /** 历史节点「回到当时画面」: enter the step that SHOWS snapshot `ref`
+   * (its entry frame, or the live-act step whose replay lands it). 跳转=
+   * 加载快照——the frame comes from the script's own chain, never a
+   * re-computation. A no-op if the ref names no step's frame. */
+  jumpToRef: (ref: string) => void
 }
 
 /** The step machine, mounted by StudioWorkspace when the URL carries
@@ -237,6 +242,21 @@ export function useDemoRuntime(
   }, [script])
   const prev = useCallback(() => setStepIndex((i) => Math.max(i - 1, 0)), [])
   const restart = useCallback(() => setStepIndex(0), [])
+  // a history node's 回到当时画面 (ACP-736): jump = LOAD the snapshot the
+  // event names — here, enter the script step that owns it (as its entry
+  // fixture, or as a live-act step's landing frame, whose own open replay
+  // re-performs the click that gets there). Never a reverse computation:
+  // every frame shown is one the script can already show. check_history at
+  // generation time guarantees every ref resolves to such a step, so this
+  // lookup never silently misses.
+  const jumpToRef = useCallback(
+    (ref: string) => {
+      if (!script) return
+      const i = script.steps.findIndex((s) => s.fixture === ref || s.afterFix === ref)
+      if (i >= 0) setStepIndex(i)
+    },
+    [script],
+  )
   const togglePlay = useCallback(() => {
     setPlaying((p) => {
       // pressing play on the last frame restarts — a presenter's "replay"
@@ -292,6 +312,7 @@ export function useDemoRuntime(
       next,
       prev,
       restart,
+      jumpToRef,
       togglePlay,
       markSettled,
     },

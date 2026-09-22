@@ -20,12 +20,13 @@
 // release cut + generated-code panel from the step's after-fix snapshot,
 // which is the same snapshot the script test's after-state was derived
 // from, so the panel shows data, not a promise).
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ErrorNotice from '../../../components/ErrorNotice'
 import { i18nT } from '../../../i18n/t'
 import CodeGenView from '../CodeGenView'
 import DevRunPanel, { RunPreviewScreen } from '../DevRunView'
+import ProjectHistoryView from '../ProjectHistoryView'
 import DistillPanel from '../DistillPanel'
 import GraphView from '../GraphView'
 import { RegenDiffPair, RegenDocView } from '../RegenDiffView'
@@ -68,7 +69,23 @@ export default function DemoWorkspace({ params }: {
   // shows the pre-click snapshot). Deriving costs the reset effect nothing —
   // stepping to N+1 makes a stamp of N read false, which IS the "belongs to
   // the step" semantics, enforced by data rather than by effect timing.
-  const [landedStep, setLandedStep] = useState<number | null>(null)
+  const [landedStep, setLandedStepRaw] = useState<number | null>(null)
+  // A landing write must belong to the step that is CURRENT, not merely
+  // arrive: the release act awaits its phase walk before stamping, so on a
+  // fast walk (or a replayed chain where several acts queue) the continuation
+  // can fire long after the presenter moved on — measured: main-10's release
+  // timer landed `set(9)` while main-23's own 继续设计 landing (stamp 22) had
+  // just rendered, clobbering it back to the pre-click frame. The stamp
+  // compare is the same data-derived discipline as `liveLanded`: a write for
+  // a step already left is not a fact about the current frame, so it is
+  // dropped. The step index is read through a ref (the async continuations
+  // close over stale render values).
+  const stepIndexRef = useRef(0)
+  stepIndexRef.current = ctl?.stepIndex ?? 0
+  const setLandedStep = (v: number) => {
+    if (stepIndexRef.current !== v) return
+    setLandedStepRaw(v)
+  }
 
   // state-layer swap: a new step means a new fake, so every cached
   // ai-studio read (project docs, both histories) is stale by construction.
@@ -149,6 +166,11 @@ export default function DemoWorkspace({ params }: {
   // actually carries the preview its click opens.
   const canDev = ctl.afterFixFixture?.devRun !== undefined && ctl.fixture.devRun === undefined
   const canOpenRun = ctl.afterFixFixture?.runPreview !== undefined && ctl.fixture.runPreview === undefined
+  // the 继续设计 act (main-23) lands the fresh-round frame: the editor stands
+  // clean on v4 while the history keeps the whole round. Offered only where
+  // the after-fix frame actually declares newRound — same rule as every other
+  // transition button, so no step offers a click that lands on nothing.
+  const canContinue = ctl.afterFixFixture?.newRound === true && ctl.fixture.newRound !== true
   // the after-fix snapshot takes the panel once its act lands; before that
   // (and in every world without an act) the step's own fixture speaks.
   const liveLanded = landedStep === ctl.stepIndex
@@ -175,6 +197,12 @@ export default function DemoWorkspace({ params }: {
   const onOpenRun = async () => {
     // the 体验 entry is an internal frame swap onto the after-fix snapshot's
     // runPreview data — no server, no container, nothing leaves the page
+    if (!ctl.afterFixFixture) return
+    setLandedStep(ctl.stepIndex)
+  }
+  const onContinue = () => {
+    // 继续设计 lands the fresh-round frame the same way every other live act
+    // does: the step's own snapshot says where the click goes
     if (!ctl.afterFixFixture) return
     setLandedStep(ctl.stepIndex)
   }
@@ -268,6 +296,11 @@ export default function DemoWorkspace({ params }: {
           )}
           data-demo-dev-runnable={landed.devRun?.runnableVersion ? 'true' : 'false'}
           data-demo-run-open={landed.runPreview !== undefined ? 'true' : 'false'}
+          // the history read-backs (ACP-736) ride the same wrapper: the
+          // closing frames are the first to carry `history`, but derive()
+          // states the count for every step of a graph world
+          data-demo-history-events={String(landed.history?.events.length ?? 0)}
+          data-demo-new-round={landed.newRound === true ? 'true' : 'false'}
         >
           <GraphView
             graph={landed.graph}
@@ -352,6 +385,21 @@ export default function DemoWorkspace({ params }: {
        * hard rule. Rendered under the same overlay the guidance layer rings. */}
       {landed.runPreview && (
         <RunPreviewScreen preview={landed.runPreview} />
+      )}
+      {/* the project-wide history (ACP-736, steps 16-17): this round's facts
+       * as one linked chain, snapshot-driven like every panel above — it
+       * exists exactly where the loaded frame carries `history`. A node's
+       * jump loads the script step that SHOWS its ref snapshot (回放 doctrine:
+       * 跳转=加载快照, never reverse-compute); 继续设计 is offered only on
+       * the step whose after-fix frame declares the new round. */}
+      {landed.history && (
+        <div className="shrink-0 max-h-[400px] overflow-auto border-t border-border bg-bg">
+          <ProjectHistoryView
+            history={landed.history}
+            onJump={ctl.jumpToRef}
+            onContinue={canContinue && !liveLanded ? onContinue : undefined}
+          />
+        </div>
       )}
       <DemoOverlay ctl={ctl} />
     </div>
