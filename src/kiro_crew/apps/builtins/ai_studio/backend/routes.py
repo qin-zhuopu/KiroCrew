@@ -135,6 +135,21 @@ async def _handle_doc_draft(request: web.Request) -> web.StreamResponse:
     return web.json_response({"draft": draft})
 
 
+async def _handle_project_drafts(request: web.Request) -> web.StreamResponse:
+    # Project-level read for the workspace top bar: which docs hold an
+    # uncommitted draft (the project-wide commit iterates this and commits
+    # each). One read for the summary and the commit loop's work list.
+    project_id = request.match_info["project_id"]
+    if await asyncio.to_thread(projects.get_project, project_id) is None:
+        return _error("project not found", "project_not_found", 404)
+    try:
+        drafts = await asyncio.to_thread(projects.list_draft_docs, project_id)
+    except OSError:
+        logger.exception("ai-studio draft list failed")
+        return _error("could not read the drafts", "store_write_failed", 503)
+    return web.json_response({"drafts": drafts})
+
+
 async def _handle_doc_draft_versions(request: web.Request) -> web.StreamResponse:
     project_id = request.match_info["project_id"]
     name = request.match_info["doc_name"]
@@ -162,6 +177,10 @@ def register_routes(app: web.Application) -> None:
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}", _require_enabled(_handle_project_get)
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/drafts",
+        _require_enabled(_handle_project_drafts),
     )
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/docs", _require_enabled(_handle_doc_save)

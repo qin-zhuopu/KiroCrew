@@ -1,26 +1,30 @@
 // DocEditor behavior under the Tiptap surface: the Markdown renders rich, a
 // toolbar action serializes into the Markdown buffer (proved through the Raw
-// view, which shows the same buffer as text), the Raw→Rich flip re-parses an
-// edited source, and Commit POSTs the buffer once and clears the dirty footer.
-// The ACP-722 toolbar trio is covered too: the diff button gates on dirty,
-// edits autosave a draft on a ~2s debounce, the autosave-history popover
-// lists records and restores one, and the version-history popover opens the
-// read-only version diff. The editor now reads history through React Query,
-// so every render goes through the router/provider wrapper (renderStudio).
-// UI strings assert the English catalog (tests pin i18next to en); doc
-// content is Chinese by design and asserted as data. Tiptap is created in an
-// effect (immediatelyRender false), so every first read goes through findBy.
+// view, which shows the same buffer as text), and the Raw→Rich flip re-parses
+// an edited source. ACP-727 moved committing OUT of the editor (the workspace
+// top bar commits every drafted doc — see AiStudioPage.test), so the editor
+// owns only editing plus the debounced draft autosave; the old commit-button
+// cases are gone with the button. The ACP-722 toolbar trio is covered too:
+// the diff button gates on dirty, edits autosave a draft on a ~2s debounce,
+// the autosave-history popover lists records and restores one, and the
+// version-history popover opens the read-only version diff. The editor now
+// reads history through React Query, so every render goes through the
+// router/provider wrapper (renderStudio). UI strings assert the English
+// catalog (tests pin i18next to en); doc content is Chinese by design and
+// asserted as data. Tiptap is created in an effect (immediatelyRender false),
+// so every first read goes through findBy.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-const saveDoc = vi.hoisted(() => vi.fn(async () => ({ name: 'workflow.md', content: 'x' })))
+// saveDoc is deliberately absent: since ACP-727 the editor never commits —
+// a call reaching it from here would mean the removed button crept back.
 const saveDraft = vi.hoisted(() => vi.fn(async () => ({ ok: true })))
 const listDraftVersions = vi.hoisted(() => vi.fn(async () => ({ versions: [] as unknown[] })))
 const listVersions = vi.hoisted(() => vi.fn(async () => ({ versions: [] as unknown[] })))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
-  return { ...actual, studioApi: { saveDoc, saveDraft, listDraftVersions, listVersions } }
+  return { ...actual, studioApi: { saveDraft, listDraftVersions, listVersions } }
 })
 
 import DocEditor from './DocEditor'
@@ -29,7 +33,6 @@ import { renderStudio } from './testUtils'
 const WF = '# 流程设计\n\n阶段流转\n'
 
 beforeEach(() => {
-  saveDoc.mockClear()
   saveDraft.mockClear()
   listDraftVersions.mockResolvedValue({ versions: [] })
   listVersions.mockResolvedValue({ versions: [] })
@@ -55,8 +58,11 @@ describe('DocEditor', () => {
     expect(within(doc).getByText('阶段流转')).toBeInTheDocument()
     // raw mode is off: no source textarea yet
     expect(screen.queryByRole('textbox', { name: 'workflow.md' })).not.toBeInTheDocument()
-    // pristine buffer: Commit is disabled, the footer says saved
-    expect(screen.getByRole('button', { name: /Commit version/i })).toBeDisabled()
+    // ACP-727: the editor carries no commit button any more (the /Commit/i
+    // pattern below names the old button's label exactly — the diff button's
+    // "Diff against last commit" must not be confused for it), and the
+    // footer says saved
+    expect(screen.queryByRole('button', { name: 'Commit version' })).not.toBeInTheDocument()
     expect(within(doc).getByText('Saved')).toBeInTheDocument()
   })
 
@@ -91,43 +97,6 @@ describe('DocEditor', () => {
     expect(within(doc).getByText('项目甲')).toBeInTheDocument()
     // and the original content is gone
     expect(within(doc).queryByText('流程设计')).not.toBeInTheDocument()
-  })
-
-  it('commits the buffer once and reports dirty state around the commit', async () => {
-    const user = userEvent.setup()
-    const onSaved = vi.fn()
-    renderEditor({ onSaved })
-    const doc = await screen.findByTestId('doc-workflow.md')
-    const commitBtn = screen.getByRole('button', { name: /Commit version/i })
-    // editing through the Raw textarea marks the buffer dirty and enables Commit
-    await user.click(within(doc).getByRole('button', { name: 'Markdown' }))
-    const src = screen.getByRole('textbox', { name: 'workflow.md' }) as HTMLTextAreaElement
-    await user.clear(src)
-    await user.type(src, '# 流程设计 v2')
-    expect(within(doc).getByText('Unsaved changes')).toBeInTheDocument()
-    expect(commitBtn).toBeEnabled()
-    await user.click(commitBtn)
-    expect(saveDoc).toHaveBeenCalledWith('p1', 'workflow.md', '# 流程设计 v2')
-    expect(onSaved).toHaveBeenCalled()
-    expect(await within(doc).findByText('Saved')).toBeInTheDocument()
-    expect(commitBtn).toBeDisabled()
-  })
-
-  it('surfaces a failed commit without losing the buffer', async () => {
-    const { StudioApiError } = await import('./studioApi')
-    saveDoc.mockRejectedValueOnce(new StudioApiError(404, 'project_not_found', 'gone'))
-    const user = userEvent.setup()
-    renderEditor()
-    const doc = await screen.findByTestId('doc-workflow.md')
-    await user.click(within(doc).getByRole('button', { name: 'Markdown' }))
-    const src = screen.getByRole('textbox', { name: 'workflow.md' }) as HTMLTextAreaElement
-    await user.clear(src)
-    await user.type(src, 'changed')
-    await user.click(screen.getByRole('button', { name: /Commit version/i }))
-    expect(await screen.findByText('Project no longer exists')).toBeInTheDocument()
-    // the buffer still holds what was typed — a failed commit loses nothing
-    expect((screen.getByRole('textbox', { name: 'workflow.md' }) as HTMLTextAreaElement).value).toBe('changed')
-    expect(within(doc).getByText('Unsaved changes')).toBeInTheDocument()
   })
 
   it('every toolbar action runs and reflects on the pressed state', async () => {
@@ -254,9 +223,12 @@ describe('DocEditor', () => {
     expect(within(view).getByText('-旧版内容')).toBeInTheDocument()
     // read-only takeover: no editor surface, "back to editing" returns it
     expect(screen.queryByRole('textbox', { name: 'workflow.md' })).not.toBeInTheDocument()
-    expect(within(doc).queryByRole('button', { name: /Commit version/i })).not.toBeInTheDocument()
+    // the Markdown toggle is hidden while a version is shown (ACP-727: with
+    // the trio right-aligned and no commit button, the toggle is the only
+    // conditional element on the toolbar's right edge)
+    expect(within(doc).queryByRole('button', { name: 'Markdown' })).not.toBeInTheDocument()
     await user.click(within(view).getByRole('button', { name: /Back to editing/i }))
     expect(await within(doc).findByText('流程设计')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Commit version/i })).toBeInTheDocument()
+    expect(within(doc).getByRole('button', { name: 'Markdown' })).toBeInTheDocument()
   })
 })

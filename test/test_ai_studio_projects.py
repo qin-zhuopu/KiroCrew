@@ -146,6 +146,31 @@ def test_draft_save_dedupes_and_lists_newest_first(home):
     assert exc.value.code == "project_not_found"
 
 
+def test_list_draft_docs_lists_current_drafts_with_changed_flag(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+    assert projects.list_draft_docs(pid) == []
+
+    projects.save_draft(pid, "workflow.md", "# 草稿\n")
+    # a draft equal to the committed doc still lists (the project-level
+    # commit must clear it), but reads changed=False
+    committed = next(d for d in projects.list_docs(pid) if d["name"] == "requirements.md")
+    projects.save_draft(pid, "requirements.md", committed["content"])
+
+    drafts = projects.list_draft_docs(pid)
+    assert [d["name"] for d in drafts] == ["requirements.md", "workflow.md"]
+    by_name = {d["name"]: d for d in drafts}
+    assert by_name["workflow.md"] == {"name": "workflow.md", "content": "# 草稿\n", "changed": True}
+    assert by_name["requirements.md"]["changed"] is False
+
+    # committing removes the doc from the list (both draft files go)
+    projects.save_doc(pid, "workflow.md", "# 草稿\n")
+    assert [d["name"] for d in projects.list_draft_docs(pid)] == ["requirements.md"]
+
+    # a non-project reads as empty rather than raising
+    assert projects.list_draft_docs("nope") == []
+
+
 def test_commit_snapshots_versions_and_clears_drafts(home):
     record = projects.create_project("ok", "")
     pid = record["id"]
@@ -302,6 +327,46 @@ async def test_routes_draft_and_histories(home, monkeypatch):
         versions = (await resp.json())["versions"]
         assert len(versions) == 1 and "+编辑中" in versions[0]["diff"]
         assert "time" in versions[0]
+
+
+@pytest.mark.asyncio
+async def test_routes_project_drafts_list(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post(
+            "/api/apps/ai-studio/projects",
+            json={"name": "全局提交", "description": ""},
+        )
+        pid = (await resp.json())["project"]["id"]
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/drafts")
+        assert resp.status == 200
+        assert (await resp.json())["drafts"] == []
+
+        await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs/draft",
+            json={"name": "workflow.md", "content": "草稿一\n"},
+        )
+        await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs/draft",
+            json={"name": "ui-spec.md", "content": "草稿二\n"},
+        )
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/drafts")
+        drafts = (await resp.json())["drafts"]
+        assert [d["name"] for d in drafts] == ["ui-spec.md", "workflow.md"]
+        assert all(d["changed"] and d["content"] for d in drafts)
+
+        # committing one doc drops it from the list — the top bar's work list
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs",
+            json={"name": "workflow.md", "content": "草稿一\n"},
+        )
+        assert resp.status == 200
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/drafts")
+        assert [d["name"] for d in (await resp.json())["drafts"]] == ["ui-spec.md"]
+
+        resp = await client.get("/api/apps/ai-studio/projects/missing/drafts")
+        assert resp.status == 404
+        assert (await resp.json())["code"] == "project_not_found"
 
 
 @pytest.mark.asyncio

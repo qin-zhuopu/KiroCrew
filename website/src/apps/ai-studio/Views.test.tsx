@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   getProject: vi.fn(),
   saveDoc: vi.fn(),
   saveDraft: vi.fn(async () => ({ ok: true })),
+  listDraftDocs: vi.fn(async () => ({ drafts: [] })),
   listDraftVersions: vi.fn(async () => ({ versions: [] })),
   listVersions: vi.fn(async () => ({ versions: [] })),
 }))

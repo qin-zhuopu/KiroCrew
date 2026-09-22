@@ -22,12 +22,15 @@ export interface WorkAreaProps {
   activeId: string | null
   onSelect: (id: string) => void
   onClose: (id: string) => void
-  /** Which project the open doc tabs belong to — DocEditor saves against it. */
+  /** Which project the open doc tabs belong to — DocEditor autosaves drafts against it. */
   projectId: string
-  onDocSaved: () => void
+  /** Bumped by the workspace top bar after a project-level commit: part of
+   * the DocEditor's key, so the open editors re-mount against the tab's
+   * freshly committed content instead of showing a stale dirty buffer. */
+  commitRev: number
 }
 
-export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, onDocSaved }: WorkAreaProps) {
+export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId, commitRev }: WorkAreaProps) {
   const active = tabs.find((t) => t.id === activeId) ?? null
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -68,11 +71,10 @@ export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId,
           </div>
         ) : active.kind === 'doc' ? (
           <DocEditor
-            key={`${projectId}:${active.docName}`}
+            key={`${projectId}:${active.docName}:${commitRev}`}
             projectId={projectId}
             docName={active.docName}
             initialContent={active.initialContent}
-            onSaved={onDocSaved}
           />
         ) : active.kind === 'diff' ? (
           <DiffView file={active.file} />
