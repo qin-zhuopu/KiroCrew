@@ -65,6 +65,14 @@ async def api_agent_catalog(request: web.Request) -> web.Response:
     """
     state = request.app.get("state")
     session_key = _read_session_key(request)
+    # The dashboard's browser client sends the literal ``dashboard:ui`` sentinel
+    # for every request when no chat-slot context exists (see web client's
+    # ``_sk``). It is not a slot the user can navigate to, so fold it to "no
+    # key" like the other handlers do (artifacts, cron, token_auth) — otherwise
+    # the slot lookup below 404s the global roster surfaces (schedule, crew
+    # editor) that legitimately request it without a session.
+    if session_key == "dashboard:ui":
+        session_key = ""
     project_dir = None
     if state is not None and session_key:
         slot_name = session_key.split(":", 1)[-1]
