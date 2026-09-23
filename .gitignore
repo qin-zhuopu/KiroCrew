@@ -9,6 +9,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
+# Staging dir for docker/build-dev-image.sh (kiro-cli copied in for the
+# dev.Dockerfile COPY; removed on build exit, ignored so an interrupted
+# build never shows as a dirty tree).
+docker/.dev-build/
 
 /.coverage
 /.coverage.*
