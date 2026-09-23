@@ -40,6 +40,11 @@
 
 断言不变：`ai-studio-publish-url-<版本号>` 的 **href** 逐字匹配域名模板（显示文案可以短，href 必须全量）。
 
+**行内两个状态元素的分工**（都是行内，不许混）：
+- `ai-studio-publish-version-state` = 该版本的生命周期状态：未发布 / 发布中 / 已发布 / 失败；
+- `ai-studio-publish-status-<版本号>` = 本次发布动作的结果文案：发布中（进行时）/ 发布成功 / 发布失败+原因。
+两者在发布期间同步（同现「发布中」），终态由 release 决定（成功→已发布；失败→未发布+失败原因）。
+
 后序文档（09 view-history）承接本步的产出：发布记录、应用地址——已在其视图内列为可跳转节点。
 
 ## 〇-2、发布详情页（Jenkins 式发布历史 + 流式日志）
@@ -158,7 +163,7 @@
 
 | 新组件 | 承载 testid | 理由 |
 |---|---|---|
-| 发布页签（ToolSidebar 内新页签） | `ai-studio-publish-entry` | 右边栏现有页签不含发布 |
+| 发布页签（现有 `ToolSidebar` 的 releases 页签） | `ai-studio-publish-entry` | 页签本体已存在（现无 testid），**本条只要求补挂 testid**；其内容从现有 fixture 桩换成发布版本列表（见上一行） |
 | 发布版本列表（行=版本+状态+按钮+原因） | `ai-studio-publish-version-list` / `ai-studio-publish-version-row-<版本号>` / `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>` | 现无「每行可发布」的版本列表；列表数据复用版本接口，但行内发布语义是新内容 |
 | 行内发布结果条（状态+徽标+地址+发布号链接） | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` / `ai-studio-publish-id-<版本号>` | 现无对应物；发布记录不在行内，收进 release-job 页的 job 列表 |
 | 发布详情页 ReleaseJobPage（独立路由 `/release-jobs/<发布号>`，历史列表+流式日志） | `ai-studio-release-job-page` / `ai-studio-release-job-history-list` / `ai-studio-release-job-row-<发布号>` / `ai-studio-release-job-status-<发布号>` / `ai-studio-release-job-log-<发布号>` | Jenkins 式发布历史与流式日志，现无对应页面；日志渲染复用 `DeployLog` 形态，不另造日志组件 |
