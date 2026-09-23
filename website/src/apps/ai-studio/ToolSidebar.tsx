@@ -120,6 +120,14 @@ export interface ToolSidebarProps {
   dev?: ToolTabInjection
   /** the 部署 tab's injected 过程 / 历史 (a deploy frame's own record) */
   deploy?: ToolTabInjection
+  // ACP-802 adds the sixth, and it is the SAME kind again: the 需求图谱 tab's
+  // drill-down has two levels, and a demo frame that IS the second one (G4,
+  // standing inside 实体) must not render the first one first. Omitted — every
+  // ordinary workbench, and every frame that is not drilled in — the tab opens
+  // on its type list exactly as it always has.
+  /** the node type the 需求图谱 tab opens standing INSIDE (a demo frame's own
+   * level); omitted = the tab's type list, i.e. today's first paint */
+  initialGraphType?: string
 }
 
 /** One entry row of the 需求图谱 tab's list (ACP-797): a node of the frame's
@@ -159,10 +167,12 @@ const MARK_KEY = {
 export default function ToolSidebar({
 onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
   graphEntries, distillation, releaseFiles, releaseAction, dev, deploy,
+  initialGraphType,
 }: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>(initialTool)
-  // graph drill state: null = type list, string = inside a type
-  const [graphType, setGraphType] = useState<string | null>(null)
+  // graph drill state: null = type list, string = inside a type. A frame that
+  // IS the drilled-in level seeds it; everyone else starts on the type list.
+  const [graphType, setGraphType] = useState<string | null>(initialGraphType ?? null)
 
   const pick = (t: Tool) => {
     setTool(t)

@@ -75,7 +75,8 @@ afterEach(() => {
 })
 
 /** mount the real sidebar on a graph frame, exactly as the renderer will wire
- * it. `off` drops both seams — the ordinary caller's call shape. */
+ * it (ACP-804 added the frame's own drill level to that call shape). `off`
+ * drops every seam — the ordinary caller's call shape. */
 function mountFrame(frame: GraphStateSnapshot, off = false) {
   const onOpenTab = vi.fn()
   const view = render(
@@ -86,6 +87,7 @@ function mountFrame(frame: GraphStateSnapshot, off = false) {
       initialTool={off ? undefined : 'graph'}
       graphEntries={off ? undefined : frame.graphEntries}
       distillation={off ? undefined : frame.distillation}
+      initialGraphType={off ? undefined : frame.graphType}
     />,
   )
   return { onOpenTab, unmount: view.unmount }
@@ -307,6 +309,34 @@ describe('the real ToolSidebar on the 需求图谱 tab', () => {
     expect(screen.getByText('页面')).toBeInTheDocument()
     expect(entryRowEls()).toHaveLength(0)
     expect(screen.queryByTestId('distill-panel')).toBeNull()
+  })
+
+  // ACP-804: the drill seam proper. The tab's fixture drill-down has two
+  // levels, and a frame that IS the second one must open ON it, not show the
+  // type list first. Omitted (every ordinary workbench), the first paint is
+  // the type list, byte for byte as before — that half is pinned above.
+  it('initialGraphType opens the tab standing INSIDE a type; omitted opens the type list', async () => {
+    const view = render(
+      <ToolSidebar onOpenTab={vi.fn()} docs={G4.fixture.docs} projectId={G4.fixture.project.id}
+        initialTool="graph" initialGraphType={DRILL_TYPE} />,
+    )
+    // inside 实体: the back-to-types affordance and the type's own instance rows
+    expect(screen.getByText('Node types')).toBeInTheDocument() // the back button's label
+    for (const n of GRAPH_NODES[DRILL_TYPE]) {
+      expect(screen.getByText(n.name)).toBeInTheDocument()
+    }
+    // and NOT the level it skipped: no other type's section header on screen
+    expect(screen.queryByText('页面')).toBeNull()
+    view.unmount()
+
+    render(
+      <ToolSidebar onOpenTab={vi.fn()} docs={G4.fixture.docs} projectId={G4.fixture.project.id}
+        initialTool="graph" />,
+    )
+    // omitted → today's first paint: the type list, none of the instances yet
+    expect(screen.getByText('页面')).toBeInTheDocument()
+    expect(screen.getByText('业务规则')).toBeInTheDocument()
+    expect(screen.queryByText('商机历史')).toBeNull()
   })
 })
 
