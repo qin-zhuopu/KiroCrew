@@ -38,10 +38,10 @@ import DeployFramePanel from './demo/DeployFramePanel'
 import { createDemoPublishApi } from './demo/publishFake'
 import { isReleaseState } from './demo/states-release'
 import type { CommitStateSnapshot } from './demo/states-commit'
+import type { GraphStateSnapshot } from './demo/states-graph'
 import type { StateSnapshot } from './demo/states'
 import ReleaseJobPage from './ReleaseJobPage'
 import DevRunPanel, { RunPreviewScreen } from './DevRunView'
-import GraphView from './GraphView'
 import DemoEntryButton from './DemoEntryButton'
 import { studioApi, StudioApiError, type StudioDoc } from './studioApi'
 
@@ -200,6 +200,12 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
   // are positive checks against the frame's own payload — the same doctrine
   // as `isReleaseState` — never "everything that is not the other one".
   const demoCommit = useMemo(() => (isCommitState(demoState) ? demoState : null), [demoState])
+  // A graph frame (ACP-797) is the same kind of surface frame: it lights the
+  // 需求图谱 tab and hands it the frame's own list + generation run. Its
+  // identity is CARRYING `graphEntries` (the slice's stated rule) rather than a
+  // shared tab field, so D7 — the design phase's 图谱修订, which carries them
+  // too — lights that tab as well, exactly as it should.
+  const demoGraph = useMemo(() => (isGraphState(demoState) ? demoState : null), [demoState])
   const demoRelease = useMemo(
     () => (demoState && isReleaseState(demoState) ? demoState : null),
     [demoState],
@@ -493,21 +499,17 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               />
             </div>
             {/* The later-phase frames' payoff panels (ACP-794): a frame whose
-              * story IS the graph / the dev run / the deployment renders the
-              * REAL component for it under the editor, exactly where the
-              * replay surface mounts them. Snapshot-driven: a panel exists
-              * only where the loaded frame carries its payload. */}
-            {demoState?.activeSurface === 'graph' && demoState.fixture.graph && (
-              <div className="shrink-0 max-h-[300px] overflow-auto border-t border-border bg-bg">
-                <GraphView
-                  graph={demoState.fixture.graph}
-                  addedNodeIds={demoState.fixture.graphDelta?.nodes}
-                  addedEdges={demoState.fixture.graphDelta?.edges}
-                  modifiedNodeIds={demoState.fixture.graphDelta?.modified}
-                  removedNodeIds={demoState.fixture.graphDelta?.removed}
-                />
-              </div>
-            )}
+              * story IS the dev run / the deployment renders the REAL component
+              * for it under the editor. Snapshot-driven: a panel exists only
+              * where the loaded frame carries its payload.
+              *
+              * The graph used to be one of these, and is not any more: ACP-797
+              * retired the box-and-arrow canvas — the graph is read in the
+              * 需求图谱 TAB, and no frame sets `activeSurface: 'graph'` today.
+              * The branch and its import are gone rather than left unreachable,
+              * because an unreachable panel on this column is exactly what the
+              * owner's 「中间列只放文字内容」 rule forbids. (dev / deploy still
+              * stand here: their tabs are ACP-799's, not this branch's.) */}
             {demoState?.activeSurface === 'dev' && demoState.fixture.devRun && (
               <div className="shrink-0 max-h-[340px] overflow-auto border-t border-border bg-bg">
                 <DevRunPanel run={demoState.fixture.devRun} />
@@ -549,10 +551,18 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               onOpenTab={onShownOpen}
               docs={demoState ? demoState.fixture.docs : docs}
               projectId={projectId}
-              initialTool={demoRelease ? 'releases' : demoCommit ? 'commits' : 'docs'}
+              initialTool={
+                demoGraph ? 'graph' : demoRelease ? 'releases' : demoCommit ? 'commits' : 'docs'
+              }
               changed={demoCommit?.changed}
               commits={demoCommit?.commits}
               publishApi={demoPublishApi ?? undefined}
+              // the graph frame's own list + generation run: the tab renders
+              // the shipped DistillPanel above the grouped entries, so the
+              // process and the artifact are both observed where the owner's
+              // rule puts them — in the tab, never in the middle column
+              graphEntries={demoGraph?.graphEntries}
+              distillation={demoGraph?.distillation}
             />
           </aside>
         )}
@@ -588,6 +598,14 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
  * release frame". Null-safe because the caller holds "no frame at all" too. */
 function isCommitState(s: StateSnapshot | null): s is CommitStateSnapshot {
   return s !== null && 'activeSidebarTab' in s
+}
+
+/** A graph frame, by the same rule the slice states: it CARRIES the tab's
+ * entries. (`states-graph.ts` deliberately did not reuse `activeSidebarTab`
+ * for this — that field is the commit pair's identity and the guard above
+ * tests it by name, so a second value on it would light 提交 on D7.) */
+function isGraphState(s: StateSnapshot | null): s is GraphStateSnapshot {
+  return s !== null && 'graphEntries' in s
 }
 
 function paneToggleCls(active: boolean): string {

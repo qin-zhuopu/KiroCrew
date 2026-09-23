@@ -149,10 +149,15 @@ describe('state demo inside the real workbench (ACP-794)', () => {
     // the pair lives in the commit group and nowhere else
     expect(design.queryByTestId('demo-states-select-C1')).toBeNull()
 
+    // 提交 holds the commit pair AND the graph generation it produced
+    // (ACP-797's G1/G2), in that order: the stage's process after its act
     const commit = within(screen.getByTestId('demo-states-group-commit'))
-    for (const id of ['C1', 'C2']) {
+    for (const id of ['C1', 'C2', 'G1', 'G2']) {
       expect(commit.getByTestId(`demo-states-select-${id}`)).toBeInTheDocument()
     }
+    // the graph pair did not leak into 设计 either (its slice declares the
+    // slice's own phase; the dock's grouping is allStates.ts's job)
+    expect(design.queryByTestId('demo-states-select-G1')).toBeNull()
 
     const release = within(screen.getByTestId('demo-states-group-release'))
     for (const id of ['R1', 'R2', 'R3', 'R4', 'R5', 'R6']) {
@@ -222,6 +227,41 @@ describe('state demo inside the real workbench (ACP-794)', () => {
 
     await select('R1')
     expect(litTool()).toBe('Releases')
+  })
+
+  it('renders the graph pair through the 需求图谱 tab, walking C2 → G1 → G2', async () => {
+    mount('/workspaces/p1/ai-studio')
+    await enterDemo()
+
+    await select('C2')
+    fireEvent.click(screen.getByTestId('demo-states-next'))
+    await waitFor(() => expect(dock()).toHaveAttribute('data-demo-state', 'G1'))
+
+    // G1: the 需求图谱 tab is lit and the generation PROCESS is on screen —
+    // the shipped running panel, above the entries that have landed so far
+    expect(litTool()).toBe('Graph')
+    expect(screen.getByTestId('distill-status-running')).toBeInTheDocument()
+    expect(within(sidebar()).getByTestId('graph-entry-req-purchase-approval')).toBeInTheDocument()
+    // the module that has not landed yet is not in the list — 逐条出现
+    expect(within(sidebar()).queryByTestId('graph-entry-mod-approval-service')).toBeNull()
+
+    // the middle column is still the DOC EDITOR: the graph is read in the tab
+    // and nowhere else (owner 口径), so the retired canvas is not resurrected
+    expect(screen.getByTestId(`doc-${FOCUS_DOC}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('graph-view')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('demo-states-next'))
+    await waitFor(() => expect(dock()).toHaveAttribute('data-demo-state', 'G2'))
+
+    // G2: the same tab, the run finished, the whole graph read as a list —
+    // the entry that arrived between the two frames is here now, and the
+    // pruned one is shown struck through rather than dropped
+    expect(litTool()).toBe('Graph')
+    expect(screen.getByTestId('distill-status-done')).toBeInTheDocument()
+    expect(within(sidebar()).getByTestId('graph-entry-mod-approval-service')).toBeInTheDocument()
+    expect(within(sidebar()).getByTestId('graph-entry-mod-manual-adjust')).toBeInTheDocument()
+    // still no canvas, on either frame
+    expect(screen.queryByTestId('graph-view')).toBeNull()
   })
 
   it('renders the release frames through the real publish list — including R3\'s one real click', async () => {
