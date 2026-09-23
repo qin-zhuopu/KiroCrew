@@ -32,3 +32,9 @@
 - [20260923-122306-t7-frontend-gate-baseline-drift.md](20260923-122306-t7-frontend-gate-baseline-drift.md) —
   证明红灯前端门禁（ai-studio vitest、i18n parity/deadKeys）是继承来的不是自己引入的：
   共享 stash 安全的基线对照法，以及 happy-dom 缺 EventSource。
+- [20260923-142652-seccomp-allows-but-mount-denied-in-userns.md](20260923-142652-seccomp-allows-but-mount-denied-in-userns.md) —
+  dev 容器内沙箱 probe 死在 mount(EACCES)：seccomp 全放行也没用，宿主内核/AppArmor 禁
+  非特权 userns 挂载；宿主上裸跑同一命令十秒定性，退到 ALLOW_UNSANDBOXED 兜底。
+- [20260923-142652-pip-editable-egg-info-misleading-ro-mount.md](20260923-142652-pip-editable-egg-info-misleading-ro-mount.md) —
+  "Cannot update time stamp of directory *.egg-info" 实为只读树上的 EROFS：pip -e 必写
+  源码根，:ro 挂载的上游要用卷内快照 + KIROCREW_DEV_SRC，参数化要覆盖安装行不只检查。
