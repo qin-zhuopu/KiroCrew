@@ -1,3 +1,23 @@
+---
+title: AI Studio 顶层端到端验收
+doc-id: "00"
+status: 定稿
+version: v0.2
+owner: qinshuguo
+maintainer: sid-req-design
+updated: 2026-09-23
+children:
+  - 01（待编写）
+  - 02-requirement-edit-commit.md（待编写）
+  - 03（待编写）
+  - 04（待编写）
+  - 05（待编写）
+  - 06（待编写）
+  - 07（待编写）
+  - 08-publish-app.md（定稿）
+  - 09（待编写）
+---
+
 # AI Studio——顶层端到端验收（v0.2，按 Owner 口径重写）
 
 > 目的：验证业务用户能否在我们的 AI Studio 上完成一轮"需求驱动开发"闭环：**改需求 → 提交出奇数版 → 图谱反向生成偶数版 → 需求冻结 → 增量任务拆解同步 Jira → 评审 → dev-dag 调度并行/串行开发 → 部署应用 → 全程可追溯 → 下一轮**。
