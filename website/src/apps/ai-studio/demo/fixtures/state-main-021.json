@@ -1,5 +1,46 @@
 {
   "buffer": "# 会员积分系统 需求说明\n\n> 签到、消费返积分、积分兑换闭环\n\n## 目标\n\n- 上线积分中心页，支持签到与消费返积分\n\n## 范围\n\n- 包含：积分获取、积分兑换、积分过期提醒\n- 不包含：积分转赠、积分抵现\n\n## 验收标准\n\n- [ ] 每日签到 +5 积分\n- [ ] 消费 1 元返 1 积分\n- [ ] 积分满 100 可兑换 5 元优惠券（7 天有效）\n- [ ] 优惠券 7 天内有效，过期自动退回积分\n\n## 设计事实（发版沉淀 · v3）\n\n- 新增模块「优惠券服务」：有效期判断与过期退款都归它\n",
+  "devRun": {
+    "artifacts": [
+      {
+        "kind": "test",
+        "path": "reports/test-v4.json"
+      },
+      {
+        "kind": "build",
+        "path": "dist/points-service-0.4.0.tar.gz"
+      },
+      {
+        "kind": "runtime",
+        "path": "runtime/points-service"
+      }
+    ],
+    "designVersion": "v4 · graph@distill-v3",
+    "id": "dev-v4",
+    "phases": [
+      {
+        "name": "tasks",
+        "status": "done",
+        "summary": "按 v4 冻结设计拆分 5 个开发任务：有效期判断、过期退款、支付方式排除、优惠券服务、数据表"
+      },
+      {
+        "name": "implement",
+        "status": "done",
+        "summary": "实现 4 个生成文件对应的模块，优惠券服务落地 COUPON_TTL=7 天"
+      },
+      {
+        "name": "test",
+        "status": "done",
+        "summary": "23 项测试全部通过：有效期边界 6 项、过期退款 9 项、支付方式排除 8 项"
+      },
+      {
+        "name": "build",
+        "status": "done",
+        "summary": "构建产物 points-service-0.4.0 打包完成，可运行版本就绪"
+      }
+    ],
+    "runnableVersion": "0.4.0"
+  },
   "diffGroups": [
     {
       "candidateId": "dc-add-coupon-service",
@@ -241,6 +282,79 @@
       }
     ]
   },
+  "history": {
+    "events": [
+      {
+        "at": 1758772800,
+        "id": "he-edit",
+        "kind": "edit",
+        "links": [],
+        "ref": "main-006",
+        "summary": "手工修改 requirements.md：补上优惠券 7 天有效期与积分不可抵现两行"
+      },
+      {
+        "at": 1758773400,
+        "id": "he-commit",
+        "kind": "commit",
+        "links": [
+          "he-edit"
+        ],
+        "ref": "main-008",
+        "summary": "提交为 v3：两行修改进入版本历史，草稿记录清空"
+      },
+      {
+        "at": 1758774600,
+        "id": "he-release",
+        "kind": "release",
+        "links": [
+          "he-commit"
+        ],
+        "ref": "main-010",
+        "summary": "发布 v3 并生成 4 个代码文件，每个文件标注来源需求节点"
+      },
+      {
+        "at": 1758775200,
+        "id": "he-distill",
+        "kind": "distill",
+        "links": [
+          "he-release"
+        ],
+        "ref": "main-013",
+        "summary": "沉淀 3 条结构化事实并被图谱吸收，重生成文档 v4"
+      },
+      {
+        "at": 1758777000,
+        "id": "he-freeze",
+        "kind": "freeze",
+        "links": [
+          "he-distill"
+        ],
+        "ref": "main-015",
+        "summary": "冻结 v4（偶数版 · graph@distill-v3）为本轮不可变基线"
+      },
+      {
+        "at": 1758777600,
+        "id": "he-dev",
+        "kind": "dev",
+        "links": [
+          "he-freeze"
+        ],
+        "ref": "main-018",
+        "summary": "按 v4 · graph@distill-v3 开发：四阶段全过，产物三件套就绪"
+      },
+      {
+        "at": 1758778200,
+        "id": "he-run",
+        "kind": "run",
+        "links": [
+          "he-dev"
+        ],
+        "ref": "main-019",
+        "summary": "可运行版本 0.4.0 上线体验，功能清单等于图谱需求节点"
+      }
+    ]
+  },
+  "newRound": true,
   "project": {
     "createdAt": 1758600000,
     "description": "签到、消费返积分、积分兑换闭环",

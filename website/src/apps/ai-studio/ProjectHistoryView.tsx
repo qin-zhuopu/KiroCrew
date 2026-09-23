@@ -11,18 +11,19 @@
 // round's final design becomes the next round's baseline, so the button is
 // rendered by whoever declares it (same live-act discipline as every other
 // transition button).
-import { BrainCircuit, GitCommitHorizontal, Hammer, Pencil, PlayCircle, Rocket } from 'lucide-react'
+import { BrainCircuit, GitCommitHorizontal, Hammer, Pencil, PlayCircle, Rocket, Snowflake } from 'lucide-react'
 import { Btn } from '../../components/ui'
 import { i18nT } from '../../i18n/t'
 import type { StudioHistoryKind, StudioProjectHistory } from './studioApi'
 
-// one icon per kind — the five kinds must stay visually DIFFERENT (验收标准:
-// 五类不同且可追溯的事实); a closed table, so a new kind fails loudly here
+// one icon per kind — the kinds must stay visually DIFFERENT (验收标准:
+// 六类/七类不同且可追溯的事实); a closed table, so a new kind fails loudly here
 const KIND_ICON: Record<StudioHistoryKind, typeof Pencil> = {
   edit: Pencil,
   commit: GitCommitHorizontal,
   release: Rocket,
   distill: BrainCircuit,
+  freeze: Snowflake,
   dev: Hammer,
   run: PlayCircle,
 }

@@ -136,6 +136,22 @@ export const LOCATORS: Record<string, DemoLocator> = {
       return el && !el.hasAttribute('disabled') ? el : null
     },
   },
+  // the requirement freeze (ACP-755): the button waits for enabled like the
+  // other acts (its click opens the confirm), the confirm button is the act
+  // itself, and the ring target is the frozen baseline record
+  freeze_btn: {
+    find: () => {
+      const el = byTestid('freeze-btn')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
+  freeze_confirm: {
+    find: () => {
+      const el = byTestid('freeze-confirm')
+      return el && !el.hasAttribute('disabled') ? el : null
+    },
+  },
+  freeze_record: { find: () => byTestid('freeze-record') },
   // the project-wide history timeline (ACP-736): the ring target is the
   // panel itself; 继续设计 waits for enabled like the other act buttons
   history_timeline: { find: () => byTestid('history-timeline') },

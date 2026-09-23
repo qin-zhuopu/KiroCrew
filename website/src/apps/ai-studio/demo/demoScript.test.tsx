@@ -88,6 +88,10 @@ function readState(): Record<string, boolean | number | string> {
     // the history read-backs (ACP-736) ride the same wrapper
     out.historyEvents = Number(frame?.dataset.demoHistoryEvents)
     out.newRound = frame?.dataset.demoNewRound === 'true'
+    // the freeze read-back (ACP-755) rides the same wrapper: derive() states
+    // `frozen` for every step of a graph world, while the record panel only
+    // mounts on frozen frames
+    out.frozen = frame?.dataset.demoFrozen === 'true'
   }
   return out
 }
@@ -120,6 +124,7 @@ function declared(s: DemoState): Record<string, boolean | number | string> {
     out.runOpen = s.runOpen ?? false
     out.historyEvents = s.historyEvents ?? 0
     out.newRound = s.newRound ?? false
+    out.frozen = s.frozen ?? false
   }
   return out
 }
@@ -626,17 +631,97 @@ describe('the regeneration beats (ACP-734): reverse link + three-segment pairing
   }, 90000)
 })
 
+describe('the freeze beats (ACP-755): parity marks + baseline locked, refused, recoverable', () => {
+  // 00 doc 核心机制: 奇偶版本 (every row's source readable from its number)
+  // and 需求冻结 (a graph version becomes the round's immutable baseline;
+  // re-freezing the same version is rejected, the button greys). main-18 is
+  // the parity read of the version list, main-19 is the live-act step whose
+  // replayed clicks (freeze → confirm) land the record — and whose refusal
+  // lives in the fake (409), never in a disabled prop.
+  it('main-18: four version rows, every one badged by its parity and source', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    mountDemo(name)
+    await walkTo(script, 'main-18')
+    // the step's own open act already opened 版本历史 — the list is on screen
+    const list = document.querySelector('[data-testid="version-history-list"]')
+    expect(list).not.toBeNull()
+    const rows = [...list!.querySelectorAll('[data-testid^="version-row-"]')]
+    expect(rows).toHaveLength(4)
+    // every row carries BOTH marks — no row can hide its origin
+    expect(list!.querySelectorAll('[data-testid^="version-source-"]')).toHaveLength(4)
+    // the trail reads newest-first and alternates by position: v4 even/regen,
+    // v3 odd/manual, v2 even/regen, v1 odd/manual — the 00 doc rule as DOM
+    const marks = rows.map((r) => [
+      r.getAttribute('data-testid'),
+      r.getAttribute('data-version-parity'),
+      r.getAttribute('data-version-source'),
+    ])
+    expect(marks).toEqual([
+      ['version-row-v4', 'even', 'regen'],
+      ['version-row-v3', 'odd', 'manual'],
+      ['version-row-v2', 'even', 'regen'],
+      ['version-row-v1', 'odd', 'manual'],
+    ])
+    // no baseline exists yet on this frame: nothing frozen, no record panel
+    expect(readState().frozen).toBe(false)
+    expect(document.querySelector('[data-testid="freeze-record"]')).toBeNull()
+  }, 90000)
+
+  it('main-19: the replayed freeze click lands the v4 baseline and refuses a repeat', async () => {
+    const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
+    const freezeStep = script.steps.find((s) => s.id === 'main-19')!
+    mountDemo(name)
+    await walkTo(script, 'main-19')
+    // the overlay replayed freeze → confirm onto the real buttons; the fake
+    // accepted (this frame held no baseline) and the landed frame carries the
+    // record — the frame the step DECLARES as its after-state
+    await waitFor(
+      () => expect(readState()).toEqual(declared(freezeStep.after)),
+      { timeout: 4000, interval: 50 },
+    )
+    const record = document.querySelector('[data-testid="freeze-record"]')
+    expect(record).not.toBeNull()
+    expect(record!.getAttribute('data-frozen-version')).toBe('v4')
+    expect(document.querySelector('[data-testid="freeze-badge-v4"]')).not.toBeNull()
+    // the refused re-action stays ON SCREEN: the button is disabled (00 doc:
+    // 再次冻结按钮变为不可用) and the record states the rule that refuses it
+    const btn = document.querySelector<HTMLButtonElement>('[data-testid="freeze-btn"]')!
+    expect(btn.disabled).toBe(true)
+    expect(btn.getAttribute('data-freeze-frozen')).toBe('true')
+    expect(document.querySelector('[data-testid="freeze-duplicate-hint"]')!.textContent)
+      .toContain('v4')
+
+    // back to main-18: the freeze was main-015's own data — the parity frame
+    // re-derives unfrozen, no leftover record (回退恢复)
+    await clickTestId('demo-prev')
+    await settleFor('main-18')
+    await waitFor(
+      () => expect(readState().frozen).toBe(false),
+      { timeout: 4000, interval: 50 },
+    )
+    expect(document.querySelector('[data-testid="freeze-record"]')).toBeNull()
+    // (no back-and-forward re-landing leg here: the landed-step stamp is
+    // session-scoped by design — re-entering main-19 shows the landed frame
+    // again without a re-click — so a re-walked freeze act would idle on the
+    // disabled button until the locator deadline. 回放一致 for this act is
+    // covered where both surfaces walk the line forward from step 0: the
+    // manual-vs-autoplay loop above, on fresh mounts with fresh fakes.)
+  }, 90000)
+})
+
 describe('the development beats (ACP-735): record → four phases → result → experience', () => {
-  // 验收文档步骤 12-15: main-18 is a live-act step (real 开始开发 click → the
-  // opened run's frame), main-19/20 are the process frames the chain walks,
-  // main-21 opens the built-in experience page through the result row's own
+  // 验收文档步骤 12-15: main-20 is a live-act step (real 开始开发 click → the
+  // opened run's frame), main-21/22 are the process frames the chain walks,
+  // main-23 opens the built-in experience page through the result row's own
   // button. The phase counts here are the snapshots' own data — the ticket's
   // 回放一致性重点: autoplay advancing must show what manual stepping shows.
+  // (These ids were 18..21 before ACP-755 inserted the parity + freeze beats
+  // between the regen and the dev — everything after them shifted by two.)
   it('manual walk: record lands, phases advance 0→2→4, artifacts+runnable only at the end', async () => {
     const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
     mountDemo(name)
 
-    await walkTo(script, 'main-18')
+    await walkTo(script, 'main-20')
     await waitFor(
       () => expect(readState().devActive).toBe(true),
       { timeout: 6000, interval: 50 },
@@ -651,7 +736,7 @@ describe('the development beats (ACP-735): record → four phases → result →
     expect(document.querySelector('[data-testid="run-open-btn"]')).toBeNull()
 
     await clickTestId('demo-next')
-    await settleFor('main-19')
+    await settleFor('main-21')
     await waitFor(
       () => expect(readState().devPhasesDone).toBe(2),
       { timeout: 4000, interval: 50 },
@@ -662,7 +747,7 @@ describe('the development beats (ACP-735): record → four phases → result →
     expect(document.querySelector('[data-dev-phase-summary="test"]')).toBeNull()
 
     await clickTestId('demo-next')
-    await settleFor('main-20')
+    await settleFor('main-22')
     await waitFor(
       () => expect(readState().devPhasesDone).toBe(4),
       { timeout: 4000, interval: 50 },
@@ -670,16 +755,16 @@ describe('the development beats (ACP-735): record → four phases → result →
     expect(readState().devRunnable).toBe(true)
     // the result row: three artifacts. The experience BUTTON is deliberately
     // absent here — a transition button only renders on the step that
-    // declares that transition (main-21's pre-click frame), exactly like the
+    // declares that transition (main-23's pre-click frame), exactly like the
     // distill button never rendered on the applied-graph frame. The snapshot
-    // fact above (devRunnable) is what main-20 owns.
+    // fact above (devRunnable) is what main-22 owns.
     expect(document.querySelectorAll('[data-testid^="dev-artifact-"]')).toHaveLength(3)
     expect(document.querySelector('[data-testid="run-open-btn"]')).toBeNull()
-    // the preview is NOT open yet — opening it is main-21's own click
+    // the preview is NOT open yet — opening it is main-23's own click
     expect(document.querySelector('[data-testid="run-preview"]')).toBeNull()
 
     await clickTestId('demo-next')
-    await settleFor('main-21')
+    await settleFor('main-23')
     await waitFor(
       () => expect(readState().runOpen).toBe(true),
       { timeout: 6000, interval: 50 },
@@ -699,7 +784,7 @@ describe('the development beats (ACP-735): record → four phases → result →
 
     // back off the experience frame: the preview was main-018's own data
     await clickTestId('demo-prev')
-    await settleFor('main-20')
+    await settleFor('main-22')
     await waitFor(
       () => expect(readState().runOpen).toBe(false),
       { timeout: 4000, interval: 50 },
@@ -707,12 +792,12 @@ describe('the development beats (ACP-735): record → four phases → result →
     expect(document.querySelector('[data-testid="run-preview"]')).toBeNull()
   }, 90000)
 
-  it('autoplay lands the same dev picture at main-20 as manual stepping', async () => {
+  it('autoplay lands the same dev picture at main-22 as manual stepping', async () => {
     const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
-    const target = script.steps.find((s) => s.id === 'main-20')!
+    const target = script.steps.find((s) => s.id === 'main-22')!
 
     const mr = mountDemo(name)
-    await walkTo(script, 'main-20')
+    await walkTo(script, 'main-22')
     await waitFor(
       () => expect(readState()).toEqual(declared(target.after)),
       { timeout: 4000, interval: 50 },
@@ -726,8 +811,8 @@ describe('the development beats (ACP-735): record → four phases → result →
     await waitFor(
       () => {
         const el = screen.getByTestId('demo-stepper')
-        expect(el.getAttribute('data-demo-step')).toBe('main-20')
-        expect(el.getAttribute('data-demo-phase')).toBe('main-20:settled')
+        expect(el.getAttribute('data-demo-step')).toBe('main-22')
+        expect(el.getAttribute('data-demo-phase')).toBe('main-22:settled')
       },
       { timeout: 30000, interval: 50 },
     )
@@ -741,28 +826,30 @@ describe('the development beats (ACP-735): record → four phases → result →
 })
 
 describe('the history loop (ACP-736): full-round timeline, jump-back, next round', () => {
-  // 验收文档步骤 16-17: main-22 opens the project-wide timeline (six events,
-  // one per kind, each link pointing BACK to its cause), main-23 is a
+  // 验收文档步骤 16-17: main-24 opens the project-wide timeline (seven
+  // events after ACP-755's freeze joined the kinds, one per kind, each link
+  // pointing BACK to its cause), main-25 is a
   // live-act step (real 继续设计 click → the clean next-round frame). Jumping
   // from a timeline node loads the snapshot that node names — never a
   // reverse computation (工单硬约束).
-  it('main-22: six events, closed kinds, run links back to dev, jump loads the named snapshot', async () => {
+  it('main-24: seven events, closed kinds, run links back to dev, jump loads the named snapshot', async () => {
     const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
     mountDemo(name)
-    await walkTo(script, 'main-22')
+    await walkTo(script, 'main-24')
     await waitFor(
-      () => expect(readState().historyEvents).toBe(6),
+      () => expect(readState().historyEvents).toBe(7),
       { timeout: 4000, interval: 50 },
     )
     const timeline = document.querySelector('[data-testid="history-timeline"]')!
-    expect(timeline.getAttribute('data-history-count')).toBe('6')
+    expect(timeline.getAttribute('data-history-count')).toBe('7')
     const rows = [...timeline.querySelectorAll('[data-testid^="history-event-"]')]
-    expect(rows).toHaveLength(6)
-    // closed kind union: exactly the six human/系统事实 kinds, no AI-source
-    // variant (the DAG explicitly does not do 验收文档 steps 3-4)
+    expect(rows).toHaveLength(7)
+    // closed kind union: exactly the seven human/系统事实 kinds, no AI-source
+    // variant (the DAG explicitly does not do 验收文档 steps 3-4); the freeze
+    // joined as the seventh when ACP-755 landed the baseline act
     const kinds = rows.map((r) => r.getAttribute('data-history-kind'))
-    expect(new Set(kinds).size).toBe(6)
-    for (const k of ['edit', 'commit', 'release', 'distill', 'dev', 'run'])
+    expect(new Set(kinds).size).toBe(7)
+    for (const k of ['edit', 'commit', 'release', 'distill', 'freeze', 'dev', 'run'])
       expect(kinds).toContain(k)
     // the run event links back to the dev event, and the link renders the
     // linked event's summary — 追溯沿因果往回走, on screen
@@ -784,10 +871,10 @@ describe('the history loop (ACP-736): full-round timeline, jump-back, next round
     expect(readState().devActive).toBe(false)
   }, 90000)
 
-  it('main-23: real 继续设计 click lands a clean round on v4 with the history kept', async () => {
+  it('main-25: real 继续设计 click lands a clean round on v4 with the history kept', async () => {
     const { name, script } = SCENARIOS.find((s) => s.name === 'main-membership-points')!
     mountDemo(name)
-    await walkTo(script, 'main-23')
+    await walkTo(script, 'main-25')
     await waitFor(
       () => expect(readState().newRound).toBe(true),
       { timeout: 6000, interval: 50 },
@@ -796,20 +883,20 @@ describe('the history loop (ACP-736): full-round timeline, jump-back, next round
     // there, no dirty buffer, the 设计事实 section from the regen intact
     expect(readState().dirty).toBe(false)
     expect(readState().versions).toBe(4)
-    expect(readState().historyEvents).toBe(6)
+    expect(readState().historyEvents).toBe(7)
     expect(document.querySelector('[data-testid^="doc-"]')!.textContent).toContain('设计事实')
     // the transition button is gone on the landed frame — same convention as
     // every other live-act (distill/release/dev/run buttons)
     expect(document.querySelector('[data-testid="continue-design-btn"]')).toBeNull()
 
-    // back to main-22's entry frame: the new-round flag is main-020's own
+    // back to main-24's entry frame: the new-round flag is main-021's own
     // data, it re-derives away — no leftover round
     await clickTestId('demo-prev')
-    await settleFor('main-22')
+    await settleFor('main-24')
     await waitFor(
       () => expect(readState().newRound).toBe(false),
       { timeout: 4000, interval: 50 },
     )
-    expect(readState().historyEvents).toBe(6)
+    expect(readState().historyEvents).toBe(7)
   }, 90000)
 })

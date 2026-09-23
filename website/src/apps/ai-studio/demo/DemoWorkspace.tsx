@@ -26,6 +26,7 @@ import ErrorNotice from '../../../components/ErrorNotice'
 import { i18nT } from '../../../i18n/t'
 import CodeGenView from '../CodeGenView'
 import DevRunPanel, { RunPreviewScreen } from '../DevRunView'
+import FreezeControl, { FreezeRecordView } from '../FreezeControl'
 import ProjectHistoryView from '../ProjectHistoryView'
 import DistillPanel from '../DistillPanel'
 import GraphView from '../GraphView'
@@ -167,11 +168,17 @@ export default function DemoWorkspace({ params }: {
   // actually carries the preview its click opens.
   const canDev = ctl.afterFixFixture?.devRun !== undefined && ctl.fixture.devRun === undefined
   const canOpenRun = ctl.afterFixFixture?.runPreview !== undefined && ctl.fixture.runPreview === undefined
-  // the 继续设计 act (main-23) lands the fresh-round frame: the editor stands
+  // the 继续设计 act (main-25) lands the fresh-round frame: the editor stands
   // clean on v4 while the history keeps the whole round. Offered only where
   // the after-fix frame actually declares newRound — same rule as every other
   // transition button, so no step offers a click that lands on nothing.
   const canContinue = ctl.afterFixFixture?.newRound === true && ctl.fixture.newRound !== true
+  // the freeze act (main-19) lands the frame whose baseline record exists —
+  // offered only where the after-fix frame carries the freeze payload AND the
+  // current frame has no baseline yet. A frame that already holds a baseline
+  // renders the button DISABLED (00 doc: 再次冻结按钮变为不可用), so the
+  // frozen state stays visible as a refused action, not a vanished one.
+  const canFreeze = ctl.afterFixFixture?.freeze !== undefined && ctl.fixture.freeze === undefined
   // the after-fix snapshot takes the panel once its act lands; before that
   // (and in every world without an act) the step's own fixture speaks.
   const liveLanded = landedStep === ctl.stepIndex
@@ -205,6 +212,22 @@ export default function DemoWorkspace({ params }: {
     // 继续设计 lands the fresh-round frame the same way every other live act
     // does: the step's own snapshot says where the click goes
     if (!ctl.afterFixFixture) return
+    setLandedStep(ctl.stepIndex)
+  }
+  const onFreeze = async () => {
+    // the click goes through the fake's freezeBaseline FIRST — the fake is
+    // where the duplicate rule lives (already-frozen answers 409, exactly
+    // like the backend the 00 doc specifies), and only after it accepts does
+    // the frame swap to the landed snapshot that carries the record. A
+    // rejection never lands the frame: the refusal is a fact, not a mood.
+    const frz = ctl.afterFixFixture?.freeze
+    if (!frz) return
+    try {
+      await ctl.api.freezeBaseline(frz.version)
+    } catch (err) {
+      console.warn('[ai-studio demo] freeze refused:', err)
+      return
+    }
     setLandedStep(ctl.stepIndex)
   }
 
@@ -255,6 +278,20 @@ export default function DemoWorkspace({ params }: {
           )}
           {canDev && (
             <ReleaseControl act="dev" onRelease={onDev} disabled={liveLanded} />
+          )}
+          {/* the freeze act (ACP-755) differs from every other live act: a
+           * frame that ALREADY holds a baseline still renders the button,
+           * disabled (00 doc: 再次冻结按钮变为不可用) — the refused action
+           * stays on screen as the frozen state's witness, while the other
+           * acts unmount once landed. So it mounts wherever a freeze exists
+           * or can: the act step (canFreeze) and every frame whose landed
+           * snapshot carries the record. */}
+          {(canFreeze || landed.freeze) && (
+            <FreezeControl
+              onFreeze={canFreeze && !liveLanded ? onFreeze : undefined}
+              frozen={landed.freeze}
+              version={landed.freeze?.version ?? ctl.afterFixFixture?.freeze?.version}
+            />
           )}
         </div>
       </header>
@@ -322,6 +359,10 @@ export default function DemoWorkspace({ params }: {
           // states the count for every step of a graph world
           data-demo-history-events={String(landed.history?.events.length ?? 0)}
           data-demo-new-round={landed.newRound === true ? 'true' : 'false'}
+          // the freeze read-back (ACP-755) rides the same wrapper: derive()
+          // states `frozen` for every step of a graph world, while the record
+          // panel below only mounts on frames that carry it
+          data-demo-frozen={landed.freeze !== undefined ? 'true' : 'false'}
         >
           <GraphView
             graph={landed.graph}
@@ -386,6 +427,16 @@ export default function DemoWorkspace({ params }: {
       {landed.diffGroups && landed.diffGroups.length > 0 && (
         <div className="shrink-0 max-h-[360px] overflow-auto border-t border-border bg-bg">
           <RegenDiffPair groups={landed.diffGroups} />
+        </div>
+      )}
+      {/* the frozen baseline (ACP-755): the round's immutable record — the
+       * even version it locked, the distillation run that generated it, and
+       * the duplicate-refusal it now carries. Snapshot-driven like every
+       * panel above: it exists exactly where the loaded frame holds the
+       * record, so the freeze claim is the frame's data, not a badge. */}
+      {landed.freeze && (
+        <div className="shrink-0 border-t border-border bg-bg">
+          <FreezeRecordView freeze={landed.freeze} />
         </div>
       )}
       {/* the development run (ACP-735, steps 12-14): record anchored to the

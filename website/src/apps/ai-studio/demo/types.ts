@@ -4,6 +4,7 @@ import type {
   StudioDevRun,
   StudioDiffGroup,
   StudioDistillation,
+  StudioFreeze,
   StudioGeneratedFile,
   StudioGraph,
   StudioProjectHistory,
@@ -69,6 +70,11 @@ export interface DemoState {
    * a fresh round standing on the last one's final design */
   historyEvents?: number
   newRound?: boolean
+  /** freeze vocabulary (ACP-755), same gate as the graph fields: whether
+   * this round's requirement baseline is locked (the 00 doc's 需求冻结).
+   * A frame either carries the record or it does not — the boolean is the
+   * state-machine read of `freeze`, so a step's before/after can speak it */
+  frozen?: boolean
 }
 
 /** One step's visual-guidance instruction (§4): what to ring, what the hint
@@ -193,4 +199,9 @@ export interface DemoFixture {
   /** this frame is a fresh round begun on the last round's final design: the
    * editor stands clean while `history` keeps the whole previous round */
   newRound?: boolean
+  /** the frozen baseline record (ACP-755): the even version this round
+   * locked as immutable, and the distillation run it was generated from.
+   * Absent = nothing frozen yet. check_freeze proves the named row is real,
+   * newest, even/regen — so the freeze claim is data, not a badge. */
+  freeze?: StudioFreeze
 }

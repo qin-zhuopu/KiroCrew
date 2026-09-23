@@ -81,14 +81,27 @@ function naiveLineDiff(oldText: string, newText: string): string {
 /** A demo step's whole backend: four endpoints, in-memory, semantics mirrored
  * from projects.py (dedupe-on-identical autosave, commit-clears-drafts,
  * row N diffs against row N-1). Listeners let the provider bounce React Query
- * so live mutations surface without a remount. */
-export function createDemoApi(fixture: DemoFixture): StudioApi & { subscribe: (cb: () => void) => () => void } {
+ * so live mutations surface without a remount.
+ *
+ * Since ACP-755 the fake also carries the freeze (00 doc: 重复冻结同一版本
+ * 硬拒 409): `freezeBaseline` refuses with a real StudioApiError(409) when a
+ * baseline already exists, and records the frozen version on success so the
+ * refusal is a DATA fact, not a UI mood. It lives beside the fake (not on
+ * StudioApi) because the real backend has no freeze endpoint yet — same
+ * "type written first, seam stays honest" doctrine as every demo-only act. */
+export function createDemoApi(fixture: DemoFixture): StudioApi & {
+  subscribe: (cb: () => void) => () => void
+  freezeBaseline: (version: string) => Promise<{ frozen: boolean }>
+} {
   const store = {
     project: clone(fixture.project),
     docs: fixture.docs.map((d) => ({ ...d })),
     // newest-first, exactly the API order (the store's own read order)
     drafts: clone(fixture.draftVersions),
     versions: new Map(Object.entries(fixture.versions).map(([k, v]) => [k, clone(v)])),
+    // the frame's baseline, seeded from the snapshot: a frozen frame STARTS
+    // frozen, so re-freezing there is a duplicate from the very first click
+    frozen: fixture.freeze !== undefined,
   }
   const listeners = new Set<() => void>()
   const notify = () => listeners.forEach((l) => l())
@@ -152,10 +165,21 @@ export function createDemoApi(fixture: DemoFixture): StudioApi & { subscribe: (c
     async listVersions(_id: string, name: string) {
       return { versions: clone(store.versions.get(name) ?? []) }
     },
+    async freezeBaseline(version: string) {
+      // 00 doc 需求冻结：重复冻结同一版本被硬拒（409）——拒绝发生在数据层，
+      // UI 的置灰只是这条硬规则的另一半显示。成功即记录，此后任何再冻结
+      // 请求（含同名版本）都撞在同一条 409 上。
+      if (store.frozen) {
+        throw new StudioApiError(409, 'freeze_duplicate', `version ${version} is already frozen`)
+      }
+      store.frozen = true
+      notify()
+      return { frozen: true }
+    },
   }
 }
 
-export type DemoApi = StudioApi & { subscribe: (cb: () => void) => () => void }
+export type DemoApi = ReturnType<typeof createDemoApi>
 
 export interface DemoController {
   scenario: string
@@ -221,7 +245,18 @@ export function useDemoRuntime(
     () => (step ? FIXTURE_FILES[`./fixtures/state-${step.fixture}.json`]?.default ?? null : null),
     [step],
   )
-  const api = useMemo(() => (fixture ? createDemoApi(fixture) : null), [fixture])
+  // the fake is minted per STEP, not per fixture: fixture JSON modules are
+  // singletons, so consecutive steps that name the same snapshot (main-18 and
+  // main-19 both enter main-014) would otherwise SHARE one store. That was
+  // invisible while acts only swapped snapshots — the freeze act (ACP-755) is
+  // the first to mutate store state, and a shared store leaks: freezing at
+  // main-19, stepping back, and stepping forward again replayed the click
+  // into a store that still said frozen, so the replay got its own 409 and
+  // never landed. 一帧=一次整体加载 means the data layer too: each step gets
+  // a fresh fake seeded from its own snapshot, and live mutations belong to
+  // the step that made them (the same semantics the editor's liveCommit and
+  // the dropped query cache already have).
+  const api = useMemo(() => (fixture ? createDemoApi(fixture) : null), [fixture, step])
   // the previous step's buffer: the starting point for a step whose event
   // happens live on top of the prior state (alt1-6's real Restore click)
   const prevBuffer = useMemo(() => {

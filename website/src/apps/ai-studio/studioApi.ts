@@ -36,11 +36,42 @@ export interface StudioDraftVersion {
 
 /** One committed version (ACP-720 contract: versions/<doc>/<timestamp>.md).
  * `diff` is the unified diff against the previous version; the earliest
- * version carries the whole document as additions. */
+ * version carries the whole document as additions.
+ *
+ * ACP-755 adds the 00-doc parity vocabulary, same "type written first"
+ * doctrine as StudioGraph — no endpoint emits these yet, so they are
+ * optional on the wire and the demo snapshots are the first carrier:
+ * `version` is the vN label the odd/even rule speaks, `parity` says which
+ * side of the rule the row sits on, and `source` is the provenance that
+ * parity asserts (manual = 人工提交, regen = 图谱反向生成). The generator's
+ * precheck locks the three against each other, so a UI badge can only ever
+ * display a provenance the data holds. */
 export interface StudioVersion {
   name: string
   time: number
   diff: string
+  version?: string
+  parity?: 'odd' | 'even'
+  source?: 'manual' | 'regen'
+}
+
+/** The frozen requirement baseline (ACP-755): a graph version marked
+ * immutable as this round's sole basis for task breakdown and development.
+ * No endpoint yet — demo-first type, shared shape with the future freeze
+ * API. Re-freezing the same version is a 409 at the backend, so one record
+ * per version exists, period; the UI's greyed-out button is the visible half
+ * of that hard rule, not the enforcement. */
+export interface StudioFreeze {
+  /** the frozen version label (an even, regen-sourced row) */
+  version: string
+  /** the doc whose version trail holds it */
+  docName: string
+  /** the distillation/graph generation this baseline pins */
+  generatedFrom: string
+  /** unix seconds of the freeze */
+  time: number
+  /** one-line record shown beside the frozen badge */
+  notes: string
 }
 
 /** One doc holding a current autosave draft (ACP-727: the project-level
@@ -221,7 +252,7 @@ export interface StudioRunPreview {
  * re-deriving anything. `ref` names the demo snapshot the event's own view
  * lives in — jumping to an event loads THAT snapshot (回放 doctrine: 跳转=
  * 加载快照, never reverse-compute). */
-export type StudioHistoryKind = 'edit' | 'commit' | 'release' | 'distill' | 'dev' | 'run'
+export type StudioHistoryKind = 'edit' | 'commit' | 'release' | 'distill' | 'freeze' | 'dev' | 'run'
 
 export interface StudioProjectHistoryEvent {
   id: string
