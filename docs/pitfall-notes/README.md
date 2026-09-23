@@ -55,3 +55,7 @@
 - [20260923-193437-tsc-root-config-is-a-noop.md](20260923-193437-tsc-root-config-is-a-noop.md) —
   `website/` 根目录裸跑 `npx tsc --noEmit` 是空跑（聚合配置 `files: []`，秒退 exit 0
   的假绿）：类型自检必须 `-p tsconfig.app.json`，"tsc 过了"要能报出带的是哪个 `-p`。
+- [20260923-193521-tsc-noop-and-persisted-pane-state.md](20260923-193521-tsc-noop-and-persisted-pane-state.md) —
+  两个假绿：website 根 tsconfig 是 `files:[]` 引用壳，`tsc --noEmit` 空跑 exit 0
+  （要用 `-p tsconfig.app.json`）；组件持久化面板显隐到 localStorage，同文件前序
+  用例点隐藏后毒死后续用例（整棵子树不进 DOM，单跑却过）。

@@ -22,7 +22,9 @@ import {
   type ReleaseRun,
 } from './fixtures'
 import DistillPanel from './DistillPanel'
+import ProjectCommitBar from './ProjectCommitBar'
 import type {
+  StudioApi,
   StudioDistillation,
   StudioDoc,
   StudioPublishApi,
@@ -127,7 +129,26 @@ export interface ToolSidebarProps {
   // on its type list exactly as it always has.
   /** the node type the 需求图谱 tab opens standing INSIDE (a demo frame's own
    * level); omitted = the tab's type list, i.e. today's first paint */
-  initialGraphType?: string
+initialGraphType?: string
+  // ---- ACP-801 moves the project-level commit INTO this sidebar, as the 提交
+  // tab's own action button: the act belongs to the tab it acts on, and the
+  // top bar keeps only what the page is (its identity and its versions). The
+  // bar itself is the shipped `ProjectCommitBar` — this component only places
+  // it, never re-draws it, so the badge, the enable rule and the commit run
+  // stay the one implementation. These four are that component's own inputs,
+  // passed through: absent (or undefined) each falls back to exactly what the
+  // bar does on its own, so an ordinary caller's behaviour is unchanged.
+  /** the commit bar's data source (the demo's snapshot fake); omitted = the
+   * bar's own default, the real studioApi */
+  commitApi?: StudioApi
+  /** remount key for the bar. Its drafts read is cached under a key carrying
+   * only the project id, so a demo frame switch would otherwise serve the
+   * PREVIOUS frame's draft list. Omitted = 'real', i.e. no remount. */
+  commitKey?: string
+  /** called after a successful commit with the freshly committed docs */
+  onCommitted?: (docs: StudioDoc[]) => void
+  /** reports the drafted doc names the bar's own query read (ACP-754) */
+  onDraftsSeen?: (names: string[]) => void
 }
 
 /** One entry row of the 需求图谱 tab's list (ACP-797): a node of the frame's
@@ -168,6 +189,7 @@ export default function ToolSidebar({
 onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
   graphEntries, distillation, releaseFiles, releaseAction, dev, deploy,
   initialGraphType,
+  commitApi, commitKey = 'real', onCommitted, onDraftsSeen,
 }: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>(initialTool)
   // graph drill state: null = type list, string = inside a type. A frame that
@@ -203,8 +225,19 @@ onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
       </div>
       <div className="flex-1 min-h-0 overflow-auto p-3">
         {tool === 'docs' && <DocsTool docs={docs} onOpenTab={onOpenTab} />}
-        {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} changed={changed} commits={commits} />}
-{tool === 'releases' && (
+{tool === 'commits' && (
+          <CommitsTool
+            onOpenTab={onOpenTab}
+            projectId={projectId}
+            changed={changed}
+            commits={commits}
+            commitApi={commitApi}
+            commitKey={commitKey}
+            onCommitted={onCommitted}
+            onDraftsSeen={onDraftsSeen}
+          />
+        )}
+        {tool === 'releases' && (
           <PublishVersionList
             projectId={projectId}
             api={publishApi}
@@ -293,16 +326,39 @@ function DocsTool({ docs, onOpenTab }: Pick<ToolSidebarProps, 'docs' | 'onOpenTa
   )
 }
 
-/** The commits tab. Its two lists are PROPS with the fixtures as defaults
- * (ACP-795): a demo frame hands in its own 「本次迭代的待提交改动」 and
- * 「提交历史」 without a second sidebar, and every ordinary caller keeps
- * reading CHANGED / COMMITS exactly as before. */
-function CommitsTool({ onOpenTab, changed = CHANGED, commits = COMMITS }: Pick<ToolSidebarProps, 'onOpenTab'> & {
+/** The commits tab: the stage's ACTION at its top, then its two lists —
+ * 上过程下历史 (owner 口径). The action is the project-level commit, moved out
+ * of the page header by ACP-801: 提交全部 acts on 提交, so it lives in 提交's own
+ * tab rather than in the top bar, which keeps only the page's identity (project
+ * name, design/run version). It is the shipped `ProjectCommitBar`, placed and
+ * not re-drawn, so the badge, the enable rule and the run are the one
+ * implementation whichever surface mounts it.
+ *
+ * Its two lists are PROPS with the fixtures as defaults (ACP-795): a demo frame
+ * hands in its own 「本次迭代的待提交改动」 and 「提交历史」 without a second
+ * sidebar, and every ordinary caller keeps reading CHANGED / COMMITS exactly as
+ * before. */
+function CommitsTool({
+  onOpenTab, projectId, changed = CHANGED, commits = COMMITS,
+  commitApi, commitKey = 'real', onCommitted, onDraftsSeen,
+}: Pick<ToolSidebarProps, 'onOpenTab' | 'projectId' | 'commitApi' | 'commitKey' | 'onCommitted' | 'onDraftsSeen'> & {
   changed?: ChangedFile[]
   commits?: CommitEntry[]
 }) {
   return (
     <div>
+      {/* the bar's failure strip drops below its own box (`absolute top-full`),
+          which needs this positioned ancestor now that it is placed in a
+          column instead of the 44px header row */}
+      <div className="relative mb-1">
+        <ProjectCommitBar
+          key={commitKey}
+          projectId={projectId}
+          api={commitApi}
+          onCommitted={onCommitted}
+          onDraftsSeen={onDraftsSeen}
+        />
+      </div>
       <Section>{i18nT('apps.aiStudio.pending_changes')}</Section>
       {changed.map((c) => (
         <Row

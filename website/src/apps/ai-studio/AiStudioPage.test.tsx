@@ -46,6 +46,10 @@ import { TEST_DOCS, TEST_PROJECT } from './testUtils'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // the pane-toggle test hides the tool sidebar and the component persists
+  // that to localStorage; without this clear the NEXT test in this file would
+  // mount with the sidebar hidden and never reach the 提交 tab
+  window.localStorage.clear()
   api.getProject.mockResolvedValue({ project: TEST_PROJECT, docs: TEST_DOCS })
   api.listProjects.mockResolvedValue({ projects: [TEST_PROJECT] })
   // clearAllMocks does not drop a mockResolvedValue a test set, so the
@@ -152,8 +156,32 @@ describe('recent activity (ACP-754)', () => {
   })
 })
 
-describe('project-level commit', () => {
-  it('lists drafted docs in the header and commits every one of them', async () => {
+// ACP-801: the project-level commit lives at the TOP OF THE 提交 TAB, not in the
+// page header. 「提交全部」 acts on 提交, so the action button rides the tab it acts
+// on; the header keeps only what the page is (project name + the two version
+// badges). These cases therefore reach the button the way a presenter does: by
+// opening that tab.
+describe('project-level commit (moved into the 提交 tab, ACP-801)', () => {
+  /** open the sidebar's 提交 tab with a real click */
+  const openCommitsTab = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(await screen.findByRole('tab', { name: 'Commits' }))
+  }
+
+  it('keeps the header free of it: no commit affordance outside the tab', async () => {
+    renderAt('/workspaces/p1/ai-studio')
+    await screen.findByTestId('ai-studio')
+    // the header is the workbench's own row; the button is not in it (it may
+    // not be anywhere yet — the tab has not been opened)
+    const header = document.querySelector('header')!
+    expect(header.querySelector('[data-testid="commit-all-btn"]')).toBeNull()
+    expect(within(header).queryByTestId('drafts-pending')).toBeNull()
+    // …and the tab that now owns it shows it once opened
+    await openCommitsTab(userEvent.setup())
+    expect(screen.getByTestId('commit-all-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-sidebar').contains(screen.getByTestId('commit-all-btn'))).toBe(true)
+  })
+
+  it('lists drafted docs on the tab and commits every one of them', async () => {
     const user = userEvent.setup()
     api.listDraftDocs.mockResolvedValue({
       drafts: [
@@ -164,6 +192,7 @@ describe('project-level commit', () => {
     api.saveDoc.mockResolvedValue({ doc: { name: 'x', content: 'x' } })
     renderAt('/workspaces/p1/ai-studio')
     await screen.findByTestId('ai-studio')
+    await openCommitsTab(user)
     // the summary names the drafted docs next to the button; waiting on it
     // also waits for the drafts query to land, so the click below cannot
     // race the query's first resolution
@@ -176,15 +205,20 @@ describe('project-level commit', () => {
     await waitFor(() => expect(api.saveDoc).toHaveBeenCalledTimes(2))
     expect(api.saveDoc).toHaveBeenCalledWith('p1', 'requirements.md', '# 草稿')
     expect(api.saveDoc).toHaveBeenCalledWith('p1', 'workflow.md', '# 流程草稿')
-    // the drafts query refetched; it still reports the list, so re-enabling
-    // the button would be the honest state after a refetch that kept the
-    // drafts — here we only assert the calls happened exactly twice.
-    expect(api.listDraftDocs).toHaveBeenCalledTimes(2)
+    // three reads, and each one is accounted for: the page's feed query (one),
+    // the commit bar mounting on the tab with the SAME key — react-query shares
+    // the entry but a fresh observer on a stale (default staleTime 0) one
+    // revalidates (two) — and the bar's post-commit refetch (three). It still
+    // reports the list, so re-enabling the button is the honest state after a
+    // refetch that kept the drafts.
+    expect(api.listDraftDocs).toHaveBeenCalledTimes(3)
   })
 
   it('the commit button is disabled while nothing is drafted', async () => {
+    const user = userEvent.setup()
     renderAt('/workspaces/p1/ai-studio')
     await screen.findByTestId('ai-studio')
+    await openCommitsTab(user)
     expect(screen.getByRole('button', { name: /Commit all/i })).toBeDisabled()
     expect(api.saveDoc).not.toHaveBeenCalled()
   })

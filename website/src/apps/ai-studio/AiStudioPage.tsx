@@ -25,7 +25,6 @@ import { Btn, ContentSkeleton } from '../../components/ui'
 import { usePointerDrag } from '../../hooks/usePointerDrag'
 import { i18nT } from '../../i18n/t'
 import ChatPane from './ChatPane'
-import ProjectCommitBar from './ProjectCommitBar'
 import ProjectsListPage from './ProjectsListPage'
 import RecentActivityFeed from './RecentActivityFeed'
 import ToolSidebar, { type ToolTabInjection } from './ToolSidebar'
@@ -325,23 +324,32 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
   const docs: StudioDoc[] = projectQuery.data?.docs ?? []
 
   // the recent-activity feed (ACP-754): in the ordinary workbench the honest
-  // feed is what the store itself reports — the project's drafted docs. The
-  // commit bar already runs that drafts read, so it reports the names up
-  // (onDraftsSeen) rather than this view opening a SECOND query — one read,
-  // one network call, no second observer to perturb the fetch count. Nothing
-  // drafted → the feed shows its empty state; no new endpoint, no invented
-  // activity.
-  const [draftedNames, setDraftedNames] = useState<string[]>([])
+  // feed is what the store itself reports — the project's drafted docs.
+  //
+  // The read is HERE, not in the commit bar, since ACP-801 moved that bar into
+  // the sidebar's 提交 tab: a bar that mounts only when that tab is open cannot
+  // be the feed's source (the feed would go empty until someone opened a tab
+  // that has nothing to do with it). It is the SAME query key the bar asks for,
+  // so opening the tab shares this cache entry rather than issuing a second
+  // request — one read, one network call, exactly as before.
+  const draftsQuery = useQuery({
+    queryKey: ['ai-studio', 'drafts', projectId],
+    queryFn: () => studioApi.listDraftDocs(projectId).then((r) => r.drafts),
+    // the demo's frames carry their own activity list; asking here would both
+    // fetch in demo mode and hit the `?demo=` guard's throw
+    enabled: !demoStates,
+  })
+  const draftedNames = useMemo(() => (draftsQuery.data ?? []).map((d) => d.name), [draftsQuery.data])
   const activity = useMemo(
     () => draftedNames.map((name) => ({ label: `${i18nT('apps.aiStudio.drafts_pending')}: ${name}` })),
     [draftedNames],
   )
-  const onDraftsSeen = useCallback((names: string[]) => setDraftedNames(names), [])
 
   // The commit itself lives in ProjectCommitBar (shared with the demo
-  // workbench); this side owns what a landing commit does to the tabs:
-  // re-point each open doc tab at its committed content and bump the rev so
-  // the editors re-mount onto it.
+  // workbench, and since ACP-801 placed at the top of the sidebar's 提交 tab);
+  // this side owns what a landing commit does to the tabs: re-point each open
+  // doc tab at its committed content and bump the rev so the editors re-mount
+  // onto it.
   const onDocCommitted = useCallback((freshDocs: StudioDoc[]) => {
     setTabs((ts) => ts.map((t) => {
       if (t.kind !== 'doc') return t
@@ -498,20 +506,11 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
         </span>
         {toggleBtns}
         <span className="flex-1" />
-        {/* Project-level commit (ACP-727): the shared bar owns the badge,
-            the button and the commit run; this header just places it. */}
-        <div className="relative flex items-center gap-2">
-          {/* keyed on the frame: its drafts read is cached under a key that
-              carries only the project id, so without a remount a switch would
-              serve the PREVIOUS frame's draft list */}
-          <ProjectCommitBar
-            key={demoState?.id ?? 'real'}
-            projectId={projectId}
-            api={demoApi ?? undefined}
-            onCommitted={onDocCommitted}
-            onDraftsSeen={demoStates ? undefined : onDraftsSeen}
-          />
-        </div>
+        {/* The project-level commit is NOT here (owner, ACP-801): 提交全部 acts on
+            the 提交 stage, so the button lives at the top of the sidebar's 提交 tab
+            (ToolSidebar → CommitsTool) and the header keeps only what the page
+            itself is — its project and its two version badges. The bar is still
+            the one `ProjectCommitBar`; the sidebar is handed its inputs below. */}
         <span className="rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-muted">
           {i18nT('apps.aiStudio.design_version')}: {DESIGN_VERSION}
         </span>
@@ -626,6 +625,17 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               // then render the shipped DEV / DEPLOYMENTS fixtures unchanged.
               dev={demoDevTab}
               deploy={demoDeployTab}
+              // the 提交 tab's action button (ACP-801) — the same bar the header
+              // used to place, with the same wiring: the frame's fake as its
+              // data source, and a key so a frame switch remounts it onto that
+              // frame's draft list instead of serving the previous one's
+              commitApi={shownApi}
+              commitKey={demoState?.id ?? 'real'}
+              onCommitted={onDocCommitted}
+              // no onDraftsSeen: the feed reads the drafts query this page owns
+              // (same key as the bar's, so the bar opening shares that read
+              // rather than adding one), and a second reporter would only be a
+              // second writer to the same list
             />
           </aside>
         )}
