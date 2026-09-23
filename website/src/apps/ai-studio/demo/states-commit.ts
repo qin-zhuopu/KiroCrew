@@ -271,7 +271,7 @@ function docs(texts: Record<string, string>): StudioDoc[] {
 const BEFORE_TEXTS = {
   [FOCUS_DOC]: BASELINE_V4, [JOURNEY_DOC]: JOURNEY_V3, [MODEL_DOC]: MODEL_V1, [PAGE_DOC]: PAGE_V3,
 }
-const AFTER_TEXTS = {
+const AFTER_TEXTS: Record<string, string> = {
   [FOCUS_DOC]: COMMITTED_V5, [JOURNEY_DOC]: JOURNEY_V4, [MODEL_DOC]: MODEL_V2, [PAGE_DOC]: PAGE_V4,
 }
 

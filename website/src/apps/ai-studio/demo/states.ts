@@ -31,6 +31,7 @@
 //     rule (附一 脏与提交) is the same fact `DemoFixture`'s draft store models,
 //     so `fixture` and the declarative markers can never disagree.
 import type { DemoFixture } from './types'
+import type { GraphEntryGroup } from '../ToolSidebar'
 
 /** The product stage a state belongs to — the current AI-Studio happy path
  * (owner 范围更正, then ACP-796): design → commit → release → dev → deploy.
@@ -140,6 +141,12 @@ export interface StateSnapshot {
   versionHistory?: StateVersionRow[]
   /** 图谱一句话摘要（reserved：`graph` 面板的说明行；全量结构在 fixture.graph） */
   graphNote?: string
+  /** the 需求图谱 tab's list for frames whose graph lives in that tab (ACP-797;
+   * the full shape and its renderer seam live in ToolSidebar's `graphEntries`,
+   * and states-graph.ts's GraphStateSnapshot carries the same field required).
+   * A frame that names a doc row opens that doc in the middle column — never a
+   * canvas there. */
+  graphEntries?: GraphEntryGroup[]
 
   /** the snapshot-backed fake's whole world for this frame — seeded so the
    * data layer (via `createDemoApi`) agrees with every marker above and no
