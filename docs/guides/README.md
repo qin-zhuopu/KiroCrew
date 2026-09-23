@@ -12,6 +12,7 @@ system is built, see [../architecture/](../architecture/README.md).
 | [macos-troubleshooting.md](macos-troubleshooting.md) | macOS desktop app issues — a CLI that resolves in Terminal but is `command not found` inside the app, and the `launchctl setenv PATH` recipe that fixes it. |
 | [docker.md](docker.md) | Running Kiro Crew as a container. |
 | [docker-troubleshooting.md](docker-troubleshooting.md) | Diagnosing common Docker deployment issues. |
+| [docker-dev-env.md](docker-dev-env.md) | Dev-in-container shape: bind-mounted source, `docker exec` restart loop, trunk + upstream instances behind domains. |
 | [remote-and-mobile.md](remote-and-mobile.md) | Running 24/7 on a remote host, keeping it alive as a service, and reaching it from a phone over a tunnel. |
 | [linux-server-ops.md](linux-server-ops.md) | Operating the dev stack on a shared Linux server behind a container reverse proxy: the bind/CSRF/proxy-domain wiring, the Vite `allowedHosts` overlay, the per-app AppArmor `userns` profile the sandbox needs on Ubuntu >= 23.10, token-based dashboard login over the domain, and the claude-backend route for hosts without a Kiro account. |
 | [cloud-instance-ssm-vs-ssh.md](cloud-instance-ssm-vs-ssh.md) | How a cloud-launched instance is reached through the Instances hub: the native AWS SSM transport vs the legacy SSH-over-`ProxyCommand` path. |

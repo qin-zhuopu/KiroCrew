@@ -39,3 +39,9 @@
   dev 域名上「代码没送到」：`index.html` 在 dev 也注册了 `sw.js`，而 `sw.js` 只给
   `/assets/`、`/vendor/` 重试、`/src/*` 落到 `caches.match(request) || Response.error()`
   ——前面那一跳的偶发丢包被翻成必然的 `net::ERR_FAILED`（curl 同路径 40 并发全 200 即判据）。
+- [20260923-142652-seccomp-allows-but-mount-denied-in-userns.md](20260923-142652-seccomp-allows-but-mount-denied-in-userns.md) —
+  dev 容器内沙箱 probe 死在 mount(EACCES)：seccomp 全放行也没用，宿主内核/AppArmor 禁
+  非特权 userns 挂载；宿主上裸跑同一命令十秒定性，退到 ALLOW_UNSANDBOXED 兜底。
+- [20260923-142652-pip-editable-egg-info-misleading-ro-mount.md](20260923-142652-pip-editable-egg-info-misleading-ro-mount.md) —
+  "Cannot update time stamp of directory *.egg-info" 实为只读树上的 EROFS：pip -e 必写
+  源码根，:ro 挂载的上游要用卷内快照 + KIROCREW_DEV_SRC，参数化要覆盖安装行不只检查。
