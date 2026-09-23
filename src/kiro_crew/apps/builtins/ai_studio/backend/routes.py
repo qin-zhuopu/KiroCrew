@@ -11,6 +11,7 @@ literal status (the static error-code contract scan).
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 from functools import wraps
@@ -198,24 +199,59 @@ async def _handle_publish_preview(request: web.Request) -> web.StreamResponse:
     return web.json_response(verdict)
 
 
+def _jwt_sub(token: str) -> str | None:
+    """The ``sub`` claim of a JWT payload, read WITHOUT verifying the
+    signature or expiry — the dev-environment posture the owner pinned
+    (拍板 2026-09-23). A malformed token yields None, never an error: the
+    publish URL's operator segment is a convenience label, and a broken
+    credential must not take the endpoint down.
+    """
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    payload_b64 = parts[1]
+    try:
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+    except (ValueError, TypeError):
+        return None
+    sub = payload.get("sub") if isinstance(payload, dict) else None
+    return sub if isinstance(sub, str) and sub else None
+
+
+def _operator_from_request(request: web.Request) -> str | None:
+    """The publish URL's 工号, from the session identity the gateway already
+    established: the ``Authorization: Bearer <jwt>`` ``sub`` claim first,
+    then ``X-Forwarded-User``. None means no identity rode on the request
+    and the store's dev default applies.
+    """
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        sub = _jwt_sub(auth[len("Bearer ") :].strip())
+        if sub:
+            return sub
+    forwarded = request.headers.get("X-Forwarded-User", "")
+    return forwarded or None
+
+
 async def _handle_publish_trigger(request: web.Request) -> web.StreamResponse:
     # B2: one POST per publish-button click. Idempotent on the latest
     # success hash (no new record, ``idempotent: true``), 409 on the same
-    # hash already publishing, otherwise a new release-job. The operator
-    # segment of the publish URL takes its dev default here — T3 replaces
-    # this with the JWT ``sub`` read (breakdown T3, owner 2026-09-23).
+    # hash already publishing, otherwise a new release-job run through the
+    # real executor chain (T3: build → stop-old → start-new). The URL's
+    # operator segment comes from the request's session identity (JWT
+    # ``sub``, dev posture: no signature/expiry check — owner 2026-09-23).
     body = await _body(request)
     project_id = body.get("project")
     version = body.get("version")
     commit_hash = body.get("commitHash")
     if not isinstance(project_id, str) or not isinstance(version, str):
         return _error("project, version and commitHash are required", "invalid_publish", 400)
-    operator = body.get("operator")
-    if not isinstance(operator, str) or not operator:
-        operator = publish.DEFAULT_OPERATOR
+    operator = _operator_from_request(request) or publish.DEFAULT_OPERATOR
+    hash_value = commit_hash if isinstance(commit_hash, str) else ""
     try:
         result = await asyncio.to_thread(
-            publish.trigger_publish, project_id, version, commit_hash, operator=operator
+            publish.trigger_publish, project_id, version, hash_value, operator=operator
         )
     except publish.PublishError as exc:
         return _error(str(exc), exc.code, exc.status)

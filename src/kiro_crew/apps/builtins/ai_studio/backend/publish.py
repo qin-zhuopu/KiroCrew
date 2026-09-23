@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from kiro_crew.apps.builtins.ai_studio.backend import projects
+from kiro_crew.apps.builtins.ai_studio.backend import deploy, projects
 
 #: Hard cap on stored per-project record files — a bound on the directory
 #: scan, not a security boundary.
@@ -423,9 +423,9 @@ def preview_version(project_id: str, version: str) -> dict[str, Any]:
 # same-hash job already running, otherwise a new release-job
 # ---------------------------------------------------------------------------
 
-#: The publish domain template (08 §〇). The operator segment is supplied per
-#: trigger — T3 takes it from the JWT ``sub``; until then the route passes its
-#: dev default.
+#: The publish domain template (08 §〇). The operator segment (工号) is the
+#: JWT ``sub`` resolved at the HTTP layer (owner 拍板 2026-09-23: dev does
+#: not verify the signature or expiry) and passed into the executor.
 URL_TEMPLATE = "{version}-{app}-{operator}.gb10.jereh-pe.cn"
 
 #: The operator segment the route uses until T3 owns the JWT ``sub`` read.
@@ -443,10 +443,32 @@ _REQUIREMENTS_DOC = "requirements.md"
 
 
 def publish_url(project_id: str, version: str, operator: str = DEFAULT_OPERATOR) -> str:
-    """The URL a successful release of ``version`` serves at (08 §〇 模板)."""
+    """The URL a successful release of ``version`` serves at (08 §〇 模板).
+
+    Every segment is DNS-label safe: the operator segment arrives from the
+    JWT ``sub`` (arbitrary text), so anything outside the label alphabet is
+    folded to ``-`` and an empty result falls back to ``dev`` — the template
+    itself is never re-spelled.
+    """
     project = projects.get_project(project_id)
     app = projects.slug(project["name"]) if project else "app"
-    return URL_TEMPLATE.format(version=version, app=app or "app", operator=operator or "dev")
+    label = re.sub(r"[^a-z0-9-]+", "-", (operator or "").lower()).strip("-")
+    return URL_TEMPLATE.format(
+        version=version, app=app or "app", operator=label or DEFAULT_OPERATOR
+    )
+
+
+#: The process executor the publish chain runs through. A lazily-built
+#: module-level instance: building it is cheap and touches no process, but
+#: tests may still swap it via :func:`_default_deployer`'s patch point.
+_DEPLOYER: deploy.Deployer | None = None
+
+
+def _default_deployer() -> deploy.Deployer:
+    global _DEPLOYER
+    if _DEPLOYER is None:
+        _DEPLOYER = deploy.ProcessDeployer()
+    return _DEPLOYER
 
 
 def _jira_task_ids(project_dir: Path) -> list[str]:
@@ -491,11 +513,10 @@ def trigger_publish(
       a normal new release (D3's rollback-style re-publish).
     - the same hash already publishing → 409 ``publish_in_progress``.
 
-    The job this returns runs through :func:`_execute_job`, whose current
-    body is the MINIMAL executor (record success in place). **T3 takeover
-    point**: only that function changes — real build, stop-old-start-new and
-    the live domain all land there; the idempotency, 409 and record-field
-    semantics above are already final.
+    The job this returns runs through :func:`_execute_job` — the real chain
+    (build → stop-old → start-new) with the stages behind
+    :class:`deploy.Deployer`. The idempotency, 409 and record-field semantics
+    here are already final.
     """
     project_dir = _project_dir(project_id)
     name = (version or "").strip()
@@ -536,22 +557,74 @@ def trigger_publish(
     return _execute_job(project_dir, job, operator=operator)
 
 
-def _execute_job(project_dir: Path, job: dict[str, Any], *, operator: str) -> dict[str, Any]:
-    """Drive one release-job to its terminal state and, on success, write the
-    release record.
+def _execute_job(
+    project_dir: Path,
+    job: dict[str, Any],
+    *,
+    operator: str,
+    deployer: deploy.Deployer | None = None,
+) -> dict[str, Any]:
+    """Drive one release-job through the real chain (T3): **build → stop-old
+    → start-new** (08 §四) and, on success, write the release record.
 
-    **T3 takeover point** (see :func:`trigger_publish`): this minimal body
-    publishes in place — real build, instance replacement and the domain
-    binding replace everything below this line, keeping the signature.
+    The three stages run through :class:`deploy.Deployer` — this function
+    owns only the job state machine and the log lines, so tests stub the
+    Deployer and never spawn a real child. Failure order matters: a BUILD
+    failure happens before ``stop_old`` is reached, so a failed publish
+    leaves the old instance serving untouched (08 §三 失败路径); once the old
+    instance is down, any later failure is logged and failed the same way
+    (the single-instance fact already holds either way).
+
+    ``operator`` is the URL's 工号 segment, resolved at the HTTP layer (the
+    JWT ``sub`` per owner 拍板 2026-09-23) and passed in — this layer never
+    parses a token itself.
     """
     project_id = project_dir.name
     version = job["version"]
     job_id = job["id"]
+    executor = deployer or _default_deployer()
 
     def _log(message: str) -> None:
         append_job_log(project_id, job_id, message)
 
+    def _fail(reason: str) -> dict[str, Any]:
+        _log(f"{LOG_FAILED_MARKER}：{reason}")
+        update_job_status(project_id, job_id, "failed")
+        return {
+            "deploymentId": job_id,
+            "version": version,
+            "commitHash": job.get("commitHash", ""),
+            "status": "failed",
+            "reason": reason,
+            "idempotent": False,
+            "job": {**job, "status": "failed"},
+        }
+
     _log(f"开始发布 {version}（{job.get('commitHash', '')}）")
+    url = publish_url(project_id, version, operator)
+
+    _log(f"开始构建 {version}")
+    try:
+        artifact_dir = executor.build(project_dir, version, job["form"], _log)
+    except deploy.DeployError as exc:
+        # Before stop-old was reached: the old instance keeps serving.
+        return _fail(f"构建失败：{exc}")
+    _log(f"构建完成：{artifact_dir}")
+
+    stopped = executor.stop_old(project_dir, _log)
+    try:
+        handle = executor.start_new(
+            project_dir,
+            deploy.InstanceSpec(
+                version=version, form=job["form"], url=url, artifact_dir=artifact_dir
+            ),
+            _log,
+        )
+    except deploy.DeployError as exc:
+        return _fail(f"启动失败：{exc}（旧实例已停止，项目暂无对外实例）")
+
+    if stopped is not None:
+        _log("旧实例已替换")
     try:
         record = record_release(
             project_id,
@@ -560,14 +633,12 @@ def _execute_job(project_dir: Path, job: dict[str, Any], *, operator: str) -> di
             form=job["form"],
             requirement_version=_requirement_version(project_dir),
             jira_task_ids=_jira_task_ids(project_dir),
-            url=publish_url(project_id, version, operator),
+            url=url,
             deployment_id=job_id,
         )
     except PublishError as exc:
-        _log(f"{LOG_FAILED_MARKER}：{exc}")
-        update_job_status(project_id, job_id, "failed")
-        raise
-    _log(f"发布地址 {record['url']}")
+        return _fail(str(exc))
+    _log(f"发布地址 {record['url']}（pid {handle.pid}）")
     _log(LOG_DONE_MARKER)
     update_job_status(project_id, job_id, "success")
     return {

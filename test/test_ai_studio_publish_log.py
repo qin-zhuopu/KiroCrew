@@ -18,7 +18,27 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from kiro_crew.apps.builtins.ai_studio.backend import projects, publish, routes
+from kiro_crew.apps.builtins.ai_studio.backend import deploy, projects, publish, routes
+
+
+@pytest.fixture(autouse=True)
+def stub_deployer(monkeypatch):
+    """No real child in these tests either: the T3 executor tests live in
+    test_ai_studio_publish_executor.py."""
+
+    class _Stub(deploy.Deployer):
+        def build(self, project_dir, version, form, log):
+            return project_dir / "publish" / "artifacts" / version
+
+        def stop_old(self, project_dir, log):
+            return None
+
+        def start_new(self, project_dir, spec, log):
+            return deploy.InstanceHandle(
+                pid=4242, start_time=None, port=8080, url=spec.url, version=spec.version
+            )
+
+    monkeypatch.setattr(publish, "_DEPLOYER", _Stub())
 
 
 @pytest.fixture()
@@ -86,24 +106,22 @@ def test_executor_writes_the_job_log(home, project):
     assert publish.LOG_DONE_MARKER in log
 
 
-def test_failed_executor_writes_the_failed_marker(home, project):
+def test_failed_executor_writes_the_failed_marker(home, project, monkeypatch):
     pid = project["id"]
     job = publish.record_job(pid, version="v1", form="full", commit_hash="abc123")
+
     # _project_dir inside the executor's store calls still resolve, so the
     # failure is forced at the record write: an unwritable job id is not
     # reachable, so monkeypatch record_release instead.
-    original = publish.record_release
-
     def _boom(*args, **kwargs):
         raise publish.PublishError("disk full", "store_write_failed", 503)
 
-    publish.record_release = _boom
-    try:
-        with pytest.raises(publish.PublishError):
-            publish._execute_job(projects.projects_root() / pid, job, operator="dev")
-    finally:
-        publish.record_release = original
+    monkeypatch.setattr(publish, "record_release", _boom)
 
+    result = publish._execute_job(projects.projects_root() / pid, job, operator="dev")
+
+    assert result["status"] == "failed"
+    assert "disk full" in result["reason"]
     assert publish.LOG_FAILED_MARKER in publish.read_job_log(pid, job["id"])
     assert publish.get_job(pid, job["id"])["status"] == "failed"
 

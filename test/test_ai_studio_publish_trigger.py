@@ -8,6 +8,7 @@ completes synchronously, so every trigger lands in a terminal state — the
 assertions here pin the idempotency, the 409 and the record-field semantics
 that survive T3's real-executor takeover unchanged.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,29 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from kiro_crew.apps.builtins.ai_studio.backend import projects, publish, routes
+from kiro_crew.apps.builtins.ai_studio.backend import deploy, projects, publish, routes
+
+
+@pytest.fixture(autouse=True)
+def stub_deployer(monkeypatch):
+    """The executor's stage seam, stubbed: no test here may spawn a real
+    child (testing-conventions). The T3 executor tests live in
+    test_ai_studio_publish_executor.py; these tests pin the trigger
+    semantics, which are indifferent to HOW the stages run."""
+
+    class _Stub(deploy.Deployer):
+        def build(self, project_dir, version, form, log):
+            return project_dir / "publish" / "artifacts" / version
+
+        def stop_old(self, project_dir, log):
+            return None
+
+        def start_new(self, project_dir, spec, log):
+            return deploy.InstanceHandle(
+                pid=4242, start_time=None, port=8080, url=spec.url, version=spec.version
+            )
+
+    monkeypatch.setattr(publish, "_DEPLOYER", _Stub())
 
 
 @pytest.fixture()
