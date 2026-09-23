@@ -45,3 +45,7 @@
 - [20260923-142652-pip-editable-egg-info-misleading-ro-mount.md](20260923-142652-pip-editable-egg-info-misleading-ro-mount.md) —
   "Cannot update time stamp of directory *.egg-info" 实为只读树上的 EROFS：pip -e 必写
   源码根，:ro 挂载的上游要用卷内快照 + KIROCREW_DEV_SRC，参数化要覆盖安装行不只检查。
+- [20260923-180255-shared-query-key-different-shape.md](20260923-180255-shared-query-key-different-shape.md) —
+  同一个 React Query key 被两个组件用不同形状的 queryFn 读：谁先挂载谁定缓存内容，
+  后者自己的 queryFn 根本不跑、静默拿到 undefined（无报错、无 red），
+  且只渲染那个小组件的测试永远是绿的。
