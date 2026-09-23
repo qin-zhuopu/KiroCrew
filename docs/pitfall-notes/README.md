@@ -49,3 +49,7 @@
   同一个 React Query key 被两个组件用不同形状的 queryFn 读：谁先挂载谁定缓存内容，
   后者自己的 queryFn 根本不跑、静默拿到 undefined（无报错、无 red），
   且只渲染那个小组件的测试永远是绿的。
+- [20260923-193521-tsc-noop-and-persisted-pane-state.md](20260923-193521-tsc-noop-and-persisted-pane-state.md) —
+  两个假绿：website 根 tsconfig 是 `files:[]` 引用壳，`tsc --noEmit` 空跑 exit 0
+  （要用 `-p tsconfig.app.json`）；组件持久化面板显隐到 localStorage，同文件前序
+  用例点隐藏后毒死后续用例（整棵子树不进 DOM，单跑却过）。
