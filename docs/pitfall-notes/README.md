@@ -49,3 +49,6 @@
   同一个 React Query key 被两个组件用不同形状的 queryFn 读：谁先挂载谁定缓存内容，
   后者自己的 queryFn 根本不跑、静默拿到 undefined（无报错、无 red），
   且只渲染那个小组件的测试永远是绿的。
+- [20260923-185614-website-root-tsc-noop.md](20260923-185614-website-root-tsc-noop.md) —
+  `website/` 里 `npx tsc --noEmit` 是空跑（根 tsconfig 是 `files: []` 的方案配置，
+  非 build 模式不编 references）：一个真错都没检查却 exit 0，要写 `-p tsconfig.app.json`。
