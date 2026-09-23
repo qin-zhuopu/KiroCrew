@@ -4,13 +4,44 @@
 // fixture-backed. ChatEmbed is stubbed (WebSocket). UI strings assert the
 // English catalog (tests pin en); fixture content is Chinese by design and
 // asserted as data.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../../app-sdk/ChatEmbed', () => ({
   default: () => <div data-testid="chat-embed-stub" />,
 }))
+
+// happy-dom has no EventSource; the DeployLog now opens one on mount (ACP-772).
+// The fake records every instance so a test can answer the open stream with
+// frames; instances default to a finished-job replay of one line (the shape a
+// re-opened log gets) so views that merely mount a deploy tab still show
+// content. The growth/stream contract itself is covered in DeployLog.test.tsx.
+class FakeEventSource {
+  static instances: FakeEventSource[] = []
+  onmessage: ((ev: MessageEvent) => void) | null = null
+  onerror: (() => void) | null = null
+  closed = false
+  constructor(public url: string) {
+    FakeEventSource.instances.push(this)
+    const deployId = decodeURIComponent(url.match(/\/publish\/([^/]+)\/log/)?.[1] ?? '?')
+    setTimeout(() => {
+      this.onmessage?.({
+        data: JSON.stringify({
+          lines: [`Deployment ${deployId} is RUNNING`],
+          done: true,
+          status: 'success',
+        }),
+      } as MessageEvent)
+    }, 0)
+  }
+  close() { this.closed = true }
+}
+beforeEach(() => {
+  FakeEventSource.instances = []
+  vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource)
+})
+afterEach(() => vi.unstubAllGlobals())
 
 const api = vi.hoisted(() => ({
   listProjects: vi.fn(),

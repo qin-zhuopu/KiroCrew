@@ -93,7 +93,7 @@ export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId,
         ) : active.kind === 'node' ? (
           <NodeDetail type={active.type} nodeId={active.nodeId} />
         ) : (
-          <DeployLog deployId={active.deployId} />
+          <DeployLog deployId={active.deployId} projectId={projectId} />
         )}
       </div>
     </div>
