@@ -30,10 +30,15 @@ import userEvent from '@testing-library/user-event'
 
 import ToolSidebar from '../ToolSidebar'
 import type { GraphEntryGroup } from '../ToolSidebar'
+import WorkArea from '../WorkArea'
+import { GRAPH_NODES } from '../fixtures'
 import { renderStudio } from '../testUtils'
 import { COMMIT_STATES } from './states-commit'
 import { DESIGN_STATES } from './states-design'
-import { GRAPH_STATES, GRAPH_DELTA, GRAPH_WAVE } from './states-graph'
+import {
+  GRAPH_STATES, GRAPH_DELTA, GRAPH_WAVE, GRAPH_DRILL_DELTA,
+  DRILL_TYPE, DRILL_NODE_ID, graphNodeTab, graphTypeRows,
+} from './states-graph'
 import type { GraphStateSnapshot } from './states-graph'
 
 const FOCUS_DOC = '产品需求设计文档.md'
@@ -46,6 +51,12 @@ const byId = (id: string): GraphStateSnapshot => {
 }
 const G1 = byId('G1')
 const G2 = byId('G2')
+const G3 = byId('G3')
+const G4 = byId('G4')
+const G5 = byId('G5')
+const G6 = byId('G6')
+/** ACP-802's four drill-down beats, in order — one graph, four levels. */
+const DRILL = [G3, G4, G5, G6]
 
 const C2 = COMMIT_STATES.find((s) => s.id === 'C2')!
 const D7 = DESIGN_STATES.find((s) => s.id === 'D7') as unknown as { graphEntries: GraphEntryGroup[] }
@@ -97,19 +108,25 @@ const canvasProbe = () => ({
 // ---------------------------------------------------------------------------
 
 describe('G1/G2 snapshot data contract', () => {
-  it('exports the two graph frames in order, each with a list and a run', () => {
-    expect(GRAPH_STATES.map((s) => s.id)).toEqual(['G1', 'G2'])
+  it('exports the graph frames in order: the two generation beats, then the drill-down', () => {
+    // ACP-802 appends the four drill-down frames after the two generation ones
+    expect(GRAPH_STATES.map((s) => s.id)).toEqual(['G1', 'G2', 'G3', 'G4', 'G5', 'G6'])
     for (const s of GRAPH_STATES) {
       expect(s.label).not.toBe('')
       expect(s.title).not.toBe('')
       expect(s.caption).not.toBe('')
       expect(s.docs.map((d) => d.name)).toEqual(ALL_DOCS)
       expect(s.graphEntries.length).toBeGreaterThan(0)
+    }
+    // 生成过程只属于那两个瞬间：G1/G2 带着那次蒸馏运行，中间列仍是文档编辑器
+    for (const s of [G1, G2]) {
       expect(s.distillation).toBeTruthy()
       // 中间列只放文档编辑器（owner 口径）：图谱帧不开画布面
       expect(s.activeSurface).toBe('doc')
       expect(s.selectedDoc).toBe(FOCUS_DOC)
     }
+    // 下钻的四个帧不重述生成过程 —— 它们看的是已经生成好的那张图
+    for (const s of DRILL) expect(s.distillation).toBeUndefined()
     // the pair is one run at two instants — 进行中 then 完成, same run id
     expect(G1.distillation!.status).toBe('running')
     expect(G2.distillation!.status).toBe('done')
@@ -155,7 +172,8 @@ describe('G1/G2 snapshot data contract', () => {
   })
 
   it('every mark is derived from the delta — never typed per row', () => {
-    for (const s of GRAPH_STATES) {
+    // the wave's two frames: their marks come from graphDelta
+    for (const s of [G1, G2]) {
       const delta = s.fixture.graphDelta!
       const inGraph = new Set(s.fixture.graph!.nodes.map((n) => n.id))
       for (const r of rows(s)) {
@@ -177,7 +195,7 @@ describe('G1/G2 snapshot data contract', () => {
   })
 
   it("the run's candidates address the graph's changes, and the graph is closed", () => {
-    for (const s of GRAPH_STATES) {
+    for (const s of [G1, G2]) {
       const graph = s.fixture.graph!
       const delta = s.fixture.graphDelta!
       const ids = new Set(graph.nodes.map((n) => n.id))
@@ -300,7 +318,7 @@ describe('the real ToolSidebar on the 需求图谱 tab', () => {
 describe('the graph frame identity the renderer consumes', () => {
   it('is positive: only the frames carrying a list answer true', () => {
     const isGraphState = (s: object) => 'graphEntries' in s
-    expect(GRAPH_STATES.filter(isGraphState).map((s) => s.id)).toEqual(['G1', 'G2'])
+    expect(GRAPH_STATES.filter(isGraphState).map((s) => s.id)).toEqual(['G1', 'G2', 'G3', 'G4', 'G5', 'G6'])
     // D7 carries one too (its own slice now renders the same list)
     expect(isGraphState(D7)).toBe(true)
     // the commits frames do not, and neither do the other design frames
@@ -324,4 +342,118 @@ describe('the graph frame identity the renderer consumes', () => {
     expect(screen.getByRole('tab', { name: 'Graph' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByTestId('distill-status-done')).toBeInTheDocument()
   })
+})
+// ---------------------------------------------------------------------------
+// ACP-802: the drill-down — 类型列表 → 实例列表 → 实例属性 → 每条边的关联实例.
+// One graph read four ways; every level derived from the fixture the product
+// already ships, so no level may claim what another one denies.
+// ---------------------------------------------------------------------------
+
+describe('G3/G4: the drill-down in the 需求图谱 tab', () => {
+  it('the fixture graph is CLOSED: every edge target is a node, under its own type', () => {
+    for (const [type, nodes] of Object.entries(GRAPH_NODES)) {
+      for (const n of nodes) {
+        // an edge and its own link list are the same edges, spelled the same
+        expect(n.edgeLinks?.map((l) => l.label)).toEqual(n.edges)
+        for (const link of n.edgeLinks ?? []) {
+          for (const t of link.targets) {
+            const target = GRAPH_NODES[t.type]?.find((x) => x.id === t.id)
+            expect(target, `${n.id} → ${t.id}`).toBeTruthy()
+            expect(target!.name).toBe(t.name)
+          }
+        }
+      }
+    }
+  })
+
+  it('G3 lists the types with their instance counts — counted, never typed', () => {
+    expect(G3.graphType).toBeUndefined()
+    const typeRows = graphTypeRows()
+    expect(typeRows.map((r) => r.label)).toEqual(Object.keys(GRAPH_NODES))
+    for (const r of typeRows) {
+      const type = r.label
+      expect(r.meta).toBe(`${GRAPH_NODES[type].length} 个实例`)
+    }
+  })
+
+  it('G4 stands inside 实体 and lists its instances: 名称 + 编码 + 状态, marks derived', () => {
+    expect(G4.graphType).toBe(DRILL_TYPE)
+    const list = G4.graphEntries.flatMap((g) => g.rows)
+    expect(list.map((r) => r.id)).toEqual((GRAPH_NODES[DRILL_TYPE] ?? []).map((n) => n.id))
+    for (const r of list) {
+      const node = GRAPH_NODES[DRILL_TYPE].find((n) => n.id === r.id)!
+      expect(r.label).toBe(node.name)
+      expect(r.meta).toBe(`${node.props['编码']} · ${node.props['状态']}`)
+      const want = GRAPH_DRILL_DELTA.added.includes(r.id) ? 'added'
+        : GRAPH_DRILL_DELTA.modified.includes(r.id) ? 'modified' : undefined
+      expect(r.mark, r.id).toBe(want)
+    }
+    // this round really changed something, or the marks would be vacuous
+    expect(GRAPH_DRILL_DELTA.added.length + GRAPH_DRILL_DELTA.modified.length).toBeGreaterThan(0)
+  })
+
+  it('the real tab renders G3 rows then G4 rows', () => {
+    const first = mountFrame(G3)
+    expect(screen.getByTestId('graph-entry-type-实体')).toBeInTheDocument()
+    const g3 = [...entryRowEls()].map((el) => el.getAttribute('data-testid'))
+    first.unmount()
+    mountFrame(G4)
+    expect(screen.getByTestId(`graph-entry-${DRILL_NODE_ID}`)).toBeInTheDocument()
+    const g4 = [...entryRowEls()].map((el) => el.getAttribute('data-testid'))
+    // a type row is not an instance row: the two levels are different lists
+    expect(g4).not.toEqual(g3)
+    expect(entryRowEls()).toHaveLength((GRAPH_NODES[DRILL_TYPE] ?? []).length)
+  })
+
+  it('G5/G6 are ONE instance, opened in the workspace — and never a doc tab', () => {
+    for (const s of [G5, G6]) {
+      expect(s.graphNode).toEqual({ type: DRILL_TYPE, nodeId: DRILL_NODE_ID, title: GRAPH_NODES[DRILL_TYPE][0].name })
+      // 实例详情占据工作区：这一帧不开文档页签
+      expect(s.selectedDoc).toBeNull()
+    }
+    // both beats name the same instance — G6 is not a different node
+    expect(G5.graphNode).toEqual(G6.graphNode)
+    const tab = graphNodeTab(G6)!
+    expect(tab).toMatchObject({ kind: 'node', type: DRILL_TYPE, nodeId: DRILL_NODE_ID })
+    expect(graphNodeTab(G3)).toBeNull()
+  })
+
+  it("G5: the workspace shows the instance's property table", () => {
+    const tab = graphNodeTab(G5)!
+    render(<WorkArea tabs={[tab]} activeId={tab.id} onSelect={vi.fn()} onClose={vi.fn()} projectId={G5.fixture.project.id} />)
+    const det = screen.getByTestId('graph-node')
+    expect(det).toHaveAttribute('data-node-type', DRILL_TYPE)
+    expect(det).toHaveAttribute('data-node-id', DRILL_NODE_ID)
+    const node = GRAPH_NODES[DRILL_TYPE].find((n) => n.id === DRILL_NODE_ID)!
+    for (const [k, v] of Object.entries(node.props)) {
+      const row = screen.getByTestId(`node-prop-${k}`)
+      expect(within(row).getByText(k)).toBeInTheDocument()
+      expect(within(row).getByText(v)).toBeInTheDocument()
+    }
+  })
+
+  it('G6: each edge is a group, and under it the instances that edge connects', () => {
+    const tab = graphNodeTab(G6)!
+    render(<WorkArea tabs={[tab]} activeId={tab.id} onSelect={vi.fn()} onClose={vi.fn()} projectId={G6.fixture.project.id} />)
+    const node = GRAPH_NODES[DRILL_TYPE].find((n) => n.id === DRILL_NODE_ID)!
+    node.edges.forEach((edge, i) => {
+      const group = screen.getByTestId(`node-edge-${i}`)
+      expect(within(group).getByText(edge)).toBeInTheDocument()
+      const link = node.edgeLinks!.find((l) => l.label === edge)!
+      for (const t of link.targets) {
+        const row = within(group).getByTestId(`node-edge-target-${t.id}`)
+        expect(within(row).getByText(t.name)).toBeInTheDocument()
+        expect(within(row).getByText(t.type)).toBeInTheDocument()
+      }
+    })
+    // one group per edge, no more and no fewer (the target rows share the
+    // prefix, so the probe excludes them by their own prefix)
+    expect(document.querySelectorAll('[data-testid^="node-edge-"]:not([data-testid^="node-edge-target-"])'))
+      .toHaveLength(node.edges.length)
+    // and still no canvas anywhere
+    const canvas = canvasProbe()
+    expect(canvas.edges).toHaveLength(0)
+    expect(canvas.boxes).toHaveLength(0)
+  })
+
 })
