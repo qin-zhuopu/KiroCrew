@@ -329,9 +329,11 @@ export type StudioPublishApi = {
   /** B1: the form one version publishes as, from its git tag annotation. */
   preview: (id: string, version: string) => Promise<StudioPublishPreview>
   /** B2: fire the publish. Same-hash-while-running answers 409; an
-   * idempotent re-publish answers the existing deploymentId. */
+   * idempotent re-publish answers the existing deploymentId. A job that
+   * already ran to failure answers ``status: "failed"`` with the reason —
+   * the only carrier of that reason, since a failed job writes no record. */
   trigger: (id: string, version: string, commitHash: string) =>
-    Promise<{ deploymentId: string; idempotent?: boolean }>
+    Promise<{ deploymentId: string; idempotent?: boolean; status?: string; reason?: string }>
 }
 
 export class StudioApiError extends Error {
