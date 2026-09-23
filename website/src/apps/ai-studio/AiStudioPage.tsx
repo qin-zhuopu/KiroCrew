@@ -37,6 +37,11 @@ import { studioApi, StudioApiError, type StudioDoc } from './studioApi'
 // The demo surface (steps, fixtures, overlay, fake) loads ONLY on the
 // `?demo=` route — an ordinary visit never pays its bundle cost.
 const DemoWorkspace = lazy(() => import('./demo/DemoWorkspace'))
+// The state-direct demo (`?demo=states`, ACP-787): renders a snapshot straight
+// out, prev/next/direct-select all just re-read a state — no replay. Sibling to
+// the step-replay surface; the same `?demo=` guard keeps it fetch-free.
+const StateDemo = lazy(() => import('./demo/StateDemo'))
+const STATE_DEMO_SCENARIO = 'states'
 
 const LS_WIDTHS = 'ai-studio.widths'
 const LS_HIDDEN = 'ai-studio.hidden'
@@ -83,11 +88,12 @@ export default function AiStudioPage() {
   // the scenario's fixture carries its own demo project (§5).
   const demo = parseDemoScenario(location.search)
   if (demo) {
+    const Surface = demo.scenario === STATE_DEMO_SCENARIO ? StateDemo : DemoWorkspace
     return (
       <Suspense fallback={<div className="h-full p-6"><ContentSkeleton rows={6} /></div>}>
         {/* keyed on the scenario: swapping `?demo=` remounts the runtime
          * from step 0 instead of leaving it mid-script on another line */}
-        <DemoWorkspace key={demo.scenario} params={demo} />
+        <Surface key={demo.scenario} params={demo} />
       </Suspense>
     )
   }
