@@ -137,6 +137,21 @@ def test_job_lifecycle_lists_newest_first(home, project):
     assert exc.value.code == "project_not_found"
 
 
+def test_same_millisecond_jobs_never_collide(home, project, monkeypatch):
+    pid = project["id"]
+    # two publishes inside one tick: the id is the filename, so a same-ms
+    # collision would silently swallow one job — the random suffix must
+    # keep both (and both must sort as separate rows)
+    fixed = 1_700_000_000.0
+    monkeypatch.setattr(publish.time, "time", lambda: fixed)
+    a = publish.record_job(pid, version="v1", form="full")
+    b = publish.record_job(pid, version="v1", form="full")
+    assert a["id"] != b["id"]
+    jobs = publish.list_jobs(pid)
+    assert [j["id"] for j in jobs] == [b["id"], a["id"]]
+    assert {j["id"] for j in jobs} == {a["id"], b["id"]}
+
+
 # ---------------------------------------------------------------------------
 # B1: form judgment from the git tag annotation
 # ---------------------------------------------------------------------------

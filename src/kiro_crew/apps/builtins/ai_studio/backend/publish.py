@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import subprocess
 import time
 from pathlib import Path
@@ -190,16 +191,25 @@ def record_job(project_id: str, *, version: str, form: str, status: str = "runni
     """Create one release-job (one execution of the publish button)."""
     project_dir = _project_dir(project_id)
     now = time.time()
-    job_id = f"job-{_stamp(now)}"
+    # The stamp alone is only second+ms wide, and the release-job id IS the
+    # filename: two publishes inside the same millisecond (a double click, a
+    # retried request) would collide and one job would silently swallow the
+    # other. A random suffix breaks the tie; the exists() retry covers the
+    # astronomically unlikely suffix clash too.
+    jobs_dir = _jobs_dir(project_dir)
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    path = jobs_dir / f"job-{_stamp(now)}.json"
+    while path.exists():
+        path = jobs_dir / f"job-{_stamp(now)}-{secrets.token_hex(4)}.json"
     job: dict[str, Any] = {
-        "id": job_id,
+        "id": path.stem,
         "version": version,
         "form": form,
         "status": status,
         "ts": now,
     }
     try:
-        _write_json(_jobs_dir(project_dir) / f"{job_id}.json", job)
+        _write_json(path, job)
     except OSError as exc:
         raise PublishError("could not write the job", "store_write_failed", 503) from exc
     return job
