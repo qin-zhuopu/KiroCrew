@@ -28,11 +28,15 @@ import ProjectCommitBar from '../ProjectCommitBar'
 import { renderStudio } from '../testUtils'
 import { createDemoApi } from './runtime'
 import { DESIGN_STATES } from './states-design'
-// read-only imports from the shipped states file: the pre-commit world for a
-// positive control (the drafts badge DOES render when drafts exist), and the
-// `StateSnapshot` type. Nothing here mutates or rewrites those modules.
-import { DEMO_STATES } from './states'
+// read-only imports: the pre-commit world for a positive control (the drafts
+// badge DOES render when drafts exist), and the `StateSnapshot` type. Nothing
+// here mutates or rewrites those modules. The pre-commit world is C1 (the
+// 提交-tab frame that opens the same iteration a step earlier); the three
+// opening frames it used to come from were retired by the owner in ACP-794.
+import { COMMIT_STATES } from './states-commit'
 import type { StateSnapshot } from './states'
+
+const C1 = COMMIT_STATES.find((s) => s.id === 'C1')!
 
 const byId = (id: string): StateSnapshot => {
   const s = DESIGN_STATES.find((x) => x.id === id)
@@ -138,10 +142,9 @@ describe('D6~D8 snapshot data contract', () => {
     expect(D6.versionHistory?.[0]).toMatchObject({ version: 'v5', parity: 'odd', source: 'manual' })
     // the v5 row's diff carries the supplement the S2/S3 buffer held
     expect(trail[0].diff).toContain('大额采购需追加一级审批')
-    // the frame continues the shipped S1~S3 world, it does not restart it:
-    // the pre-commit buffer of S2 is exactly this frame's committed text
-    const S2 = DEMO_STATES.find((s) => s.id === 'S2')!
-    expect(S2.buffer).toBe(D6.buffer)
+    // the frame continues the design-phase world, it does not restart it: the
+    // pending buffer C1 carries is exactly this frame's committed text
+    expect(C1.buffer).toBe(D6.buffer)
   })
 
   it('D7 names its own wave: added ∈ graph, removed ∉ graph, edges resolve', () => {
@@ -238,12 +241,11 @@ describe('D6 on the real version-history / commit surfaces', () => {
   })
 
   it('commit affordance reads the frame as clean: drafts-pending not in DOM, button disabled', async () => {
-    // POSITIVE CONTROL first: the same bar on the shipped S2 (dirty) fixture
-    // DOES render the badge and enable — so the clean-frame absence below is
-    // a rendered fact about D6's data, not an always-true query.
-    const S2 = DEMO_STATES.find((s) => s.id === 'S2')!
+    // POSITIVE CONTROL first: the same bar on the C1 (dirty) fixture DOES
+    // render the badge and enable — so the clean-frame absence below is a
+    // rendered fact about D6's data, not an always-true query.
     const dirty = renderStudio(
-      <ProjectCommitBar projectId={S2.fixture.project.id} api={createDemoApi(S2.fixture)} />,
+      <ProjectCommitBar projectId={C1.fixture.project.id} api={createDemoApi(C1.fixture)} />,
     )
     await screen.findByTestId('drafts-pending')
     await waitFor(() => expect(screen.getByTestId('commit-all-btn')).toBeEnabled())
@@ -268,8 +270,8 @@ describe('D6 on the real version-history / commit surfaces', () => {
     // hands the app carries v5 — the release-tab wiring lists one more row
     // than the pre-commit frames held. DOM-level wiring is the master's step.
     expect(D6.fixture.versions[FOCUS_DOC].some((r) => r.version === 'v5')).toBe(true)
-    const S2 = DEMO_STATES.find((s) => s.id === 'S2')!
-    expect(S2.fixture.versions[FOCUS_DOC] ?? []).toHaveLength(0)
+    // the pre-commit frame (C1) had no v5 row at all
+    expect(C1.fixture.versions[FOCUS_DOC].some((r) => r.version === 'v5')).toBe(false)
   })
 })
 

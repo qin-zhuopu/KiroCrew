@@ -22,7 +22,16 @@ interface LogFrame {
   status: string
 }
 
-export default function DeployLog({ deployId, projectId }: { deployId: string; projectId: string }) {
+export default function DeployLog({ deployId, projectId, frames }: {
+  deployId: string
+  projectId: string
+  /** A snapshot's recorded tail, replayed in place of the stream (ACP-794).
+   * The demo cannot open an EventSource — a stream IS a network call — so its
+   * release frames hand the frames over and this component folds them exactly
+   * as it folds live ones. Omitted everywhere else: the ordinary path still
+   * opens the stream and nothing below changes. */
+  frames?: LogFrame[]
+}) {
   const [lines, setLines] = useState<string[]>([])
   // null while the stream is (or was) healthy; the failed endpoint on error —
   // the log that never arrived is a failure, so it renders as one (never a
@@ -33,6 +42,12 @@ export default function DeployLog({ deployId, projectId }: { deployId: string; p
   useEffect(() => {
     setLines([])
     setFailedUrl(null)
+    // a replayed tail: the frames arrive whole, so there is nothing to open
+    // and nothing to reconnect — the same append the live branch does
+    if (frames) {
+      setLines(frames.flatMap((f) => f.lines))
+      return
+    }
     const url =
       `${API}/publish/${encodeURIComponent(deployId)}/log` +
       `?project=${encodeURIComponent(projectId)}`
@@ -59,7 +74,7 @@ export default function DeployLog({ deployId, projectId }: { deployId: string; p
       setFailedUrl(url)
     }
     return () => es.close()
-  }, [deployId, projectId])
+  }, [deployId, projectId, frames])
 
   // 发布中实时滚动追加: keep the newest line in view as the stream grows.
   useEffect(() => {

@@ -29,7 +29,7 @@ import { ContentSkeleton } from '../../components/ui'
 import { fmtDateTime } from '../../i18n/format'
 import { i18nT } from '../../i18n/t'
 import DeployLog from './DeployLog'
-import { publishApi, type StudioPublishJob } from './studioApi'
+import { publishApi, type StudioPublishApi, type StudioPublishJob } from './studioApi'
 
 const SHORT_HASH = 7
 
@@ -46,13 +46,27 @@ function jobStatusCls(status: string): string {
   return 'bg-bg-hover text-muted'
 }
 
-export default function ReleaseJobPage() {
+export default function ReleaseJobPage({
+  projectId: projectIdProp, jobId: jobIdProp, api = publishApi, logFrames,
+}: {
+  /** The demo (ACP-794) mounts this page INSIDE the workbench, where there is
+   * no release-job route and no query string to read. Each override defaults
+   * to the URL value, so every ordinary visit reads exactly the same params it
+   * always has. */
+  projectId?: string
+  jobId?: string
+  /** the data source, injectable for the demo's snapshot fake */
+  api?: StudioPublishApi
+  /** the demo's replayed log tail, handed to DeployLog in place of its stream */
+  logFrames?: { lines: string[]; done: boolean; status: string }[]
+} = {}) {
   // The 发布号 is a route param (the URL contract the result row links to);
   // the project id rides as a query param — every publish read is per-project
   // and job ids are only unique inside one project's store.
-  const { jobId = '' } = useParams<{ jobId: string }>()
+  const { jobId: jobIdParam = '' } = useParams<{ jobId: string }>()
   const [searchParams] = useSearchParams()
-  const projectId = searchParams.get('project') ?? ''
+  const projectId = projectIdProp ?? searchParams.get('project') ?? ''
+  const jobId = jobIdProp ?? jobIdParam
 
   // Which row's detail the page shows: opened on the URL's 发布号, switched by
   // clicking another row (the list's only interaction, §〇-2 只读).
@@ -60,7 +74,7 @@ export default function ReleaseJobPage() {
 
   const jobsQuery = useQuery({
     queryKey: ['ai-studio', 'publish-jobs', projectId],
-    queryFn: () => publishApi.listJobs(projectId),
+    queryFn: () => api.listJobs(projectId),
     enabled: !!projectId,
     // 发布中轮询: while any job still runs, re-read so a finishing publish
     // settles its row on screen; a settled list never polls again.
@@ -72,7 +86,7 @@ export default function ReleaseJobPage() {
   // it from the records endpoint.
   const recordsQuery = useQuery({
     queryKey: ['ai-studio', 'publish-records', projectId],
-    queryFn: () => publishApi.listRecords(projectId),
+    queryFn: () => api.listRecords(projectId),
     enabled: !!projectId,
   })
 
@@ -188,7 +202,7 @@ export default function ReleaseJobPage() {
           waiting state before the first frame — is DeployLog's, not re-spelled
           here. */}
       <div className="mt-4 -mb-5" data-testid={`ai-studio-release-job-log-${selected}`}>
-        <DeployLog deployId={selected} projectId={projectId} />
+        <DeployLog deployId={selected} projectId={projectId} frames={logFrames} />
       </div>
     </div>
   )

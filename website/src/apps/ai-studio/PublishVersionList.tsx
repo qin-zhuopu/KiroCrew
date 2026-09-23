@@ -27,6 +27,7 @@ import { Btn } from '../../components/ui'
 import {
   publishApi,
   StudioApiError,
+  type StudioPublishApi,
   type StudioPublishRecord,
   type StudioPublishVersion,
 } from './studioApi'
@@ -49,7 +50,12 @@ type RunState = {
   reason?: string
 }
 
-export default function PublishVersionList({ projectId }: { projectId: string }) {
+export default function PublishVersionList({ projectId, api = publishApi }: {
+  projectId: string
+  /** the data source, injectable for the demo's snapshot fake; the ordinary
+   * path uses the real client and never passes this */
+  api?: StudioPublishApi
+}) {
   const qc = useQueryClient()
   // Per-version knowledge of this visit's publish runs (see RunState).
   const [runs, setRuns] = useState<Record<string, RunState>>({})
@@ -58,11 +64,11 @@ export default function PublishVersionList({ projectId }: { projectId: string })
 
   const versionsQuery = useQuery({
     queryKey: ['ai-studio', 'publish-versions', projectId],
-    queryFn: () => publishApi.listVersions(projectId),
+    queryFn: () => api.listVersions(projectId),
   })
   const recordsQuery = useQuery({
     queryKey: ['ai-studio', 'publish-records', projectId],
-    queryFn: () => publishApi.listRecords(projectId),
+    queryFn: () => api.listRecords(projectId),
     // Poll only while a run is in flight; at rest the view reads once.
     refetchInterval: anyRunning ? POLL_MS : false,
   })
@@ -101,7 +107,7 @@ export default function PublishVersionList({ projectId }: { projectId: string })
   const previews = useQueries({
     queries: versions.map((v) => ({
       queryKey: ['ai-studio', 'publish-preview', projectId, v.version],
-      queryFn: () => publishApi.preview(projectId, v.version),
+      queryFn: () => api.preview(projectId, v.version),
       staleTime: Infinity,
     })),
   })
@@ -114,7 +120,7 @@ export default function PublishVersionList({ projectId }: { projectId: string })
     setTriggerError(null)
     setRuns((s) => ({ ...s, [v.version]: { state: 'running' } }))
     try {
-      const res = await publishApi.trigger(projectId, v.version, v.commitHash)
+      const res = await api.trigger(projectId, v.version, v.commitHash)
       if (res.status === 'failed') {
         // The only carrier of a failure reason: a failed job never writes a
         // release record, so the records poll can never derive 「失败」.

@@ -18,7 +18,7 @@ import {
   type CommitEntry,
   type ProgressModel,
 } from './fixtures'
-import type { StudioDoc } from './studioApi'
+import type { StudioDoc, StudioPublishApi } from './studioApi'
 import PublishVersionList from './PublishVersionList'
 import type { WorkTab } from './WorkArea'
 
@@ -50,9 +50,18 @@ export interface ToolSidebarProps {
   changed?: ChangedFile[]
   /** the commits tab's 「提交历史」 rows (a demo frame's own list) */
   commits?: CommitEntry[]
+  // ACP-794 adds ONE more of the same kind, for the same reason: the releases
+  // tab's publish reads. The demo's release frames carry their versions /
+  // records / previews as data, and the real client throws under `?demo=`, so
+  // that frame hands its snapshot-backed stand-in down to the version list.
+  // Omitted (every ordinary workbench) => PublishVersionList's own default.
+  /** the releases tab's publish read source */
+  publishApi?: StudioPublishApi
 }
 
-export default function ToolSidebar({ onOpenTab, docs, projectId, initialTool = 'docs', changed, commits }: ToolSidebarProps) {
+export default function ToolSidebar({
+  onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
+}: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>(initialTool)
   // graph drill state: null = type list, string = inside a type
   const [graphType, setGraphType] = useState<string | null>(null)
@@ -87,7 +96,7 @@ export default function ToolSidebar({ onOpenTab, docs, projectId, initialTool = 
       <div className="flex-1 min-h-0 overflow-auto p-3">
         {tool === 'docs' && <DocsTool docs={docs} onOpenTab={onOpenTab} />}
         {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} changed={changed} commits={commits} />}
-        {tool === 'releases' && <PublishVersionList projectId={projectId} />}
+        {tool === 'releases' && <PublishVersionList projectId={projectId} api={publishApi} />}
         {tool === 'graph' && <GraphTool graphType={graphType} setGraphType={setGraphType} onOpenTab={onOpenTab} />}
         {tool === 'dev' && <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />}
         {tool === 'deploy' && <DeployTool onOpenTab={onOpenTab} />}

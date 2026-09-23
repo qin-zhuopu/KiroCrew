@@ -35,6 +35,11 @@ import { parseDemoScenario, STATE_DEMO_SCENARIO, createDemoApi } from './demo/ru
 import { ALL_STATES, DEPLOY_PAYLOADS } from './demo/allStates'
 import StatesDock from './demo/StatesDock'
 import DeployFramePanel from './demo/DeployFramePanel'
+import { createDemoPublishApi } from './demo/publishFake'
+import { isReleaseState } from './demo/states-release'
+import type { CommitStateSnapshot } from './demo/states-commit'
+import type { StateSnapshot } from './demo/states'
+import ReleaseJobPage from './ReleaseJobPage'
 import DevRunPanel, { RunPreviewScreen } from './DevRunView'
 import GraphView from './GraphView'
 import DemoEntryButton from './DemoEntryButton'
@@ -135,11 +140,16 @@ export default function AiStudioPage() {
  * fills (same key → one request, never a second one for the button). No
  * projects → nothing to demo → no button. */
 function ProjectsList() {
+  // The key is SHARED with `ProjectsListPage` (whoever mounts first answers it,
+  // and the other observer reads the same cache entry), so the queryFn must
+  // return the same SHAPE it does — the unwrapped array. Reading `.projects`
+  // off this cache entry would be undefined the moment the page's observer
+  // wins the race, which is silent: the button simply never appears.
   const projectsQuery = useQuery({
     queryKey: ['ai-studio', 'projects'],
-    queryFn: () => studioApi.listProjects(),
+    queryFn: () => studioApi.listProjects().then((r) => r.projects),
   })
-  const first = projectsQuery.data?.projects?.[0]?.id
+  const first = projectsQuery.data?.[0]?.id
   return (
     <>
       <ProjectsListPage />
@@ -184,8 +194,48 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
   // one fake per frame, minted on the frame: a live write a presenter makes
   // belongs to the frame that made it and is gone on the next switch
   const demoApi = useMemo(() => (demoState ? createDemoApi(demoState.fixture) : null), [demoState])
+  // The two frames that drive a SURFACE OF THEIR OWN rather than the center:
+  // a 提交-tab frame lights the sidebar's commits tab and feeds its two lists,
+  // a release frame lights the releases tab and feeds the publish reads. Both
+  // are positive checks against the frame's own payload — the same doctrine
+  // as `isReleaseState` — never "everything that is not the other one".
+  const demoCommit = useMemo(() => (isCommitState(demoState) ? demoState : null), [demoState])
+  const demoRelease = useMemo(
+    () => (demoState && isReleaseState(demoState) ? demoState : null),
+    [demoState],
+  )
+  const demoPublishApi = useMemo(
+    () => (demoRelease ? createDemoPublishApi(demoRelease.publish) : null),
+    [demoRelease],
+  )
   const [demoActiveId, setDemoActiveId] = useState<string | null>(null)
   const [demoExtraTabs, setDemoExtraTabs] = useState<WorkTab[]>([])
+  // scopes the R3 click below to THIS workbench (never a sibling on screen)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // R3's one act (ACP-791 wiring note 2): 「发布中」 is PublishVersionList's
+  // LOCAL run state — no snapshot paints it — so the frame that declares
+  // `inFlight` performs the ONE real click on that row's real 发布 button once
+  // it renders. The fake trigger never settles, so the row honestly rests at
+  // 发布中 instead of an outcome this frame does not carry (the finished run
+  // is R4's frame). One act per frame, not a replay chain.
+  const inFlightVersion = demoRelease?.publish.inFlight?.version ?? null
+  useEffect(() => {
+    if (!inFlightVersion) return
+    let tries = 0
+    const timer = setInterval(() => {
+      const btn = rootRef.current?.querySelector<HTMLButtonElement>(
+        `[data-testid="ai-studio-publish-btn-${inFlightVersion}"]`,
+      )
+      if (btn && !btn.disabled) {
+        clearInterval(timer)
+        btn.click()
+        return
+      }
+      if (++tries > 120) clearInterval(timer) // the button never came: stay put
+    }, 25)
+    return () => clearInterval(timer)
+  }, [inFlightVersion, stateIndex])
 
   // A frame switch is a wholesale reload: every ai-studio read is stale by
   // construction (the fake that answered it is gone). The PROJECT key is
@@ -369,6 +419,7 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
 
   return (
     <div
+      ref={rootRef}
       className="flex flex-col h-full min-h-0"
       data-testid="ai-studio"
       data-demo-states={demoStates ? STATE_DEMO_SCENARIO : undefined}
@@ -467,6 +518,21 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
                 <DeployFramePanel frame={DEPLOY_PAYLOADS[demoState.id]} />
               </div>
             )}
+            {/* R5's payoff: the release-job page itself, mounted with the
+              * frame's own project/job/api/log-tail (it reads route params and
+              * streams over SSE on every ordinary visit — inside the demo
+              * there is no such route and no stream, so all four are injected;
+              * each one defaults to exactly what a real visit uses). */}
+            {demoRelease?.publish.selectedJobId && demoPublishApi && (
+              <div className="shrink-0 h-[420px] overflow-hidden border-t border-border bg-bg">
+                <ReleaseJobPage
+                  projectId={projectId}
+                  jobId={demoRelease.publish.selectedJobId}
+                  api={demoPublishApi}
+                  logFrames={demoRelease.publish.logFrames}
+                />
+              </div>
+            )}
           </main>
         )}
         {!hidden.center && !hidden.right && (
@@ -475,10 +541,18 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
 
         {!hidden.right && (
           <aside style={{ width: widths.right }} className="shrink-0 min-w-[240px] max-w-[55vw] flex flex-col min-h-0 border-l border-border bg-card">
+            {/* keyed on the frame: the lit tab is LOCAL state, so a switch
+                must re-mount onto the new frame's tab (and the ordinary
+                workbench keeps its stable 'real' key, unchanged) */}
             <ToolSidebar
+              key={demoState?.id ?? 'real'}
               onOpenTab={onShownOpen}
               docs={demoState ? demoState.fixture.docs : docs}
               projectId={projectId}
+              initialTool={demoRelease ? 'releases' : demoCommit ? 'commits' : 'docs'}
+              changed={demoCommit?.changed}
+              commits={demoCommit?.commits}
+              publishApi={demoPublishApi ?? undefined}
             />
           </aside>
         )}
@@ -487,6 +561,9 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
       {/* the runnable experience (V3): an internal overlay onto the frame's own
         * runPreview data — no server, no container */}
       {demoState?.fixture.runPreview && <RunPreviewScreen preview={demoState.fixture.runPreview} />}
+      {/* R6: the release frames carry their experience screen on the publish
+        * payload (the dev-phase frames carry theirs on the fixture) */}
+      {demoRelease?.publish.runPreview && <RunPreviewScreen preview={demoRelease.publish.runPreview} />}
 
       {demoState && (
         <StatesDock
@@ -504,6 +581,13 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
       )}
     </div>
   )
+}
+
+/** Positive identity for a 提交-tab frame (same doctrine as `isReleaseState`):
+ * the frame IS one by carrying the lit sidebar tab, never by being "not a
+ * release frame". Null-safe because the caller holds "no frame at all" too. */
+function isCommitState(s: StateSnapshot | null): s is CommitStateSnapshot {
+  return s !== null && 'activeSidebarTab' in s
 }
 
 function paneToggleCls(active: boolean): string {

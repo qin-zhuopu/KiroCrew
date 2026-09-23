@@ -77,7 +77,12 @@ describe('route dispatch', () => {
     expect(await screen.findByTestId('ai-studio')).toBeInTheDocument()
     // the header shows the fetched project's name, not a hardcoded demo
     expect(screen.getByText(/测试项目/)).toBeInTheDocument()
-    expect(screen.queryByText(/Demo/)).not.toBeInTheDocument()
+    // no demo surface is on screen. (This used to read `queryByText(/Demo/)`,
+    // which stopped being true once ACP-793 added the 「Demo」 entry button to
+    // the workbench — the word is on the button, not in the page. The claim
+    // this case exists to make is the SURFACE one.)
+    expect(screen.queryByTestId('demo-states-dock')).not.toBeInTheDocument()
+    expect(screen.getByTestId('ai-studio')).not.toHaveAttribute('data-demo-states')
     expect(api.getProject).toHaveBeenCalledWith('p1')
   })
 
