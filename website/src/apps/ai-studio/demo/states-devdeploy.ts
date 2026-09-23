@@ -9,13 +9,13 @@
 // deployed to replace the live instance (P1 发布中 → P2 已完成·线上可访问).
 // Nothing here replays an operation chain; selecting a frame is reading it.
 //
-// WIRING CONTRACT FOR MASTER (接线由 master 统一做；this file only ships data):
+// WHO RENDERS WHAT (ACP-799 built the seam, ACP-803 did the wiring):
 //
-// ACP-792 shipped this slice rendered in the CENTER column. ACP-799 moves that
+// ACP-792 shipped this slice rendered in the CENTER column. ACP-799 moved that
 // content into the sidebar's 开发 / 部署 tabs (owner's layout rule: 中间列只
-// 显示文字内容，其余一切都在右边工具边栏对应页签里）:
-//   - every frame carries `activeSidebarTab` ('dev' | 'deploy') — hand it to
-//     `ToolSidebar` as `initialTool`, the way the commit slice already does.
+// 显示文字内容，其余一切都在右边工具边栏对应页签里), and ACP-803 finished it:
+//   - every frame carries `activeSidebarTab` ('dev' | 'deploy') — AiStudioPage
+//     hands it to `ToolSidebar` as `initialTool`, the way the commit slice does.
 //   - every frame carries `history` (the tab's 历史记录 rows) and
 //     `actionDisabled` (its top action button's state).
 //   - the tab's 过程区 and its top button are injected by the CALLER as nodes,
@@ -24,17 +24,17 @@
 //              current: <DevRunPanel run={f.fixture.devRun} />, history: f.history }}
 //       deploy={{ action: <ReleaseControl act="deploy" disabled={f.actionDisabled} … />,
 //                 current: <DeployFramePanel frame={DEPLOY_PAYLOADS[f.id]} />, history: f.history }}
-//   - THE TWO CENTER MOUNTS ACP-794 ADDED MUST GO with it (AiStudioPage): the
-//     `activeSurface === 'dev'` DevRunPanel branch and the
-//     `DEPLOY_PAYLOADS[id]` DeployFramePanel branch. Until they are removed the
-//     old picture still renders — which is what keeps every other slice's tests
-//     green in the meantime; removing them is what makes ③ (「这些帧的中间列
-//     是打开的文档」) the only thing left on screen.
-//   - `DevRunPanel` / `RunPreviewScreen` stay the SAME real components, now
-//     rendered inside the 开发 tab; the V3 preview overlay
-//     (`fixture.runPreview`) is unchanged. V1/V2 carry no runPreview; V3 carries
-//     the finished devRun too, so the panel stays mounted under the preview the
-//     way the workbench does.
+//   - the two center mounts ACP-794 had added are GONE (AiStudioPage): their
+//     `activeSurface === 'dev'` / `DEPLOY_PAYLOADS[id]` branches were deleted
+//     with the wiring, so ③ (「这些帧的中间列是打开的文档」) holds — every frame
+//     below declares `activeSurface: 'doc'` and the center renders that open
+//     document and nothing else.
+//   - `DevRunPanel` / `RunPreviewScreen` are the SAME real components, now
+//     rendered inside the 开发 tab. The V3 preview overlay opens on the panel's
+//     own 「打开可运行版本」 click and closes on its own 关闭 button — entering a
+//     frame never covers the middle column, which is the same rule again. V1/V2
+//     carry no runPreview; V3 carries the finished devRun too, so the panel
+//     stays mounted under the preview the way the workbench does.
 //   - the deploy frames keep what ACP-792 built, restated for the tab: the
 //     product's real deploy path
 //     (DeployLog/ReleaseJobPage) streams over SSE and cannot run fetch-free, so
@@ -85,17 +85,23 @@ export interface DevDeploySnapshot extends StateSnapshot {
    * one is not listed here — it is the 过程区 above, exactly as the shipped
    * ReleasesTool / DeployTool split it. */
   history: TabHistoryRow[]
-  /** the tab-top action button ("开发" / "部署"): disabled because the act this
-   * frame shows is already running or done — a frozen design is developed
-   * once, a version is deployed once. A frame whose act has NOT landed yet
-   * sets this false and the caller's onRelease lands it. */
+  /** the tab-top action button ("开发" / "部署"): disabled on every frame whose
+   * act has already landed — a frozen design is developed once, a version is
+   * deployed once, and an enabled button that goes nowhere is the fake feature
+   * the doctrine forbids. The FIRST frame of each group is the exception: at V1
+   * / P1 the act has not finished yet, so its button is live and the caller's
+   * `onRelease` lands the next frame of the same story (ACP-803). */
   actionDisabled: boolean
 }
 
 /** Positive identity for a dev/deploy frame (same doctrine as
- * `isReleaseState`: never guess from the ABSENCE of the other slices). */
+ * `isReleaseState`: never guess from the ABSENCE of the other slices). The
+ * commit slice declares the SAME field name for its own tab, so presence
+ * alone would claim C1/C2 as well — the identity is the field's VALUE: a
+ * frame IS one of ours when its lit tab is 'dev' or 'deploy'. */
 export function isDevDeployState(s: StateSnapshot): s is DevDeploySnapshot {
-  return 'activeSidebarTab' in s
+  const tab = (s as { activeSidebarTab?: unknown }).activeSidebarTab
+  return tab === 'dev' || tab === 'deploy'
 }
 
 // ---------------------------------------------------------------------------
@@ -358,11 +364,9 @@ const DEPLOY_DONE_ACTIVITY = { time: DEPLOY_FINISHED, label: `发布完成：${D
  * content lives in — 开发 and 部署 are the same word on purpose, so they come
  * from one argument instead of being typed twice.
  *
- * The CENTER still declares `activeSurface: tab`: ACP-794 mounts `DevRunPanel` /
- * `DeployFramePanel` there today, and dropping the value here would delete the
- * panels from the running demo before the sidebar is wired (ACP-796). Every
- * frame carries `selectedDoc` either way, so the center does render the open
- * document — the header's contract is what finishes the move. */
+ * `activeSurface` is 'doc' on every one of them (ACP-803): the frame's subject
+ * is observed in its sidebar tab, so the CENTER is the open document — the
+ * header's ③, and the same value the graph/commit slices settled on. */
 function frame(
   id: string,
   label: string,
@@ -370,6 +374,7 @@ function frame(
   caption: string,
   tab: 'dev' | 'deploy',
   history: TabHistoryRow[],
+  actionDisabled: boolean,
   fixtureValue: DemoFixture,
 ): DevDeploySnapshot {
   return {
@@ -381,7 +386,7 @@ function frame(
     caption,
     docs: DOC_ROWS,
     selectedDoc: FOCUS_DOC,
-    activeSurface: tab,
+    activeSurface: 'doc',
     buffer: COMMITTED_V5,
     baseline: COMMITTED_V5,
     committedVersion: 'V5',
@@ -392,7 +397,7 @@ function frame(
     fixture: fixtureValue,
     activeSidebarTab: tab,
     history,
-    actionDisabled: true,
+    actionDisabled,
   }
 }
 
@@ -404,6 +409,9 @@ export const DEV_DEPLOY_STATES: DevDeploySnapshot[] = [
     `开发任务 ${DEV_ID} 基于冻结设计 ${DEV_DESIGN_VERSION} 推进：任务生成已完成、实现进行中、测试与构建待启动`,
     'dev',
     DEV_RUN_HISTORY,
+    // V1 is the 开发 group's first frame: the act has not landed, so its button
+    // is live and pressing it lands V2 (该动作真的会发生 — ACP-803)
+    false,
     { ...fixture([COMMIT_ACTIVITY, DEV_OPEN_ACTIVITY]), devRun: DEV_RUN_V1 },
   ),
   frame(
@@ -413,6 +421,7 @@ export const DEV_DEPLOY_STATES: DevDeploySnapshot[] = [
     `四阶段全部完成，产出测试报告 / 构建产物 / 运行时入口三件套，可运行版本 ${RUNNABLE_VERSION} 就绪（打开可运行版本可用）`,
     'dev',
     DEV_RUN_HISTORY,
+    true, // 开发 already landed: the button is disabled, not a live no-op
     { ...fixture([COMMIT_ACTIVITY, DEV_OPEN_ACTIVITY, DEV_DONE_ACTIVITY]), devRun: finishedDevRun() },
   ),
   frame(
@@ -422,6 +431,7 @@ export const DEV_DEPLOY_STATES: DevDeploySnapshot[] = [
     `体验页列出这一版的功能清单（逐字对应图谱需求节点），含本次新增规则：大额采购需追加一级审批、审批人请假时自动转交代理人`,
     'dev',
     DEV_RUN_HISTORY,
+    true,
     {
       ...fixture([COMMIT_ACTIVITY, DEV_OPEN_ACTIVITY, DEV_DONE_ACTIVITY, RUN_OPEN_ACTIVITY]),
       devRun: finishedDevRun(),
@@ -435,6 +445,9 @@ export const DEV_DEPLOY_STATES: DevDeploySnapshot[] = [
     `部署记录 ${DEPLOY_ID} 进行中（生产环境），日志边发边长到「停止旧实例」——单实例替换已开始`,
     'deploy',
     DEPLOY_HISTORY,
+    // P1 is the 部署 group's first frame — the deployment is still running, so
+    // pressing 部署 lands P2 (发布完成) rather than doing nothing
+    false,
     fixture([COMMIT_ACTIVITY, DEV_OPEN_ACTIVITY, DEV_DONE_ACTIVITY, DEPLOY_OPEN_ACTIVITY]),
   ),
   frame(
@@ -444,6 +457,7 @@ export const DEV_DEPLOY_STATES: DevDeploySnapshot[] = [
     `部署记录完成（发布地址 ${DEPLOY_URL} 可打开，功能清单含本次新增规则）；旧实例 v4 已停、新实例 v5 在跑（单实例替换）`,
     'deploy',
     DEPLOY_HISTORY,
+    true, // 部署 already landed: gone live, nothing left to press
     fixture([COMMIT_ACTIVITY, DEV_OPEN_ACTIVITY, DEV_DONE_ACTIVITY, DEPLOY_OPEN_ACTIVITY, DEPLOY_DONE_ACTIVITY]),
   ),
 ]

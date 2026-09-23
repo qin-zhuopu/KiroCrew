@@ -28,7 +28,8 @@ import ChatPane from './ChatPane'
 import ProjectCommitBar from './ProjectCommitBar'
 import ProjectsListPage from './ProjectsListPage'
 import RecentActivityFeed from './RecentActivityFeed'
-import ToolSidebar from './ToolSidebar'
+import ToolSidebar, { type ToolTabInjection } from './ToolSidebar'
+import ReleaseControl from './ReleaseControl'
 import WorkArea, { type WorkTab } from './WorkArea'
 import { DESIGN_VERSION, RUN_VERSION } from './fixtures'
 import { parseDemoScenario, STATE_DEMO_SCENARIO, createDemoApi } from './demo/runtime'
@@ -37,6 +38,7 @@ import StatesDock from './demo/StatesDock'
 import DeployFramePanel from './demo/DeployFramePanel'
 import { createDemoPublishApi } from './demo/publishFake'
 import { isReleaseState } from './demo/states-release'
+import { isDevDeployState } from './demo/states-devdeploy'
 import type { CommitStateSnapshot } from './demo/states-commit'
 import type { GraphStateSnapshot } from './demo/states-graph'
 import type { StateSnapshot } from './demo/states'
@@ -194,6 +196,17 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
   // one fake per frame, minted on the frame: a live write a presenter makes
   // belongs to the frame that made it and is gone on the next switch
   const demoApi = useMemo(() => (demoState ? createDemoApi(demoState.fixture) : null), [demoState])
+  // The frame's own top button (开发 / 部署) does what it says: the act it names
+  // IS the next frame of the same story, so pressing it lands that frame. Only
+  // the first frame of each group ships a live button (`actionDisabled: false`);
+  // a frame whose act already landed ships a disabled one — never a live no-op.
+  const landFrameAct = useCallback(async () => {
+    setStateIndex((i) => Math.min(ALL_STATES.length - 1, i + 1))
+  }, [])
+  // 试运行 (V3): opened by 打开可运行版本 and closed by its own 关闭 button. It
+  // never arrives WITH the frame — the middle column is a document and stays one
+  // until the presenter asks for the experience screen.
+  const [runPreviewOpen, setRunPreviewOpen] = useState(false)
   // The two frames that drive a SURFACE OF THEIR OWN rather than the center:
   // a 提交-tab frame lights the sidebar's commits tab and feeds its two lists,
   // a release frame lights the releases tab and feeds the publish reads. Both
@@ -210,10 +223,54 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
     () => (demoState && isReleaseState(demoState) ? demoState : null),
     [demoState],
   )
+  // A dev/deploy frame (ACP-803) is the LAST of that kind: its subject is
+  // observed in the 开发 / 部署 tab of the sidebar (owner's rule — 中间列只放
+  // 文字内容), so the frame names the tab, that tab's 历史记录, and its own
+  // top action button's state. `activeSidebarTab` is the commit pair's field
+  // NAME — both slices declare it — so the identity test is on its VALUE
+  // ('dev' / 'deploy'), never on the field's mere presence; a 提交 frame keeps
+  // its own tab, and neither guard can claim the other's frames.
+  const demoDevDeploy = useMemo(
+    () => (demoState && isDevDeployState(demoState) ? demoState : null),
+    [demoState],
+  )
   const demoPublishApi = useMemo(
     () => (demoRelease ? createDemoPublishApi(demoRelease.publish) : null),
     [demoRelease],
   )
+  // The dev/deploy frames' 过程区 and their top button, as NODES (ACP-803).
+  // ToolSidebar owns the shape (过程 above, 历史记录 below) and never learns a
+  // demo exists; the demo hands in the REAL components — DevRunPanel /
+  // DeployFramePanel / ReleaseControl — so each picture has one implementation.
+  // Absent injection (every other frame, and the ordinary workbench) => those
+  // two tabs render today's fixtures, byte for byte.
+  const demoDevTab = useMemo<ToolTabInjection | undefined>(() => {
+    const run = demoDevDeploy?.fixture.devRun
+    if (!demoDevDeploy || demoDevDeploy.activeSidebarTab !== 'dev' || !run) return undefined
+    const preview = demoDevDeploy.fixture.runPreview
+    return {
+      action: <ReleaseControl act="dev" disabled={demoDevDeploy.actionDisabled} onRelease={landFrameAct} />,
+      current: (
+        <DevRunPanel
+          run={run}
+          // 试运行 opens from the panel's own entry, never by arriving at the
+          // frame: the middle column is a document and stays one until asked.
+          onOpenRun={preview ? () => setRunPreviewOpen(true) : undefined}
+        />
+      ),
+      history: demoDevDeploy.history,
+    }
+  }, [demoDevDeploy, landFrameAct])
+  const demoDeployTab = useMemo<ToolTabInjection | undefined>(() => {
+    if (!demoDevDeploy || demoDevDeploy.activeSidebarTab !== 'deploy') return undefined
+    const frame = DEPLOY_PAYLOADS[demoDevDeploy.id]
+    if (!frame) return undefined
+    return {
+      action: <ReleaseControl act="deploy" disabled={demoDevDeploy.actionDisabled} onRelease={landFrameAct} />,
+      current: <DeployFramePanel frame={frame} />,
+      history: demoDevDeploy.history,
+    }
+  }, [demoDevDeploy, landFrameAct])
   const [demoActiveId, setDemoActiveId] = useState<string | null>(null)
   const [demoExtraTabs, setDemoExtraTabs] = useState<WorkTab[]>([])
   // scopes the R3 click below to THIS workbench (never a sibling on screen)
@@ -254,6 +311,7 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
     })
     setDemoActiveId(null)
     setDemoExtraTabs([])
+    setRunPreviewOpen(false)
   }, [demoStates, stateIndex, queryClient])
 
   const projectQuery = useQuery({
@@ -498,28 +556,18 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
                 commitRev={commitRev}
               />
             </div>
-            {/* The later-phase frames' payoff panels (ACP-794): a frame whose
-              * story IS the dev run / the deployment renders the REAL component
-              * for it under the editor. Snapshot-driven: a panel exists only
-              * where the loaded frame carries its payload.
+            {/* The later-phase frames' payoff panels (ACP-794) — and, since
+              * ACP-803, the reason there are none left here.
               *
-              * The graph used to be one of these, and is not any more: ACP-797
-              * retired the box-and-arrow canvas — the graph is read in the
-              * 需求图谱 TAB, and no frame sets `activeSurface: 'graph'` today.
-              * The branch and its import are gone rather than left unreachable,
-              * because an unreachable panel on this column is exactly what the
-              * owner's 「中间列只放文字内容」 rule forbids. (dev / deploy still
-              * stand here: their tabs are ACP-799's, not this branch's.) */}
-            {demoState?.activeSurface === 'dev' && demoState.fixture.devRun && (
-              <div className="shrink-0 max-h-[340px] overflow-auto border-t border-border bg-bg">
-                <DevRunPanel run={demoState.fixture.devRun} />
-              </div>
-            )}
-            {demoState && DEPLOY_PAYLOADS[demoState.id] && (
-              <div className="shrink-0 max-h-[420px] overflow-auto border-t border-border bg-bg">
-                <DeployFramePanel frame={DEPLOY_PAYLOADS[demoState.id]} />
-              </div>
-            )}
+              * The rule the owner restated is 「中间列只放文字内容，其余一切都
+              * 在右边工具边栏对应页签里」: the graph moved to the 需求图谱 tab
+              * (ACP-797), the dev run and the deployment to the 开发 / 部署 tabs
+              * (ACP-799's seam, wired in ACP-803) — and each time the center
+              * branch went with it rather than staying as a second, unreachable
+              * home. This column is the open document now, for every frame; a
+              * panel left here would be a second place the same fact is read,
+              * which is exactly what the rule forbids. (The release-job page
+              * below is not a leftover: its frame's payoff IS the page itself.) */}
             {/* R5's payoff: the release-job page itself, mounted with the
               * frame's own project/job/api/log-tail (it reads route params and
               * streams over SSE on every ordinary visit — inside the demo
@@ -552,7 +600,8 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               docs={demoState ? demoState.fixture.docs : docs}
               projectId={projectId}
               initialTool={
-                demoGraph ? 'graph' : demoRelease ? 'releases' : demoCommit ? 'commits' : 'docs'
+                demoDevDeploy ? demoDevDeploy.activeSidebarTab
+                  : demoGraph ? 'graph' : demoRelease ? 'releases' : demoCommit ? 'commits' : 'docs'
               }
               changed={demoCommit?.changed}
               commits={demoCommit?.commits}
@@ -571,14 +620,28 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               // at the top — the frame names the version it fires; the
               // component's own hash rule decides whether it is live.
               releaseAction={demoRelease?.publish.releaseAction}
+              // ACP-803: the dev/deploy frames' own two tabs. The frame names
+              // the tab and hands in its 过程区, its top button and its 历史记录;
+              // a frame of any other slice passes neither, and those two tabs
+              // then render the shipped DEV / DEPLOYMENTS fixtures unchanged.
+              dev={demoDevTab}
+              deploy={demoDeployTab}
             />
           </aside>
         )}
       </div>
 
       {/* the runnable experience (V3): an internal overlay onto the frame's own
-        * runPreview data — no server, no container */}
-      {demoState?.fixture.runPreview && <RunPreviewScreen preview={demoState.fixture.runPreview} />}
+        * runPreview data — no server, no container. ACP-803: it opens ONLY on
+        * the 开发 tab panel's own 打开可运行版本 press and closes on its own
+        * 关闭 button — arriving at the frame never covers the middle column
+        * (the owner's 「中间列只放文字」 rule extended to the overlay). */}
+      {runPreviewOpen && demoState?.fixture.runPreview && (
+        <RunPreviewScreen
+          preview={demoState.fixture.runPreview}
+          onClose={() => setRunPreviewOpen(false)}
+        />
+      )}
       {/* R6: the release frames carry their experience screen on the publish
         * payload (the dev-phase frames carry theirs on the fixture) */}
       {demoRelease?.publish.runPreview && <RunPreviewScreen preview={demoRelease.publish.runPreview} />}
@@ -602,10 +665,14 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
 }
 
 /** Positive identity for a 提交-tab frame (same doctrine as `isReleaseState`):
- * the frame IS one by carrying the lit sidebar tab, never by being "not a
- * release frame". Null-safe because the caller holds "no frame at all" too. */
+ * the frame IS one by naming 'commits' as its lit sidebar tab, never by being
+ * "not a release frame". The value, not the field's presence: the dev/deploy
+ * slice (ACP-803) declares the SAME field name for its own two tabs, so a
+ * presence test would claim V/P frames as 提交 frames too. Null-safe because
+ * the caller holds "no frame at all" too. */
 function isCommitState(s: StateSnapshot | null): s is CommitStateSnapshot {
-  return s !== null && 'activeSidebarTab' in s
+  return s !== null
+    && (s as { activeSidebarTab?: unknown }).activeSidebarTab === 'commits'
 }
 
 /** A graph frame, by the same rule the slice states: it CARRIES the tab's

@@ -52,3 +52,6 @@
 - [20260923-185614-website-root-tsc-noop.md](20260923-185614-website-root-tsc-noop.md) —
   `website/` 里 `npx tsc --noEmit` 是空跑（根 tsconfig 是 `files: []` 的方案配置，
   非 build 模式不编 references）：一个真错都没检查却 exit 0，要写 `-p tsconfig.app.json`。
+- [20260923-193437-tsc-root-config-is-a-noop.md](20260923-193437-tsc-root-config-is-a-noop.md) —
+  `website/` 根目录裸跑 `npx tsc --noEmit` 是空跑（聚合配置 `files: []`，秒退 exit 0
+  的假绿）：类型自检必须 `-p tsconfig.app.json`，"tsc 过了"要能报出带的是哪个 `-p`。
