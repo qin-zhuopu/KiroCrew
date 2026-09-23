@@ -330,6 +330,8 @@
       "node_props": "节点属性",
       "node_edges": "边",
       "deploy_log": "部署日志",
+      "deploy_log_failed": "日志流连接失败",
+      "deploy_log_waiting": "等待日志输出…",
       "tools_title": "工具边栏",
       "tool_docs": "文档",
       "tool_commits": "提交",

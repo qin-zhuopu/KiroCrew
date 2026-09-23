@@ -23,6 +23,7 @@ New here? Start with [guides/install.md](guides/install.md), then
 | [blog/](blog/README.md) | Essays on direction and design philosophy. Arguments, not contracts. |
 | [reference/](reference/README.md) | A mirror of upstream kiro-cli documentation, with named local exceptions. |
 | [task-specs/](task-specs/README.md) | Archived per-task specs. Not current context. |
+| [pitfall-notes/](pitfall-notes/README.md) | Dated retrospectives: symptom, root cause, fix. Retrospectives, not contracts. |
 
 ## The rule for changing docs
 

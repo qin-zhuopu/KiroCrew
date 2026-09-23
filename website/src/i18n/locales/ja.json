@@ -321,6 +321,8 @@
       "node_props": "Properties",
       "node_edges": "Edges",
       "deploy_log": "Deploy log",
+      "deploy_log_failed": "The log stream could not be opened",
+      "deploy_log_waiting": "Waiting for log output…",
       "tools_title": "Tools",
       "tool_docs": "Docs",
       "tool_commits": "Commits",

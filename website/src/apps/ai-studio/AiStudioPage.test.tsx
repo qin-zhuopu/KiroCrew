@@ -157,7 +157,7 @@ describe('project-level commit', () => {
       ],
     })
     api.saveDoc.mockResolvedValue({ doc: { name: 'x', content: 'x' } })
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/projects/p1/ai-studio')
     await screen.findByTestId('ai-studio')
     // the summary names the drafted docs next to the button; waiting on it
     // also waits for the drafts query to land, so the click below cannot
@@ -178,7 +178,7 @@ describe('project-level commit', () => {
   })
 
   it('the commit button is disabled while nothing is drafted', async () => {
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/projects/p1/ai-studio')
     await screen.findByTestId('ai-studio')
     expect(screen.getByRole('button', { name: /Commit all/i })).toBeDisabled()
     expect(api.saveDoc).not.toHaveBeenCalled()
