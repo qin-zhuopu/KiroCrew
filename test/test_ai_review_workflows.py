@@ -11917,14 +11917,21 @@ class TestForkLaneBunEgress:
 
 
 class TestForkLaneBubblewrapBootstrapEgress:
-    """The fork reviewers apt-install the sandbox their own settings turn on.
+    """The fork reviewers fetch the whole toolchain their own settings turn on.
 
     Setting `allowed_non_write_users` auto-enables `claude-code-action`'s
     subprocess secret-scrub plus bubblewrap isolation, and the action bootstraps
-    that with `apt-get install bubblewrap socat`. On the ubuntu-latest image
-    `/etc/apt/apt-mirrors.txt` names the azure mirror first over plaintext http
-    and falls back to the two canonical hosts over https, so all three are on
-    the path of a single install.
+    in two sequential network phases. First `apt-get install bubblewrap socat`:
+    on the ubuntu-latest image `/etc/apt/apt-mirrors.txt` names the azure mirror
+    first over plaintext http and falls back to the two canonical hosts over
+    https, so all three are on the path of that one install. Then the CLI itself,
+    via `curl https://claude.ai/install.sh`, whose script reads its version
+    manifest and binary from `downloads.claude.ai/claude-code-releases`.
+
+    Both phases are asserted together because they are SEQUENTIAL: an allowlist
+    carrying only the apt half lets apt succeed and then dies on curl, with the
+    same `review incomplete` and no model call, so a green apt phase is not
+    evidence that the bootstrap resolves.
 
     Blocked, the install exits 7 before the model is ever reached, and the lane
     reports `review incomplete` rather than a verdict. Failing closed is
@@ -11943,6 +11950,8 @@ class TestForkLaneBubblewrapBootstrapEgress:
         "azure.archive.ubuntu.com:80",
         "archive.ubuntu.com:443",
         "security.ubuntu.com:443",
+        "claude.ai:443",
+        "downloads.claude.ai:443",
     )
     ACTION = "anthropics/claude-code-action"
 
@@ -11963,9 +11972,10 @@ class TestForkLaneBubblewrapBootstrapEgress:
             missing = [host for host in self.ENDPOINTS if host not in endpoints]
             assert not missing, (
                 f"{lane} job {name!r} runs {self.ACTION} behind a blocking egress "
-                f"policy but does not allow {missing}, so the bubblewrap bootstrap "
-                "apt-install is refused, the action exits 7 before any model call, "
-                "and the lane publishes `review incomplete` instead of a verdict"
+                f"policy but does not allow {missing}, so a phase of its bootstrap "
+                "is refused (apt for the bubblewrap sandbox, curl for the CLI "
+                "itself), the action exits 7 before any model call, and the lane "
+                "publishes `review incomplete` instead of a verdict"
             )
         assert checked, f"{lane} has no blocking-egress {self.ACTION} job to check"
 
@@ -11989,22 +11999,30 @@ class TestForkLaneBubblewrapBootstrapEgress:
             )
 
     @pytest.mark.parametrize("lane", FORK_REVIEW_LANES)
-    def test_no_lane_allows_the_third_party_apt_repositories(self, lane: str) -> None:
-        # The runner image also preinstalls google-chrome and microsoft apt
-        # sources, and a blocked `apt-get update` reports them in the same wall
-        # of text as the ubuntu archive. Their failures are apt WARNINGS (`W:`),
-        # nothing these lanes install comes from them, and reading the log as a
-        # flat list of blocked hosts is the obvious way to widen the allowlist by
-        # two general-purpose vendor CDNs that belong nowhere near this lane.
-        forbidden = ("dl.google.com", "packages.microsoft.com")
+    def test_no_lane_allows_a_host_nothing_here_fetches(self, lane: str) -> None:
+        # Two ways a reader widens this allowlist from something that merely
+        # APPEARED in the output. The runner image preinstalls google-chrome and
+        # microsoft apt sources, so a blocked `apt-get update` names them in the
+        # same wall of text as the ubuntu archive -- but their failures are apt
+        # WARNINGS (`W:`) and nothing here installs from them. And the CLI
+        # installer script prints `code.claude.com` and `www.anthropic.com` inside
+        # its own error messages without ever requesting them, so grepping that
+        # script for hostnames yields two more that belong nowhere near a
+        # blast-radius control.
+        forbidden = (
+            "dl.google.com",
+            "packages.microsoft.com",
+            "code.claude.com",
+            "www.anthropic.com",
+        )
         for name, job in _lane_jobs(lane).items():
             endpoints = _blocking_endpoints(job)
             if endpoints is None:
                 continue
             for host in forbidden:
                 assert not any(entry.startswith(host) for entry in endpoints), (
-                    f"{lane} job {name!r} allows {host}, which only ever produced an "
-                    "apt warning; nothing this lane installs is served from it"
+                    f"{lane} job {name!r} allows {host}, which this lane never "
+                    "requests; it only ever appeared in a warning or an error string"
                 )
 
 
@@ -12062,3 +12080,45 @@ class TestForkGptLaneMantleEgress:
                 f"{lane} job {name!r} runs no mantle-backed model, so allowing "
                 f"{self.ENDPOINT} widens its egress for nothing"
             )
+
+
+class TestUxLensZeroIsIdenticalInBothLanes:
+    """Lens 0 (product coherence) is where the UX lane judges look, information
+    architecture, element economy and, since the placement check joined it,
+    whether a control sits on the page a user would open to find it. The fork
+    lane is the copy that reviews an outside contributor's PR, so a rule that
+    lives in one copy only is a rule that does not apply to the PRs it was
+    written for. Both copies are pinned to each other, not to a literal, so a
+    deliberate rewording lands in both or fails here.
+    """
+
+    FIRST = "0. PRODUCT COHERENCE"
+    LAST = "1. FIRST-TIME COMPREHENSION"
+
+    def _lens_zero(self, workflow: str) -> str:
+        lines = _workflow(workflow).splitlines()
+        start = next((i for i, line in enumerate(lines) if self.FIRST in line), None)
+        assert start is not None, f"{workflow} carries no lens 0"
+        end = next(i for i, line in enumerate(lines[start:], start) if self.LAST in line)
+        block = lines[start:end]
+        indent = len(block[0]) - len(block[0].lstrip())
+        return "\n".join(line[indent:] if line.strip() else "" for line in block)
+
+    def test_both_ux_lanes_carry_an_identical_lens_zero(self) -> None:
+        blocks = {name: self._lens_zero(name) for name in UX_LANES}
+        reference = blocks[UX_LANES[0]]
+        for name, block in blocks.items():
+            assert (
+                block == reference
+            ), f"{name} lens 0 drifted from {UX_LANES[0]}; both UX lanes must carry the same text"
+
+    def test_lens_zero_judges_placement_across_the_whole_app(self) -> None:
+        for name in UX_LANES:
+            flat = _flat(self._lens_zero(name))
+            assert "- PLACEMENT" in flat, name
+            # Judged where a user would look, across the app, not inside the
+            # one panel the screenshot shows.
+            assert "where a user LOOKING FOR IT would go first" in flat, name
+            assert "across the whole app, not one panel" in flat, name
+            # "The issue asked for it here" is not a design decision.
+            assert "is NOT a design decision and is itself a finding" in flat, name

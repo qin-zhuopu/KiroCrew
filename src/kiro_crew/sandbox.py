@@ -258,6 +258,15 @@ _MD_NOTEBOOK_STAGING_LEAF: str = f"{MD_NOTEBOOK_APP_NAME}-staging"
 
 #: Crew-home leaves with no legitimate in-sandbox reader — bind-masked in every mode.
 _CREW_HIDDEN_LEAVES: tuple[str, ...] = (
+    # Gateway diagnostics: recorded host and gateway state, plus loop-stall dumps.
+    # The gateway process writes these; an agent reads them through the owner-gated
+    # /api/debug routes and the kirocrew-debug MCP tools, which redact on the way
+    # out. The raw rows do not: they carry frame labels, folded stacks and process
+    # detail that the read path scrubs, so a sandboxed session reading the files
+    # directly would collect exactly what the routes exist to filter. Whole
+    # DIRECTORY rather than a leaf file, because the day files rotate by name and
+    # the append pins the directory itself.
+    "diag",
     # Channel credentials. Already file-masked in cc/strict via ``_CC_FILES``; listing
     # it here extends the same treatment to standard, where a spawned command could
     # otherwise read every Slack/Discord token off disk.
@@ -305,11 +314,14 @@ _CREW_HIDDEN_LEAVES: tuple[str, ...] = (
     "tasks",
     # The per-process scratch root (``agent_scratch``): every kiro-cli session
     # and every shared runtime gets ``<home>/scratch/<label>-<rand>`` as its
-    # ``$KIROCREW_SCRATCH`` / ``TMPDIR``. Masked as a WHOLE so one session cannot open
-    # another's scratch; each spawn passes its OWN directory back through
+    # ``TMPDIR``. Masked as a WHOLE so one session tree cannot open another's
+    # scratch; each spawn passes its OWN directory back through
     # ``extra_private_dirs`` (``acp/client.py``, ``acp/runtime.py``) -- a
-    # window INSIDE the mask, not a lift of it -- so the child keeps read-write
-    # on exactly the one directory that is its own.
+    # window INSIDE the mask, not a lift of it -- and a spawn made on behalf of
+    # an existing session tree (a companion runtime, a dedicated subagent
+    # process, a recycled runtime's successor) passes the TREE's work directory
+    # as a second such window, so ``$KIROCREW_SCRATCH`` names one place for the
+    # whole tree. Siblings from other trees stay hidden either way.
     "scratch",
     # The Notes state files below are OWNED by the md-notebook backend, which is itself
     # a sandboxed spawn (`apps/backend.py`), so the mask alone would break the app: the
@@ -407,6 +419,21 @@ _CREW_HIDDEN_LEAVES: tuple[str, ...] = (
     _LIVE_TARGET_STAGING_LEAF,
     "backup",
     "mcp-apps",
+    # Published crew webview records. Same model as the entries above, and named
+    # here rather than under ``trust/`` for a specific reason: ``trust`` is a
+    # declared READ-WRITE exception below (in-sandbox ``verify_session_pid`` reads
+    # ``trust/sel_hmac.key`` and the in-sandbox MCP servers append to the audit
+    # log), so a record under it stayed writable by a sandboxed command that built
+    # the path at runtime -- defeating command matching, which has no literal path
+    # to match. Masking costs no live consumer: the publishing MCP tool does not
+    # import the store at all, it POSTs to ``/api/agent-panel/publish``, so the
+    # gateway process is the only writer and the only reader.
+    #
+    # Listed in ``_CREW_PRECREATE_HIDDEN_DIR_LEAVES`` too, because on Linux the
+    # mask is a bind mount and the loop guards on ``isdir`` -- an absent directory
+    # is SKIPPED, which on a fresh install is exactly the disposition this entry
+    # exists to deny.
+    "crew-panels",
     # Auth stores and signing keys owned by the gateway web server alone.
     "token_signing.key",
     "refresh_chains.json",
@@ -554,6 +581,20 @@ _CREW_READONLY_LEAVES: tuple[str, ...] = (
     # fence how a command SPELLS this path, and the kernel denial is what still
     # holds when a spelling is built at runtime (``$(printf ...)``).
     "settings_seeds.json",
+    # The crew webview template directory. A ceiling in exactly the sense above:
+    # the whole value of splitting a panel into human-authored TEMPLATE and
+    # agent-published DATA is that layout is authored by a person, so a crew must
+    # never be able to write one -- a template it authored could put markup, and
+    # therefore a hostile issue body's markup, straight into the operator's
+    # dashboard. ``security._CREW_SECRET_LEAVES`` fences it from the agent FILE
+    # TOOLS; sealing it read-only here closes the other half, because a fence that
+    # only covers file tools is bypassed by any spawned shell that can write.
+    #
+    # READ-ONLY rather than masked, and the direction matters: templates are
+    # versioned, human-reviewed repo content with nothing secret in them, so
+    # reading one costs nothing, while hiding a directory the OPERATOR drops
+    # overrides into would silently change which template renders.
+    "panel-templates",
     # The fork-lineage / model-state sidecar (agent_state.py). Same
     # input-to-an-authorization-decision class as the ceilings above:
     # ``forked_from`` / ``private_to`` decide whether the fork endpoint treats
@@ -793,6 +834,19 @@ _CREW_CHILD_READABLE_LEAVES: tuple[str, ...] = (
     # the product depends on and buy nothing.
     "cloud.json",
     "cloud_launch_state.json",
+    # The crew webview template directory. Holds no credential and is no input to an
+    # authorization decision an in-sandbox process makes: a template decides how a
+    # published panel is laid out, never who may publish one, and every reader runs
+    # in the gateway (``agent_panel.available_templates`` behind the dashboard route,
+    # the renderer behind publish) -- the ``kirocrew-panel`` MCP server asks that
+    # route over HTTP rather than opening the directory itself. Classified for
+    # completeness rather than for effect, like ``subagents`` above: the leaf is
+    # WRITE-protected only (``security.paths._WRITE_PROTECTED_HOME_PATHS``), not on
+    # the read-gate floor, so the mask never covers it and neither classification
+    # changes what any child can open. The risk it carries is a WRITE (crew-authored
+    # markup reaching the operator's dashboard), and the read-only seal above is what
+    # answers it.
+    "panel-templates",
 )
 
 
@@ -1249,6 +1303,14 @@ _CREW_PRECREATE_READONLY_DIR_LEAVES: tuple[str, ...] = (
     "member-memory-bindings",
     "memory_stores",
     "profiles",
+    # The crew webview template directory. A fence only fences an EXISTING path:
+    # the Linux launcher skips the read-only mount for an absent target, so on a
+    # fresh install -- where no operator has dropped an override yet -- the
+    # directory does not exist, the seal is silently skipped, and the agent can
+    # create it and author its own template. Which is precisely the write the
+    # read-only listing above exists to deny, so without this entry that listing
+    # protects only hosts that happen to have the directory already.
+    "panel-templates",
     "playwright-cli",
     # The decision log, on the ``profiles`` argument rather than the JSON one.
     # (1) An EMPTY dir means what an ABSENT dir means to its only reader:
@@ -1448,6 +1510,13 @@ _CREW_PRECREATE_HIDDEN_DIR_LEAVES: tuple[str, ...] = (
     # first spawn so the mask has a mount target, and the temp the materialiser stages
     # in it is never visible to a running namespace.
     _LIVE_TARGET_STAGING_LEAF,
+    # ``crew-panels`` is the same requirement seen from the mirror side of the
+    # ceilings above: a read-only ceiling is materialised so the SEAL can apply,
+    # a hidden leaf so the MASK can. The skip lands precisely on a fresh install,
+    # where the agent could then create the directory itself and write what the
+    # gateway later reads back as authoritative. Same failure the
+    # ``panel-templates`` ceiling has, one list over.
+    "crew-panels",
     # Append-only per-unit crew logs, and the hazard is the sharpest here: the
     # record is the AUTHORITY a reader trusts instead of re-deriving, and the
     # store creates this root on its first write. A sandbox spawned before that
@@ -1530,7 +1599,13 @@ _CEILING_TEMP_PREFIX: str = ".kirocrew-ceiling-"
 
 
 def _sealable_absent_ceilings() -> tuple[list[str], list[str]]:
-    """Resolved (dir, file) ceiling paths that may be created so the seal can apply.
+    """Resolved (dir, file) paths that may be created so their disposition can apply.
+
+    Two kinds of directory, one requirement. A read-only ceiling is materialised so
+    the SEAL can apply; a hidden leaf is materialised so the MASK can. Both are
+    skipped by their launcher loop when absent, so both need the path to exist
+    before the loop runs, and the creation rules are identical -- 0o700, never
+    truncate, never remove, refuse a dangling symlink.
 
     Resolved through ``config_dir()`` — the LIVE data home — rather than expanded over
     both ``_CREW_HOME_PREFIXES`` the way the deny lists are. A deny rule covers both
@@ -1550,7 +1625,12 @@ def _sealable_absent_ceilings() -> tuple[list[str], list[str]]:
         logger.debug("could not resolve the crew data home for ceiling sealing", exc_info=True)
         return ([], [])
     file_targets = [os.path.join(root, leaf) for leaf in _CREW_PRECREATE_READONLY_FILE_LEAVES]
-    dir_targets = [os.path.join(root, leaf) for leaf in _CREW_PRECREATE_READONLY_DIR_LEAVES]
+    # Read-only ceilings AND hidden leaves: the seal needs the former to exist,
+    # the mask needs the latter (see the docstring), so both are materialised here.
+    dir_targets = [
+        os.path.join(root, leaf)
+        for leaf in _CREW_PRECREATE_READONLY_DIR_LEAVES + _CREW_PRECREATE_HIDDEN_DIR_LEAVES
+    ]
     try:
         # The kiro agents tree (fork governance's specs + their lock; see the
         # readonly-target entry above): the Linux mount seal needs a directory
@@ -1606,6 +1686,113 @@ def _warn_unsealed_ceiling(target: str, exc: "OSError | None") -> None:
         "writable inside the sandbox",
         target,
         exc if exc is not None else "publish failed",
+    )
+
+
+#: Protected leaves where an ALIASED name is a hard spawn failure, not a warning.
+#:
+#: These two are reached by the SEALING loop, where ``_warn_if_alias_backed`` warns
+#: deliberately: a sealed ceiling is an operator's config file and a dotfile manager
+#: (chezmoi, stow) legitimately symlinks one, so refusing would turn a normal setup into a
+#: spawn failure for a hole that is pre-existing and narrower than the breakage. The
+#: MASKED leaves are a different population and refuse through
+#: :func:`_refuse_aliased_masked_leaves`; this set is what the sealing loop refuses.
+#:
+#: These two are not config files and nothing has a reason to link them:
+#:
+#: * ``crew-panels`` -- created on demand by the GATEWAY and read by nothing else.
+#:   It is bind-MASKED, so a link means the mask attaches to the target while the
+#:   link name stays writable in the data home: a sandboxed process unlinks it,
+#:   drops its own directory, and forges records the gateway reads back as
+#:   authoritative -- past the ownership check and past the redactors.
+#: * ``panel-templates`` -- holds the human-authored TEMPLATE whose separation from
+#:   crew-published DATA is the whole containment story. Replacing that directory is
+#:   authoring markup that renders in the panel, not changing a setting.
+#:
+#: So for these, a link is refused: the disposition must attach to the same name the
+#: reader uses, and following a link is exactly the gap that voids it.
+_CREW_NO_ALIAS_LEAVES: frozenset[str] = frozenset({"crew-panels", "panel-templates"})
+
+#: Masked leaves where a SYMLINK is tolerated, and why. Every other entry in
+#: :data:`_CREW_HIDDEN_LEAVES` refuses one through :func:`_refuse_aliased_masked_leaves`,
+#: so this set is the whole exception list and each member states its own reason.
+#:
+#: Tolerated means NOT REFUSED, never NOT LOOKED AT. The pass visits these leaves and logs a
+#: warning, because the alias really is outside the mask: excluding them from the walk would
+#: reproduce, on the credential leaf, exactly the silence the pass exists to end.
+#:
+#: * ``.env`` -- the operator's OWN channel-credential file, authored by hand and
+#:   documented as such (``docs/architecture/overview.md`` lists it as "channel tokens,
+#:   owner id"). It is the clearest member of the class ``_warn_if_alias_backed`` exists
+#:   for: a dotfile manager (chezmoi, stow) symlinks exactly this file, so refusing it
+#:   would turn an ordinary setup into a spawn failure for every agent on the host.
+#:
+#: Deliberately NOT here, having been checked for a supported second name and found to
+#: have none -- both resolve to one managed path with no override, so a link is not a
+#: relocation the product offers:
+#:
+#: * ``scratch`` -- ``agent_scratch.scratch_root()`` is ``config_dir() / "scratch"``;
+#: * ``backup`` -- no resolver in the tree reads an override for it either.
+#:
+#: The HARDLINK shape is tolerated for every leaf, which is why it is a property of the
+#: pass rather than an entry here: see :func:`_refuse_aliased_masked_leaves`.
+_CREW_ALIAS_TOLERATED_LEAVES: frozenset[str] = frozenset({".env"})
+
+#: Masked leaves where a planted link at an INTERMEDIATE component DEGRADES instead of
+#: refusing, because a sibling control already answers that case.
+#:
+#: Derived from :data:`_MD_NOTEBOOK_PRECREATE_CONTENT`, not hand-listed, so the two cannot
+#: drift. Those leaves are the ones :func:`carveout_chain_has_planted_link` governs, and its
+#: docstring states the reasoning this set defers to: withholding the CARVE-OUT is the
+#: proportionate response, since while the chain holds a planted link the owning backend
+#: cannot write that state at all, so a leaf left unmasked has nothing to expose. Refusing
+#: the spawn instead would let one optional app's on-disk layout take every sandboxed
+#: process on the host down with it -- an operator who symlinks ``workspace/`` to another
+#: disk would find no agent could start, over a file they may never have created.
+#:
+#: Every OTHER multi-component masked leaf refuses, because no such compensating control
+#: exists for it: nothing withholds anything when ``apps/aws-control`` is a link, so the
+#: mask binds the referent while the writable alias name persists.
+_CREW_ALIAS_CHAIN_DEGRADE_LEAVES: frozenset[str] = frozenset(_MD_NOTEBOOK_PRECREATE_CONTENT)
+
+
+#: The tolerated leaves must BE masked leaves -- an entry naming something outside
+#: :data:`_CREW_HIDDEN_LEAVES` would be an exception to nothing, and would read as a
+#: permission the pass never actually grants. Pinned by
+#: ``test_the_tolerated_set_names_only_masked_leaves`` rather than a module-level
+#: ``assert``, which ``python -O`` strips and which would make the invariant hold only
+#: in the builds that happen not to be optimised.
+
+
+def _refuse_if_aliased_protected_leaf(target: str) -> None:
+    """Refuse the spawn when a protected leaf is reachable under a second name.
+
+    Same two shapes ``_warn_if_alias_backed`` reports -- a symlink, or a regular
+    file with an extra hardlink -- but for :data:`_CREW_NO_ALIAS_LEAVES` the
+    outcome is a refusal. Warning and continuing is what made this silent: the log
+    said the path was sealed while the writes went somewhere else.
+    """
+    if os.path.basename(target.rstrip("/" + os.sep)) not in _CREW_NO_ALIAS_LEAVES:
+        return
+    try:
+        info = os.lstat(target)
+    except OSError:
+        return
+    if stat.S_ISLNK(info.st_mode):
+        pointed_at = "(unreadable)"
+        with contextlib.suppress(OSError):
+            pointed_at = os.readlink(target)
+        raise SandboxCeilingUnsealable(
+            f"the protected directory {target} is a SYMLINK -> {pointed_at}. Its "
+            "disposition attaches to this NAME, so the link would leave the name "
+            "replaceable inside the sandbox while reads and writes went to an "
+            "unfenced inode. Remove the link and use a real directory."
+        )
+    if stat.S_ISDIR(info.st_mode):
+        return
+    raise SandboxCeilingUnsealable(
+        f"the protected directory {target} is not a directory. It must be a real "
+        "directory under this name for its mask to apply."
     )
 
 
@@ -1744,7 +1931,9 @@ def _require_real_dir_nofollow(target: str) -> None:
         )
 
 
-def _require_real_file_nofollow(target: str, *, harm: str, remedy: str) -> None:
+def _require_real_file_nofollow(
+    target: str, *, harm: str, remedy: str, fd: "int | None" = None
+) -> None:
     """Confirm *target* is a lone regular file, else refuse. For strict file leaves only.
 
     The file analogue of :func:`_require_real_dir_nofollow`, and stricter than
@@ -1778,24 +1967,46 @@ def _require_real_file_nofollow(target: str, *, harm: str, remedy: str) -> None:
     the dangerous case for exactly this reason; the exemption failed to carry it one step
     further. Any rule that reads the file's current contents has the same hole, because
     contents are what the attacker supplies, so this rule reads no contents at all.
+
+    *fd* is an OPEN descriptor for the file the caller has ALREADY READ, and it changes
+    which inode this answers about. Without it the check ``lstat``s the NAME and the
+    caller then opens that name again, so the inode that was judged and the inode that was
+    consumed are two separate resolutions and nothing ties them together. With it the
+    judgement lands on the very descriptor the bytes came from, so a swap at the name
+    between the two cannot put un-judged content in front of a caller: the alias question
+    is asked about what was read rather than about what the name pointed at earlier.
+
+    The symlink branch is skipped in that mode because it cannot arise there and cannot be
+    answered there: a descriptor obtained with ``O_NOFOLLOW`` refuses a symlinked leaf at
+    ``open`` time with ``ELOOP``, and ``fstat`` on an ordinary descriptor never reports
+    ``S_IFLNK`` in any case. Callers therefore keep the by-name form as well, which is what
+    still produces the symlink refusal and its remedy.
     """
-    try:
-        info = os.lstat(target)
-    except FileNotFoundError:
-        return
-    except OSError as exc:
-        raise SandboxCeilingUnsealable(
-            f"cannot stat the strict governance ceiling {target}: {exc}"
-        ) from exc
-    if stat.S_ISLNK(info.st_mode):
-        pointed_at = "(unreadable)"
-        with contextlib.suppress(OSError):
-            pointed_at = os.readlink(target)
-        raise SandboxCeilingUnsealable(
-            f"the strict governance ceiling {target} is a SYMLINK -> {pointed_at}. The seal "
-            "binds the file it resolves to while the link name stays in a writable "
-            f"directory, so a sandboxed process could replace the name and {harm}. {remedy}"
-        )
+    if fd is not None:
+        try:
+            info = os.fstat(fd)
+        except OSError as exc:
+            raise SandboxCeilingUnsealable(
+                f"cannot stat the strict governance ceiling {target}: {exc}"
+            ) from exc
+    else:
+        try:
+            info = os.lstat(target)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise SandboxCeilingUnsealable(
+                f"cannot stat the strict governance ceiling {target}: {exc}"
+            ) from exc
+        if stat.S_ISLNK(info.st_mode):
+            pointed_at = "(unreadable)"
+            with contextlib.suppress(OSError):
+                pointed_at = os.readlink(target)
+            raise SandboxCeilingUnsealable(
+                f"the strict governance ceiling {target} is a SYMLINK -> {pointed_at}. The seal "
+                "binds the file it resolves to while the link name stays in a writable "
+                f"directory, so a sandboxed process could replace the name and {harm}. {remedy}"
+            )
     if not stat.S_ISREG(info.st_mode):
         raise SandboxCeilingUnsealable(
             f"cannot seal {target}: it is not a regular file, so the read-only bind would "
@@ -1909,6 +2120,10 @@ def _materialize_sealable_ceilings() -> list[str]:
     for target in dir_targets:
         strict_nofollow = os.path.basename(target) in _CREW_NOFOLLOW_READONLY_DIR_LEAVES
         _refuse_if_dangling_symlink(target)
+        # BEFORE the warn-and-continue below: for a protected leaf an alias is a
+        # refusal, and reaching `_warn_if_alias_backed` would log that the path was
+        # covered while the bytes went elsewhere.
+        _refuse_if_aliased_protected_leaf(target)
         if strict_nofollow:
             _refuse_if_symlink_leaf(target)
         if os.path.exists(target):
@@ -2056,7 +2271,7 @@ def _delete_file_command(target: str, *, windows: "bool | None" = None) -> str:
     return f"rm {shlex.quote(target)}"
 
 
-def require_unaliased_launch_state(path: str) -> None:
+def require_unaliased_launch_state(path: str, *, fd: "int | None" = None) -> None:
     """Refuse an alias-backed launch record at the point a command consumes its tag.
 
     PUBLIC, and called from ``cloud.launch_state.LaunchState.load`` -- the one read every
@@ -2074,10 +2289,24 @@ def require_unaliased_launch_state(path: str) -> None:
     from one that already exists.
 
     Takes the path being READ rather than deriving it, so the file this checks and the file
-    the caller goes on to consume cannot be two different files. A window still remains
-    between the check and the consume -- an inode swap in between is not visible to any
-    ``lstat``-based rule, and no rule can close the hardlink shape at all -- which is why
-    this is one layer of several rather than the only one.
+    the caller goes on to consume cannot be two different files.
+
+    *fd* is how the check stops being a check-then-use. Without it this ``lstat``s the NAME
+    and the caller opens that name again, so the judged inode and the consumed inode are two
+    resolutions with a window between them. ``LaunchState.load`` therefore calls this twice:
+    once by name, which is what refuses a symlinked leaf and names the remedy, and once on
+    the DESCRIPTOR the record's bytes were actually read from, after the read. The second
+    call is what ties the answer to the inode that was consumed, so content that was never
+    judged cannot be put in front of a caller by swapping the name in between.
+
+    What that does NOT close, stated because the guard's value depends on it: an alias that
+    existed EARLIER, was written through in place, and was unlinked before this read leaves a
+    lone regular file holding forged bytes, and no ``lstat`` or ``fstat`` rule can see that
+    an inode once had a second name. Closing that shape needs the tag verified through a
+    channel the sandbox cannot reach, or the unbounded verb requiring an explicit ``--tag``;
+    both are design choices for the launch lane rather than something this seam can decide.
+    So this remains one layer of several -- what it now guarantees is that the layer answers
+    about the right inode.
 
     NOT added to :data:`_CREW_NOFOLLOW_READONLY_FILE_LEAVES`. That list is walked where a
     spawn is prepared, so a leaf in it refuses every sandboxed spawn on a host whose files
@@ -2095,6 +2324,7 @@ def require_unaliased_launch_state(path: str) -> None:
             f"Remove the aliased name with `{_delete_file_command(path)}`; `kirocrew cloud list` "
             "finds your instance again."
         ),
+        fd=fd,
     )
 
 
@@ -2154,6 +2384,189 @@ def _materialize_maskable_dirs() -> list[str]:
             ) from exc
         created.append(target)
     return created
+
+
+def _first_linked_component_below(root: str, leaf: str) -> str | None:
+    """The first component of *leaf* under *root* that is a link, or ``None``.
+
+    ROOT-FIRST, stopping at the first hit, which is the safety property rather than a
+    detail: each test runs only after every component above it is known not to be a link, so
+    the probe itself never traverses one. The same order and reason as
+    :func:`platform_compat.first_linked_ancestor`, which cannot be used directly here
+    because it walks EVERY ancestor, including the data home and its parents --
+    ``config_dir()`` documents that a symlinked data HOME is supported, so refusing that
+    would break a layout the product allows.
+
+    The leaf's own final component is excluded: the caller judges that with ``lstat``, and a
+    link there is the leaf-alias case rather than the ancestor case.
+
+    **Fails CLOSED on a component it cannot read**, raising rather than answering "not a
+    link". ``os.path.islink`` (and so ``is_link_or_junction``) answers False when the stat
+    fails, which makes "cannot tell" indistinguishable from "safe" -- and the data home is
+    agent-writable, so an agent can strip search permission from a directory it owns and turn
+    the whole walk into a silent pass. ABSENT is the one benign failure: a component that is
+    not there means nothing below it exists, so there is no alias to find.
+    """
+    parts = leaf.replace(os.sep, "/").split("/")[:-1]
+    walked = root
+    for part in parts:
+        if not part or part == ".":
+            continue
+        walked = os.path.join(walked, part)
+        try:
+            mode = os.lstat(walked).st_mode
+        except FileNotFoundError:
+            # Nothing below an absent component can exist, so nothing is aliased.
+            return None
+        except OSError as exc:
+            raise SandboxCeilingUnsealable(
+                f"cannot stat {safe_terminal_line(walked)} to check whether a masked path "
+                f"passes through a link: {safe_terminal_line(str(exc))}. Refusing rather "
+                "than assuming it is a real directory, because the mask would bind whatever "
+                "this component resolves to."
+            ) from exc
+        if stat.S_ISLNK(mode) or platform_compat.is_link_or_junction(walked):
+            return walked
+    return None
+
+
+def _refuse_aliased_masked_leaves() -> None:
+    """Refuse the spawn when a MASKED leaf is reachable under a second name.
+
+    The mask is a bind mount, so it attaches to the path the leaf RESOLVES to while the
+    leaf's own name stays in the writable data home. A symlinked leaf therefore reads as
+    masked and is not: a sandboxed process unlinks the name, drops its own directory or
+    file there, and every later read goes to bytes it controls -- past whatever ownership
+    check or redactor the gateway applies to the masked path. Warning and continuing is
+    what made that silent, which is the whole reason this pass refuses.
+
+    **Both the leaf and its components below the data home.** ``lstat`` leaves only the
+    FINAL component un-followed, so a leaf checked that way alone still resolves through a
+    planted link at an intermediate component, and multi-component masked leaves genuinely
+    exist (``apps/aws-control/data``, ``apps/meetings/data/edits``, the md-notebook state
+    leaves). Those intermediates sit inside the agent-writable data home, so a link at one
+    of them lands the mask on an attacker-chosen tree while the lexical name stays
+    replaceable -- the same hole one level up. Components are walked root-first by
+    :func:`_first_linked_component_below`; the data home itself and its parents are NOT
+    walked, because ``config_dir()`` documents that a symlinked data HOME is supported.
+
+    Creates NOTHING. An ABSENT leaf is skipped, and that is what makes one pass safe over
+    EVERY masked leaf rather than only the materialised ones: a store that has not been
+    used yet offers no name to alias, and the retired ``ledgers`` root must not be
+    re-materialised on every machine (see its entry in :data:`_CREW_HIDDEN_LEAVES`, which
+    says so). Giving the leaves that need a mount target one is a different job, and
+    :func:`_materialize_maskable_dirs` does it for the nine it covers.
+
+    Runs LAST on the spawn path, after every materialiser, so a leaf with its own tailored
+    refusal answers first and keeps its own sentence: ``live_target.json`` shares its
+    wording with ``kirocrew doctor`` and the md-notebook leaves name their own documents,
+    and a generic message arriving first would replace both.
+
+    SYMLINKS refuse; an extra HARDLINK is WARNED, not refused. A hardlink does not make the
+    masked name replaceable, and ``rsync --link-dest`` and hardlinking snapshot tools leave
+    one behind on ordinary hosts, so refusing it would cost every sandboxed spawn on a
+    machine whose backups are working correctly. The warning is emitted HERE rather than
+    left to :func:`_warn_if_alias_backed`, which never runs over these leaves: without it
+    the alias really would be outside the mask with nothing said about it, which is the
+    silent-by-construction property this pass exists to end.
+
+    A TOLERATED leaf is VISITED and WARNED, never skipped. Excluding it from the walk is the
+    same silence one level along: a symlinked ``.env`` carries live channel tokens and is
+    replaceable by the very mechanism described above, so saying nothing about it would
+    reproduce the property this pass ends while claiming to end it. Tolerating the layout is
+    the decision; tolerating it silently is not part of that decision.
+
+    Per spawn rather than once per process, matching :func:`_warn_if_alias_backed`'s own
+    stated reason: a host where this keeps happening has a real problem, and de-duplicating
+    would hide how often the control cannot be established.
+    """
+    try:
+        root = str(config_dir())
+    except Exception as exc:
+        # Fail CLOSED, like every other reason on this path: a spawn that skipped the
+        # check would run the agent against leaves whose masks may be attached to
+        # somewhere else entirely.
+        raise SandboxCeilingUnsealable(
+            f"cannot resolve the crew data home to check the masked leaves for an alias: {exc}"
+        ) from exc
+    for leaf in _CREW_HIDDEN_LEAVES:
+        # TOLERATED leaves are VISITED, not excluded. Excluding them from the walk is what
+        # made the exception silent: a symlinked ``.env`` -- live channel tokens, under the
+        # same unlink-and-replace mechanism this pass exists to refuse -- got no refusal and
+        # no log line either, which is the property being ended rather than an instance of
+        # it. Tolerating the dotfile-manager layout is right; tolerating it silently is not.
+        tolerated = leaf in _CREW_ALIAS_TOLERATED_LEAVES
+        target = os.path.join(root, leaf)
+        linked = _first_linked_component_below(root, leaf)
+        if linked is not None:
+            if leaf in _CREW_ALIAS_CHAIN_DEGRADE_LEAVES or tolerated:
+                # A sibling control already answers the first case; see
+                # ``_CREW_ALIAS_CHAIN_DEGRADE_LEAVES`` for why degrading beats refusing
+                # for exactly those leaves. A tolerated leaf is never refused at all.
+                logger.warning(
+                    "sandbox: the masked path %s passes through a component that is a link "
+                    "(%s), so the mask binds what that component resolves to. Not refused "
+                    "for this leaf -- replace the link with a real directory to close it.",
+                    target,
+                    linked,
+                )
+                continue
+            raise SandboxCeilingUnsealable(
+                f"the masked path {safe_terminal_line(target)} passes through a component "
+                f"that is a LINK ({safe_terminal_line(linked)}). The mask binds whatever "
+                "that component resolves to, so the name would stay writable inside the "
+                "sandbox while reads and writes reached an unmasked tree. Replace the link "
+                "with a real directory."
+            )
+        try:
+            info = os.lstat(target)
+        except FileNotFoundError:
+            # Genuinely absent. Nothing is aliased, and nothing is created.
+            continue
+        except OSError as exc:
+            # Every OTHER errno means this process could not judge the path, which is not
+            # the same as the path being safe. Treating them alike failed OPEN: the data
+            # home is agent-writable, so an agent that strips search permission from a
+            # directory it owns (``apps/``) turns EACCES into a silent skip, and the
+            # launcher's own ``isdir`` guard skips the mask for the same reason -- so the
+            # child can restore the permission and reach the protected state unmasked.
+            # Same split the sibling ``_refuse_if_symlink_leaf`` already makes.
+            raise SandboxCeilingUnsealable(
+                f"cannot stat the masked path {safe_terminal_line(target)} to check for an "
+                f"alias: {safe_terminal_line(str(exc))}. Refusing rather than treating an "
+                "unreadable path as absent, because the mask is skipped for a path that "
+                "cannot be classified."
+            ) from exc
+        if stat.S_ISLNK(info.st_mode):
+            pointed_at = "(unreadable)"
+            with contextlib.suppress(OSError):
+                pointed_at = os.readlink(target)
+            if tolerated:
+                logger.warning(
+                    "sandbox: the masked path %s is a SYMLINK -> %s. The mask binds what "
+                    "the link resolves to, so this NAME stays writable inside the sandbox. "
+                    "Not refused, because this leaf is the operator's own file and a dotfile "
+                    "manager legitimately links it -- make it a regular file to close it.",
+                    target,
+                    pointed_at,
+                )
+                continue
+            raise SandboxCeilingUnsealable(
+                f"the masked path {safe_terminal_line(target)} is a SYMLINK -> "
+                f"{safe_terminal_line(pointed_at)}. The mask binds whatever the link "
+                "resolves to, so this NAME would stay writable inside the sandbox while "
+                "reads and writes reached an unmasked target. Remove the link and keep a "
+                "real directory or file under this name."
+            )
+        if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+            logger.warning(
+                "sandbox: the masked path %s has %d hardlinks. The mask covers this path "
+                "only, so a read or write through another name reaches the same inode. "
+                "Not refused, because a hardlinking snapshot tool leaves one behind on an "
+                "ordinary host -- remove the extra link to close it.",
+                target,
+                info.st_nlink,
+            )
 
 
 def _materialize_live_target_mask_target() -> str | None:
@@ -6604,6 +7017,12 @@ def namespace_argv(
     # creatable from any sandbox simply because the data-home ROOT is writable there and
     # an absent name has no mask. Publishing the stub first makes the mask non-vacuous.
     _materialize_live_target_mask_target()
+    # LAST of the pre-spawn checks, and last on purpose: every masked leaf's NAME must be
+    # the name the mask binds, and the leaves above have already answered for themselves
+    # with sentences tailored to what they hold. This pass covers the rest -- the masked
+    # leaves nothing materialises, whose alias went unreported entirely -- and creates
+    # nothing, so an unused store stays absent.
+    _refuse_aliased_masked_leaves()
     # A pre-upgrade orphan already ON disk is a different problem from an absent mask
     # target, and this one is not Linux-specific: see the sweep's own docstring for why
     # the macOS path calls it too.

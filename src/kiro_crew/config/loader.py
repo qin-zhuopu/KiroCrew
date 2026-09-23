@@ -43,6 +43,10 @@ from kiro_crew import (
     platform_compat,
     windows_acl,
 )
+from kiro_crew.agent_sdk.backends import (
+    ACP_BACKENDS_EFFORT_FROM_ADVERTISED_OPTION,
+    resolve_cc_permission_mode,
+)
 from kiro_crew.agent_sdk.capabilities import MODEL_NAMESPACE_ACP, capabilities_for
 from kiro_crew.agent_spec_format import iter_agent_spec_files, parse_agent_spec_text
 
@@ -2944,6 +2948,9 @@ def _build_memory_config(memory_data: dict) -> MemoryConfig:
         history_max_days=_safe_nonnegative_int(memory_data.get("history_max_days", 365), 365),
         backup_enabled=_safe_bool(memory_data.get("backup_enabled", True), True),
         backup_keep=_safe_int(memory_data.get("backup_keep", 7), 7, 1, None),
+        persistence_enabled=_safe_bool(memory_data.get("persistence_enabled", True), True),
+        inject_memory=_safe_bool(memory_data.get("inject_memory", True), True),
+        inject_lessons=_safe_bool(memory_data.get("inject_lessons", True), True),
         migrated=memory_data.get("migrated", False),
     )
 
@@ -3381,6 +3388,10 @@ def _build_stt_config(stt_data: dict) -> SttConfig:
         provider=_validated_stt_provider(stt_data.get("provider", STT_PROVIDER_LOCAL)),
         model=_validated_stt_model(stt_data.get("model", _STT_DEFAULT_MODEL)),
         language_code=stt_data.get("language_code", _sections.STT_LANGUAGE_AUTO),
+        # Reached through the module rather than re-exported: the loader facade's
+        # import list from `sections` is a frozen pre-split snapshot
+        # (test_config_module_boundaries), so a new name must not join it.
+        polish=_safe_bool(stt_data.get("polish"), False),
         streaming=_safe_bool(stt_data.get("streaming"), True),
         silence_ms=_safe_int(
             stt_data.get("silence_ms"),
@@ -3474,6 +3485,24 @@ def _build_computer_use_config(computer_use_data: dict) -> ComputerUseConfig:
         # Default False: a missing or unparseable value must mean "do not
         # draw on the operator's screen", never the reverse.
         cursor_motion=_safe_bool(computer_use_data.get("cursor_motion", False), False),
+    )
+
+
+def _build_mcp_config(mcp_data: dict) -> McpConfig:
+    """Build the ``mcp`` section in its own frame (see the compound-section rule)."""
+    return McpConfig(
+        # Kept as authored strings — validation (absolute-only, ``~`` expansion,
+        # dedup) belongs to the consumer, kiro_crew.env.augmented_path, so the ONE
+        # gate the built-in directories already pass applies to these too instead
+        # of a second rule drifting here. Non-strings ARE dropped: the field is
+        # typed list[str] and to_dict() round-trips it verbatim into the saved
+        # config.
+        extra_path_dirs=[
+            d for d in _safe_list(mcp_data.get("extra_path_dirs", [])) if isinstance(d, str)
+        ],
+        # Only a real ``true`` opts in: a hand-edited truthy string must not grant
+        # a gate bypass by accident.
+        honour_auto_approve=mcp_data.get("honour_auto_approve") is True,
     )
 
 
@@ -4684,18 +4713,7 @@ class KiroCrewConfig:
                 if isinstance(r, dict) and r.get("repo")
             ],
             mcp_gateway=_build_mcp_gateway_config(mcp_gateway_data),
-            mcp=McpConfig(
-                # Kept as authored strings — validation (absolute-only, ``~``
-                # expansion, dedup) belongs to the consumer,
-                # kiro_crew.env.augmented_path, so the ONE gate the built-in
-                # directories already pass applies to these too instead of a
-                # second rule drifting here. Non-strings ARE dropped now: the
-                # field is typed list[str] and to_dict() round-trips it verbatim
-                # into the saved config.
-                extra_path_dirs=[
-                    d for d in _safe_list(mcp_data.get("extra_path_dirs", [])) if isinstance(d, str)
-                ],
-            ),
+            mcp=_build_mcp_config(mcp_data),
             instances=_build_instances_config(
                 connect_timeout_raw, instances_data, mint_timeout_raw
             ),
@@ -5503,6 +5521,12 @@ class KiroCrewConfig:
             extra_env: dict[str, str] | None = None,
             reasoning_effort_override: str | None = None,
             crew_agent: str | None = None,
+            # Per-session opt-in for the claude backend's own permission
+            # classifier. NAMED rather than left to ``**_kwargs`` on purpose: a
+            # caller passing it into the catch-all would be swallowed here and
+            # the session would spawn on the backend's default with no error.
+            permission_mode: str | None = None,
+            shared_scratch: Path | None = None,
             **_kwargs: object,
         ) -> AcpProvider:
             wdir = Path(cwd) if cwd else _session_work_dir(session_key)
@@ -5575,7 +5599,19 @@ class KiroCrewConfig:
             # dashboard slot's effort, or a sub-agent's resolved "subagent"
             # effort) still wins over all of it.
             _eff = reasoning_effort_override or self.resolve_session_effort(agent, crew_agent)
-            if m and _eff and is_valid_effort(_eff) and model_supports_effort(m):
+            # On a harness whose effort capability and vocabulary come from the
+            # option it ADVERTISES, neither check below can answer here. This
+            # factory runs before any session exists, the registry carries none of
+            # the operator's own model ids, and Crew's ladder does not list every
+            # level such a harness offers -- so both facts arrive with
+            # ``session/new``, and ``AcpProvider._resolve_effort`` validates the
+            # level against the advertised list once they do. The level is carried
+            # forward for a member and judged there. Judging it HERE drops it on
+            # every cold start, and the session then runs the adapter's own default
+            # while the dashboard still shows the level the operator picked.
+            _from_option = _backend in ACP_BACKENDS_EFFORT_FROM_ADVERTISED_OPTION
+            _registry_ok = is_valid_effort(_eff) and model_supports_effort(m)
+            if m and _eff and (_from_option or _registry_ok):
                 _eff_per_model[m] = _eff
             elif _eff and is_valid_effort(_eff):
                 # Single-authority drop warning: a valid requested effort is
@@ -5625,6 +5661,11 @@ class KiroCrewConfig:
                 tool_search_min_tokens=tool_search_min_tokens,
                 mcp_gateway_overlay=_gw_overlay,
                 mcp_gateway_socket=_gw_socket,
+                permission_mode=resolve_cc_permission_mode(permission_mode, _backend),
+                # A dedicated subagent process joins its parent's session tree:
+                # the tree's work directory is mounted beside its own scratch
+                # and is what its ``$KIROCREW_SCRATCH`` names (agent_scratch).
+                shared_scratch=shared_scratch,
             )
 
         return _acp
@@ -6463,17 +6504,14 @@ def resolve_agent_bindings(
 
     # Existing V1 members keep their exact configured store binding.
     # Canonical member/store mismatches are rejected before legacy use.
-    store_name = (
-        execution_context.store.store_id
-        if execution_context is not None
-        else (
-            DEFAULT_MEMORY_STORE
-            if passthrough
-            else require_member_memory_store(
-                config, resolved_alias, require_directory=validate_memory_files
-            )
+    if execution_context is not None:
+        store_name = execution_context.store.store_id
+    elif passthrough:
+        store_name = DEFAULT_MEMORY_STORE
+    else:
+        store_name = require_member_memory_store(
+            config, resolved_alias, require_directory=validate_memory_files
         )
-    )
 
     kiro_agent = (
         execution_context.template_id

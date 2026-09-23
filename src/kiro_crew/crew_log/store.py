@@ -5,6 +5,7 @@ import, so pod isolation and test isolation both keep working)::
 
     <data home>/crew-log/crews/<store name>/log.jsonl
     <data home>/crew-log/sessions/<store name>/log.jsonl
+    <data home>/crew-log/members/<store name>/log.jsonl
 
 ``<store name>`` is the readable-plus-digest fold of the unit id that
 ``session_ledger`` and ``work_ledger`` already use, and the raw id lives in the
@@ -54,6 +55,7 @@ import logging
 import os
 import shutil
 import time
+import traceback
 import weakref
 from collections import deque
 from collections.abc import Callable, Collection, Iterator
@@ -86,6 +88,7 @@ from kiro_crew.crew_log.lease import acquire as acquire_lease
 from kiro_crew.crew_log.lease import release as release_lease
 from kiro_crew.crew_log.schema import (
     KIND_CREW,
+    KIND_MEMBER,
     KIND_SESSION,
     MAX_ENTRY_BYTES,
     Entry,
@@ -134,7 +137,11 @@ _LOCK_FILE = ".lock"
 _ROOT_LEAF = "crew-log"
 
 #: Directory under :data:`_ROOT_LEAF` that holds each kind's units.
-_ROOT_DIR: dict[str, str] = {KIND_CREW: "crews", KIND_SESSION: "sessions"}
+_ROOT_DIR: dict[str, str] = {
+    KIND_CREW: "crews",
+    KIND_SESSION: "sessions",
+    KIND_MEMBER: "members",
+}
 
 #: How much of the file's end a tail read covers. One maximum-size entry plus
 #: slack, so the newest complete line is inside the window even when it is the
@@ -603,7 +610,7 @@ def _slot_root_fingerprint(root: Path, names: "list[str]") -> "tuple[Any, ...]":
     return (str(root), stat.st_dev, stat.st_ino, stat.st_mtime_ns, tuple(names))
 
 
-def session_units_for_slot(slot: str) -> "tuple[str, ...]":
+def session_units_for_slot(slot: str, *, strict: bool = False) -> "tuple[str, ...]":
     """Every session crew log whose HEADER names *slot*, oldest unit first.
 
     The slot-keyed read path. A slot owns one ACP session id AT A TIME rather than
@@ -614,6 +621,14 @@ def session_units_for_slot(slot: str) -> "tuple[str, ...]":
     rewritten, and inside the fenced tree, so it does not move when a mapping does.
     A unit whose header cannot be PROVED to be its own is left out rather than
     attributed to a slot it may not belong to (see :func:`_proved_header`).
+
+    *strict* is for a caller that VALIDATES against the listing rather than reading
+    it, and it refuses on both ways the listing can come back incomplete: a scan that
+    could not be made at all, and a child that cannot be proved while already holding
+    entries (:func:`_unproven_holding_content`). Without it a read takes the shorter
+    listing, which is the right answer for a read -- it says nothing false about what
+    it could see -- and the wrong one for a write, which would validate against a
+    record missing whatever that unit recorded.
 
     Ordered by the header's ``createdAt``, then by unit id so a tie is stable.
     That is the order the units were opened in, and therefore the order their
@@ -631,10 +646,18 @@ def session_units_for_slot(slot: str) -> "tuple[str, ...]":
         root = _checked_crew_log_root(KIND_SESSION)
         names = sorted(child.name for child in root.iterdir())
     except (CrewLogError, OSError):
+        # No store, or one that could not be scanned. A read takes the empty listing;
+        # a caller that would VALIDATE against the listing passes ``strict`` and gets
+        # the failure instead, because an empty listing taken for a scan that failed
+        # would let it validate against a record that is not there.
+        if strict:
+            raise
         return ()
     fingerprint = _slot_root_fingerprint(root, names)
     cached = _slot_index
     if cached is not None and cached[0] == fingerprint and not _any_now_provable(root, cached[2]):
+        if strict:
+            _refuse_unprovable_unit(root, cached[2])
         return cached[1].get(slot, ())
     rows: "dict[str, list[tuple[int, str]]]" = {}
     unproven: list[str] = []
@@ -667,7 +690,57 @@ def session_units_for_slot(slot: str) -> "tuple[str, ...]":
         rows.setdefault(unit_slot, []).append((order, unit_id))
     by_slot = {key: tuple(unit for _order, unit in sorted(found)) for key, found in rows.items()}
     _slot_index = (fingerprint, by_slot, tuple(unproven))
+    if strict:
+        _refuse_unprovable_unit(root, tuple(unproven))
     return by_slot.get(slot, ())
+
+
+def _unproven_holding_content(root: Path, unproven: "tuple[str, ...]") -> "str | None":
+    """The first child that cannot be proved AND already holds log content.
+
+    What the strict listing needs beyond the scan. A child ``_proved_header`` could
+    not prove is one of two different things, and only one of them is safe to leave
+    out of the listing:
+
+    * ``create`` has made the directory and not yet published the header. It holds no
+      entries at all, so a listing without it is missing nothing that could be folded.
+    * an established unit whose header will not read right now -- a transient
+      ``OSError``, a link at the name, a segment that will not parse. It may hold any
+      number of entries, so a caller that VALIDATES against the listing (the crew
+      ledger's one-editor rule) would pass against a record missing them.
+
+    "Holds content" is the same test ``create`` itself applies: the header is
+    published atomically, so a partial one never reaches the name, and a zero-byte
+    file "carries no header and no entries". A directory that will not answer at all
+    is reported rather than guessed about -- whether it holds entries is exactly what
+    could not be established.
+    """
+    for name in unproven:
+        directory = root / name
+        if is_link(directory):
+            return name
+        try:
+            segments = [
+                child for child in directory.iterdir() if _segment_first_seq(child) is not None
+            ]
+        except OSError:
+            return name
+        if any(_has_content(segment) for segment in segments):
+            return name
+    return None
+
+
+def _refuse_unprovable_unit(root: Path, unproven: "tuple[str, ...]") -> None:
+    """Raise when a strict listing cannot account for a child that holds entries."""
+    blocked = _unproven_holding_content(root, unproven)
+    if blocked is None:
+        return
+    raise CrewLogError(
+        f"session crew log {blocked!r} holds entries its header cannot prove, "
+        "so the listing is incomplete",
+        code=CODE_BAD_HEADER,
+        field="id",
+    )
 
 
 def _any_now_provable(root: Path, unproven: "tuple[str, ...]") -> bool:
@@ -855,6 +928,56 @@ def unit_header_created_at(kind: str, unit_id: str) -> "int | None":
     if not isinstance(created_at, int) or isinstance(created_at, bool):
         return None
     return created_at
+
+
+def unit_ids(kind: str) -> list[str]:
+    """Every unit id of *kind* that proves its own identity, sorted.
+
+    The directory name is the readable-plus-digest fold and the fold is not
+    reversible, so the id cannot be read off the listing -- it comes from each
+    unit's HEADER, and only when that header's id folds back to the directory it
+    was found in. That is the same refusal :func:`unit_header_slot` makes, for the
+    same reason: a directory carrying another unit's id would otherwise be
+    enumerated as that other unit.
+
+    A directory that cannot be proved is SKIPPED rather than raising, because a
+    caller listing units wants the ones it can act on -- one unreadable unit must
+    not make the roster unlistable. An absent root is an empty list, not an error.
+    """
+    require_kind(kind)
+    try:
+        root = _checked_crew_log_root(kind)
+        children = sorted(root.iterdir())
+    except (CrewLogError, OSError):
+        return []
+    out: list[str] = []
+    for child in children:
+        try:
+            if is_link(child) or not child.is_dir():
+                continue
+            segments = [
+                (first, grandchild)
+                for grandchild in child.iterdir()
+                if (first := _segment_first_seq(grandchild)) is not None
+            ]
+            if not segments:
+                continue
+            segments.sort(key=lambda pair: pair[0])
+            raw_header = _read_header_line(segments[0][1])
+            if raw_header is None:
+                continue
+            parsed = _parses_to_object(raw_header)
+        except (OSError, ValueError):
+            continue
+        if not parsed:
+            continue
+        own_id = parsed.get("id")
+        if not isinstance(own_id, str) or not own_id:
+            continue
+        if _store_name(own_id) != child.name:
+            continue
+        out.append(own_id)
+    return sorted(out)
 
 
 def _remove_unit_contents(directory: Path) -> "tuple[int, int]":
@@ -2059,7 +2182,9 @@ class CrewLog:
                         if hashed == records:
                             return (digest.hexdigest(), hashed)
         except Exception:
-            logger.debug("crew log raw prefix for %s could not be read", self._id, exc_info=True)
+            log_exception_text(
+                logger, logging.DEBUG, "crew log raw prefix for %s could not be read", self._id
+            )
         return (digest.hexdigest(), hashed)
 
     def raw_records_through(self, seq: int) -> int | None:
@@ -2114,13 +2239,19 @@ class CrewLog:
                             # is not in this log and no count describes it.
                             return None
         except Exception:
-            logger.debug(
-                "crew log prefix boundary for %s could not be read", self._id, exc_info=True
+            log_exception_text(
+                logger, logging.DEBUG, "crew log prefix boundary for %s could not be read", self._id
             )
             return None
         return None
 
-    def iter_from(self, seq: int = 1, *, known: Collection[str] | None = None) -> Iterator[Entry]:
+    def iter_from(
+        self,
+        seq: int = 1,
+        *,
+        known: Collection[str] | None = None,
+        strict_seq: bool = True,
+    ) -> Iterator[Entry]:
         """Every entry from *seq* onward, OLDEST first -- the shape a fold wants.
 
         *known* is the reader DECLARING the types it can interpret, and passing
@@ -2143,8 +2274,40 @@ class CrewLog:
         and yielding across it would hand a fold a hole it cannot see. A gap at the
         FRONT is not damage: that is retention, so a first segment starting above 1
         is read as it stands.
+
+        Every WALKED entry -- including the ones below *seq* that are never
+        yielded -- must carry a seq strictly greater than the entry before it.
+        A duplicate or backward seq is refused with ``bad_data``, the same
+        verdict :func:`~kiro_crew.crew_log.projection.advance` gives it, so an
+        incremental read and a fold from the start agree on a damaged file
+        instead of one refusing and the other silently skipping the record.
+        The append-only writer cannot produce a non-advancing seq, so one in
+        the file is external damage, not history. A forward GAP stays
+        tolerated: inside one file it is a damaged line ``_iter_entries``
+        skipped on purpose, and this check deliberately does not harden into
+        a contiguity requirement.
+
+        *strict_seq* is that refusal, and ``False`` is for the RENDERING
+        callers only: a page shows history to a human, so refusing every
+        intact line of a unit because one damaged line exists elsewhere in it
+        would take the history away exactly when damage makes it most worth
+        reading. A caller that FOLDS state must keep the default -- tolerating
+        a non-advancing seq there is how two reads of the same bytes disagree,
+        which is the defect this parameter's default closes.
         """
+        walked = 0
         for entry in self._iter_segments():
+            if entry.seq <= walked:
+                if strict_seq:
+                    raise CrewLogError(
+                        f"entry {entry.seq} is at or below the previously read "
+                        f"entry's seq {walked}; a duplicate or backward seq is "
+                        "damage the append-only writer cannot produce",
+                        code=CODE_BAD_DATA,
+                        field="seq",
+                    )
+            else:
+                walked = entry.seq
             if entry.seq < seq:
                 continue
             if known is not None and entry.type not in known:
@@ -2396,6 +2559,21 @@ class CrewLog:
 _restrict_failed: set[str] = set()
 
 
+def log_exception_text(log: logging.Logger, level: int, msg: str, *args: object) -> None:
+    """Log the active exception with its traceback RENDERED to text, never as ``exc_info``.
+
+    Every caller sits in a frame that holds a ``CrewLog`` handle (a method's ``self``, a
+    local ``handle``), and a handle's write lease is released by a finalizer when the
+    handle is dropped. An ``exc_info`` triple on the record keeps the traceback, the
+    traceback keeps that frame, and a handler that keeps records (a ``MemoryHandler``, a
+    test harness) then keeps the handle -- and its lease -- for as long as it keeps the
+    record. A string keeps nothing; the render is skipped when the level is off.
+    """
+    if not log.isEnabledFor(level):
+        return
+    log.log(level, msg + "\n%s", *args, traceback.format_exc().rstrip())
+
+
 def _mkdir_private(directory: Path) -> None:
     """Create *directory* and its parents owner-only.
 
@@ -2429,10 +2607,11 @@ def _mkdir_private(directory: Path) -> None:
         key = str(directory)
         if key not in _restrict_failed:
             _restrict_failed.add(key)
-            logger.warning(
+            log_exception_text(
+                logger,
+                logging.WARNING,
                 "Cannot restrict %s to owner-only; it may be readable by other users",
                 directory,
-                exc_info=True,
             )
 
 
@@ -2727,6 +2906,7 @@ def _open_tail(
     """
     open_turn: Any = None
     last_time = 0
+    last_walked = 0
     calls: dict[str, dict[str, Any]] = {}
     approvals: dict[str, dict[str, Any]] = {}
     children: dict[str, dict[str, Any]] = {}
@@ -2740,6 +2920,19 @@ def _open_tail(
                 if entry is None:
                     skipped = skipped or reason
                     continue
+                if entry.seq <= last_walked:
+                    # A non-advancing seq is damage the append-only writer cannot
+                    # produce (the same verdict ``iter_from`` and ``advance`` give
+                    # it). This fold feeds a MUTATION: ``_scan_tail`` takes the
+                    # newest line's seq, so a backward tail lowers the closers'
+                    # first seq onto records that already exist -- a repair here
+                    # would amplify the damage before any reader refuses it.
+                    skipped = skipped or (
+                        f"entry {entry.seq} at record {index} is at or below the "
+                        f"previously read entry's seq {last_walked}"
+                    )
+                    continue
+                last_walked = entry.seq
                 last_time = entry.time
                 data = entry.data if isinstance(entry.data, dict) else {}
                 if entry.type == "turn/started":

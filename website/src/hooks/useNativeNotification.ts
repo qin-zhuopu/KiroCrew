@@ -22,6 +22,13 @@ import { useAppSelector } from '../store'
 // attention surfaces that spell this rule separately can drift apart, and the
 // backend states it once for all of them.
 import { isSilencedNote } from '../store/notificationsSlice'
+// A note's `body` is MARKDOWN by contract -- the detail panel renders it as
+// markdown and producers write `**name** -- description`, `_italics_`,
+// `**Triggers:**` (see `_pending_skill_notification`, dashboard/server.py).
+// An OS notification body is plain text: macOS Notification Center paints the
+// asterisks and underscores literally. Reuse the same flattener the in-app feed
+// row uses so both previews read identically.
+import { stripMd } from '../components/notifications/notifMeta'
 
 export function useNativeNotification(botName: string, avatar: string) {
   const notifCount = useAppSelector(
@@ -39,8 +46,12 @@ export function useNativeNotification(botName: string, avatar: string) {
         if (Notification.permission === 'granted') {
           const delta = notifCount - prev.current
           const title = latestNotif?.title || botName
+          // stripMd only on the note's own markdown body; the generic fallback
+          // and the title are plain text already (the feed renders the title
+          // verbatim, never as markdown).
+          const noteBody = latestNotif?.body ? stripMd(latestNotif.body) : ''
           const body =
-            latestNotif?.body ||
+            noteBody ||
             (delta > 1 ? `${delta} new notifications` : 'New notification')
           // Android Chrome throws "Illegal constructor" here even with
           // permission granted (page-context Notification is desktop-only);
@@ -65,6 +76,12 @@ export function useNativeNotification(botName: string, avatar: string) {
             /* unsupported platform */
           }
         } else if (Notification.permission === 'default') {
+          // Best-effort only: browsers refuse a prompt with no user gesture
+          // behind it, and this fires from an effect. The two places that ask
+          // FROM a gesture are Settings › Notifications ("Allow system
+          // notifications", `SystemNotificationsRow`) and the bell popover's
+          // hint row (`NotificationPermissionHint`), both through
+          // `useNotificationPermission().request`.
           Notification.requestPermission()
         }
       }
