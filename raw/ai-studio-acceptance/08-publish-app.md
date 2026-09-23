@@ -112,7 +112,7 @@ review: 子代理全文体检通过（testid 双向覆盖/无矛盾/断言可执
 
 | # | 操作 | 断言 |
 |---|---|---|
-| C1 | 看该版本行 | `ai-studio-publish-btn-<版本号>` **不存在于 DOM**（不可点击发布）；行内 `ai-studio-publish-reason-<版本号>` 可见且含「验收未通过」 |
+| C1 | 看该版本行 | `ai-studio-publish-btn-<版本号>` **不存在于 DOM**（不可点击发布）；行内 `ai-studio-publish-reason-<版本号>` 可见且含「未通过验收」 |
 | C2 | — | `ai-studio-publish-version-state` 文本=「未发布」（不可发布≠已发布） |
 
 ### 场景 D：版本 hash 与最新发布 hash 相同 → 无发布按钮（幂等）
@@ -132,7 +132,7 @@ review: 子代理全文体检通过（testid 双向覆盖/无矛盾/断言可执
 | B1 | 逐版本形态判定 | `GET /publish/preview?project&version` | `form: "full"|"demo"|"rejected"`；`reason` 非空；**判定来源=该版本对应 git tag 的标注**（tag 注明演示版/完整版，Owner 已拍板）；无 tag 或标注缺失 → `rejected` 并说明。发布视图的行内 reason/按钮渲染取数于此 |
 | B2 | 触发发布（行按钮点击） | `POST /publish` body `{project, version, commitHash}` | 响应含 `deploymentId`；`commitHash` 与最新成功发布的 hash 相同 → 不新建部署，返回既有 `deploymentId` 与 `idempotent: true`；hash 非最新（含发布过的旧 hash）→ 正常新建部署（回滚式重发）；同 hash 发布进行中再调返回 409 |
 | B3 | 发布记录 | `GET /publish/records?project` | 最新记录含：`form`、`version`、`requirementVersion`（关联冻结的需求版本）、`jiraTaskIds` 非空、`status: "success"`、`url`（url 逐字符合域名模板） |
-| B4 | 行内两态来源 | `GET /publish/records?project` | 每个版本可由记录推导出 已发布/未发布 两态；行渲染与该数据一致（无记录=未发布）；「最新发布 hash」也由该接口推导（最新 `status:"success"` 记录的 hash） |
+| B4 | 行内四态来源 | `GET /publish/records?project` | 每个版本可由发布记录与任务状态推导出 未发布/发布中/已发布/失败 四态（无记录=未发布）；行渲染与该数据一致；「最新发布 hash」也由该接口推导（最新 `status:"success"` 记录的 hash） |
 | B5 | 旧实例被替换 | 探活（无端点，见 §四） | 发布前记录旧 URL 的进程标识，发布后该实例不复存在 |
 
 **幂等与并发**：B2 返回 409 的场景必须有（发布进行中重复触发）；发布失败（构建失败/端口占用）时 B2 响应 `status:"failed"` 且 `ai-studio-publish-status-<版本号>` 文本含「失败」+原因。
@@ -149,7 +149,7 @@ review: 子代理全文体检通过（testid 双向覆盖/无矛盾/断言可执
 - [ ] 场景 A/B/C/D 各跑一遍，前台断言全部只依赖 data-testid
 - [ ] 发布视图无版本选择器、无手输框：版本列表逐行呈现，操作只发生在行内
 - [ ] 发布地址逐字匹配 `{版本号}-{应用名}-{工号}.gb10.jereh-pe.cn`
-- [ ] 每行已发/未发两态；A 场景发布后对应行从未发布翻成已发布、按钮消失，其余行不变
+- [ ] 每行四态（未发布/发布中/已发布/失败）；A 场景发布后对应行从未发布翻成已发布、按钮消失，其余行不变
 - [ ] B1 的 `form` 与版本 tag 的标注一一对应（改 tag 标注→行内判定与按钮渲染跟着变）
 - [ ] B3 发布记录可追溯到 requirementVersion 与 jiraTaskIds
 - [ ] §四 的停旧起新四条全过，且有「发布前旧实例 200」的前置证据
