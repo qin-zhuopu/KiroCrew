@@ -10,16 +10,19 @@
 // 「提交历史」 rows are the ones below the second section header.
 //
 // ZERO FETCHES: rendering is local state only; the global fetch spy is the
-// external witness (the releases tab, the one tab that would query, is never
-// the lit one here). i18n: the suite pins the English catalog, so the section
-// headers read 'Uncommitted changes' / 'Commit history'; the doc names are
-// Chinese data. No screenshots — DOM only.
+// external witness. The ONE thing on this tab that does read — the commit
+// bar's drafts query (the button moved here in ACP-801) — is fed the frame's
+// own in-memory fake, so it is data here too. i18n: the suite pins the English
+// catalog, so the section headers read 'Uncommitted changes' / 'Commit history';
+// the doc names are Chinese data. No screenshots — DOM only.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import ToolSidebar from '../ToolSidebar'
 import { CHANGED, COMMITS } from '../fixtures'
+import { renderStudio } from '../testUtils'
+import { createDemoApi } from './runtime'
 import { COMMIT_STATES } from './states-commit'
 import type { CommitStateSnapshot } from './states-commit'
 
@@ -48,10 +51,17 @@ afterEach(() => {
 })
 
 /** mount the real sidebar on a frame, exactly as the renderer will wire it.
- * `off` drops BOTH new seams, which is the ordinary caller's call shape. */
+ * `off` drops the FRAME's seams (tab + lists), which is the ordinary caller's
+ * call shape.
+ *
+ * The tab's action button is the shipped `ProjectCommitBar` (ACP-801 moved it
+ * here from the page header), so this mount now needs a QueryClient and a data
+ * source: it gets the frame's in-memory fake — the same `commitApi` the
+ * renderer passes — so the bar's real drafts read is answered as data and no
+ * request leaves the test either way. */
 function mountFrame(frame: CommitStateSnapshot, off = false) {
   const onOpenTab = vi.fn()
-  render(
+  renderStudio(
     <ToolSidebar
       onOpenTab={onOpenTab}
       docs={frame.fixture.docs}
@@ -59,6 +69,8 @@ function mountFrame(frame: CommitStateSnapshot, off = false) {
       initialTool={off ? undefined : frame.activeSidebarTab}
       changed={off ? undefined : frame.changed}
       commits={off ? undefined : frame.commits}
+      commitApi={createDemoApi(frame.fixture)}
+      commitKey={frame.id}
     />,
   )
   return onOpenTab
@@ -201,6 +213,22 @@ describe('the real ToolSidebar on the commits tab', () => {
     expect(tabs).toHaveLength(6)
     expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'false', 'false', 'false'])
     expect(screen.getByRole('tab', { name: 'Commits' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('carries the project commit at its top (ACP-801), above both lists', async () => {
+    mountFrame(C1)
+    // the bar's drafts read is async: wait for the badge, which is what its
+    // enable rule is derived from
+    await screen.findByTestId('drafts-pending')
+    const btn = screen.getByTestId('commit-all-btn')
+    // it is INSIDE this tab: the sidebar contains it, and it precedes the
+    // first section header — the action acts on 提交, so it leads the tab
+    expect(screen.getByTestId('tool-sidebar').contains(btn)).toBe(true)
+    const pendingHeader = screen.getByText('Uncommitted changes')
+    expect(btn.compareDocumentPosition(pendingHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // the frame's own drafts really enable it — the badge names them
+    expect(btn).toBeEnabled()
+    expect(screen.getByTestId('drafts-pending')).toBeInTheDocument()
   })
 
   it("lists this iteration's four docs under 待提交的改动", () => {
