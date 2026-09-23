@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest'
 
 import { ALL_STATES, PHASE_LABEL_KEY, PHASE_ORDER, PHASE_PRODUCT_KEY, indexOfState, statesOfPhase } from './allStates'
 import { COMMIT_STATES } from './states-commit'
+import { GRAPH_STATES } from './states-graph'
 import type { DemoPhase } from './states'
 
 describe('the demo dock groups (ACP-796)', () => {
@@ -55,15 +56,18 @@ describe('the demo dock groups (ACP-796)', () => {
     expect(runs).toEqual(PHASE_ORDER)
   })
 
-  it('files C1/C2 under 提交, without editing the slice that owns them', () => {
-    // the slice's own declaration is untouched (another session's file)
+  it('files the commit pair and the graph pair under 提交, editing neither slice', () => {
+    // both slices' own declarations are untouched (other sessions' files)
     expect(COMMIT_STATES.every((s) => s.phase === 'design')).toBe(true)
+    expect(GRAPH_STATES.every((s) => s.phase === 'design')).toBe(true)
     // ...and the dock still shows them in 提交, by id
     const commitIds = statesOfPhase('commit').map((s) => s.id)
-    for (const s of COMMIT_STATES) expect(commitIds).toContain(s.id)
+    for (const s of [...COMMIT_STATES, ...GRAPH_STATES]) expect(commitIds).toContain(s.id)
+    // the commit pair stands before the graph generation it produced
+    expect(commitIds).toEqual(['C1', 'C2', ...GRAPH_STATES.map((s) => s.id)])
     // the design group holds none of them
     const designIds = statesOfPhase('design').map((s) => s.id)
-    for (const s of COMMIT_STATES) expect(designIds).not.toContain(s.id)
+    for (const s of [...COMMIT_STATES, ...GRAPH_STATES]) expect(designIds).not.toContain(s.id)
   })
 
   it('maps an id back to its position, and an unknown id to the first frame', () => {

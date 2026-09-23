@@ -4,6 +4,7 @@
 // the story and importing nothing but types from `states.ts`:
 //   - `states-design.ts` D6~D8 — 设计阶段收尾（提交出版本 / 图谱修订 / 下游文档同步）
 //   - `states-commit.ts` C1~C2 — 「提交」页签（待提交改动 / 提交后）
+//   - `states-graph.ts` G1~G2 — 「需求图谱」页签（生成中 / 生成完成），提交这一步的产物
 //   - `states-release.ts` R1~R6 — 发版（发布页签 / 形态 / 发布中 / 结果条 / 详情 / 线上）
 //   - `states-devdeploy.ts` V1~V3 / P1~P2 — 开发（四阶段推进 / 完成 / 试运行）与部署
 //     （进行中 / 完成·线上可访问）
@@ -31,15 +32,21 @@
 // frames, when they land, join 提交 at its end.
 import { COMMIT_STATES } from './states-commit'
 import { DESIGN_STATES } from './states-design'
+import { GRAPH_STATES } from './states-graph'
 import { RELEASE_STATES } from './states-release'
 import { DEV_DEPLOY_STATES } from './states-devdeploy'
 import type { DemoPhase, StateSnapshot } from './states'
 
 export { DEPLOY_PAYLOADS, type DeployFramePayload } from './states-devdeploy'
 
-/** The commit slice as this module files it: the same frames, under the stage
- * the owner put them in (see the header). A copy, never an edit of their file. */
-const COMMIT_FRAMES: StateSnapshot[] = COMMIT_STATES.map((s) => ({ ...s, phase: 'commit' }))
+/** The 提交 stage's slices as this module files them: the commit pair, then the
+ * graph generation it produced (G1 生成中 → G2 生成完成). Same frames, under the
+ * stage the owner put them in (see the header) — a copy, never an edit of a
+ * file another session owns. Both slices declare `'design'` on their own: that
+ * is where they were authored from, and re-stating the stage here is exactly
+ * the job of the module that owns the grouping. */
+const COMMIT_FRAMES: StateSnapshot[] = [...COMMIT_STATES, ...GRAPH_STATES]
+  .map((s) => ({ ...s, phase: 'commit' }))
 
 export const ALL_STATES: StateSnapshot[] = [
   ...DESIGN_STATES,
