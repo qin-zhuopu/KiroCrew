@@ -25,7 +25,14 @@ AiStudioPage.tsx                        工作台页壳（路由 /ai-studio/proj
 │                                       demo-next · demo-prev · demo-restart
 │                                       demo-ring · demo-unknown-scenario
 ├─ ToolSidebar.tsx                      右侧边栏（各视图页签入口，含发布页签）
-│   └─  testid: tool-sidebar
+│   └─  testid: tool-sidebar · ai-studio-publish-entry（releases 页签本体，
+│        其内容=发布版本列表 PublishVersionList）
+├─ PublishVersionList.tsx               发布版本列表（releases 页签内容，08 细节文档 §六新建）
+│   └─  testid: ai-studio-publish-version-list
+│            ai-studio-publish-version-row-<版本号> · ai-studio-publish-version-state
+│            ai-studio-publish-reason-<版本号> · ai-studio-publish-btn-<版本号>
+│        行内按钮渲染=行 hash vs 最新成功发布 hash（相同不渲染、行标已发布）；
+│        发布结果条与发布详情页由 T6/T8 另行登记。
 ├─ ChatPane.tsx                         需求对话区
 │   └─  testid: ai-studio-chat
 ├─ ProjectCommitBar.tsx                 项目提交条
