@@ -224,11 +224,11 @@
 | 05 | 增量拆解与 Jira 同步 | increment-breakdown、sync-jira | 待编写 |
 | 06 | 任务评审 | review-tasks | 待编写 |
 | 07 | dev-dag 调度与两阶段开发（演示版→完整版） | dev-demo-phase、demo-acceptance、dev-full-phase | 待编写 |
-| 08 | 发布应用（形态判定） | publish-app | [08-发布应用.md](08-发布应用.md) |
+| 08 | 发布应用（形态判定） | publish-app | [08-publish-app.md](08-publish-app.md) |
 | 09 | 全程历史与下一轮 | view-history、next-round | 待编写 |
 
 细节文档统一格式（每步）：操作用 `data-testid` 定位 + 模拟动作；断言逐条可判定（元素/文本/状态/快照字段）；全部 DOM/状态结构化取证，禁止截图；每条断言附可重复执行的证据命令；证据命令必须自足——不依赖任何人的浏览器登录态：需要 dashboard 鉴权时用 `kirocrew token --ttl 1h` 现签（CLI/容器内执行），demo 模式断言则零 API、纯 DOM。
 
-**组件选择方法论**：写细节文档前先查 [前端组件树.md](前端组件树.md)——能复用现有组件与其 testid 就直接引用；壳复用（WorkArea/ToolSidebar）、内容新建；确实缺才新建组件，且必须在该细节文档里单列「新建组件」表（组件名+承载 testid+理由）并同提交登记进组件树。禁止为同一职责造平行组件。
+**组件选择方法论**：写细节文档前先查 [frontend-component-tree.md](frontend-component-tree.md)——能复用现有组件与其 testid 就直接引用；壳复用（WorkArea/ToolSidebar）、内容新建；确实缺才新建组件，且必须在该细节文档里单列「新建组件」表（组件名+承载 testid+理由）并同提交登记进组件树。禁止为同一职责造平行组件。
 
 **前后衔接方法论**：细节文档之间是链式的——前序步骤的每项产出（版本、记录、状态）必须在后序文档里**显式承接**：写清它出现在哪个视图的哪个区块、复用哪个 testid 取数。禁止「前序产出了组件、后序只字不提」；入口类断言（如「点击后某视图展开」）必须同时写清该视图的**内部结构**（含从前序承接的区块），否则该断言不可验收。

@@ -1,6 +1,6 @@
 # 08 · 发布应用（按验收状态定形态）— 细节验收文档
 
-对应顶层：`00-顶层端到端验收.md` 步骤 **publish-app**（前序 dev-full-phase，后序 view-history）。
+对应顶层：`00-e2e-top-level.md` 步骤 **publish-app**（前序 dev-full-phase，后序 view-history）。
 
 ## 颗粒度约定（本文档的断言锚点规则）
 
