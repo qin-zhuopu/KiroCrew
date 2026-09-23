@@ -1,0 +1,414 @@
+"""Tests for the ai-studio project store and its HTTP routes.
+
+The store is plain sync file I/O under ``config_dir()``, so the store tests
+drive it with nothing but ``KIROCREW_HOME`` pointed at tmp_path (config_dir
+re-resolves per call — that is what makes this cheap). The route tests mount
+``register_routes`` on a bare aiohttp app with ``is_app_enabled`` monkey-
+patched, the same shape test_ai_backend_routes_coverage.py uses for its
+builtins.
+"""
+from __future__ import annotations
+
+import json
+
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
+
+from kiro_crew.apps.builtins.ai_studio.backend import projects, routes
+
+
+@pytest.fixture()
+def home(tmp_path, monkeypatch):
+    h = tmp_path / "crew"
+    h.mkdir()
+    monkeypatch.setenv("KIROCREW_HOME", str(h))
+    return h
+
+
+# ---------------------------------------------------------------------------
+# store
+# ---------------------------------------------------------------------------
+
+
+def test_create_then_list_and_get(home):
+    record = projects.create_project("商机雷达", "追踪商机转化")
+    assert record["name"] == "商机雷达"
+    assert record["id"]  # slug may be empty for pure CJK; timestamp suffix carries it
+
+    listed = projects.list_projects()
+    assert [p["id"] for p in listed] == [record["id"]]
+
+    got = projects.get_project(record["id"])
+    assert got == record
+
+    docs = projects.list_docs(record["id"])
+    assert [d["name"] for d in docs] == ["requirements.md", "ui-spec.md", "workflow.md"]
+    # the seed templates interpolate the create request
+    req = next(d for d in docs if d["name"] == "requirements.md")
+    assert "商机雷达" in req["content"]
+    assert "追踪商机转化" in req["content"]
+
+
+def test_list_newest_first(home):
+    first = projects.create_project("a", "")
+    second = projects.create_project("b", "")
+    # same-second creates share a timestamp suffix... force ordering explicitly
+    pj = projects.projects_root() / first["id"] / "project.json"
+    data = json.loads(pj.read_text(encoding="utf-8"))
+    data["createdAt"] += 1000
+    pj.write_text(json.dumps(data), encoding="utf-8")
+    assert [p["id"] for p in projects.list_projects()] == [first["id"], second["id"]]
+
+
+def test_stray_directory_is_not_a_project(home):
+    (projects.projects_root() / "half-built").mkdir(parents=True)
+    assert projects.list_projects() == []
+    assert projects.get_project("half-built") is None
+
+
+def test_corrupt_project_json_reads_as_absence(home):
+    record = projects.create_project("ok", "")
+    bad = projects.projects_root() / "broken"
+    bad.mkdir()
+    (bad / "project.json").write_text("{not json", encoding="utf-8")
+    assert [p["id"] for p in projects.list_projects()] == [record["id"]]
+    assert projects.get_project("broken") is None
+
+
+def test_get_project_rejects_traversal_ids(home):
+    projects.create_project("ok", "")
+    for forged in ("../..", "..", ".", "a/b", "a\\b", ""):
+        assert projects.get_project(forged) is None
+
+
+def test_create_requires_name(home):
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.create_project("   ", "")
+    assert exc.value.code == "name_required"
+    assert exc.value.status == 400
+
+
+def test_create_caps_name(home):
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.create_project("n" * (projects.MAX_NAME_LEN + 1), "")
+    assert exc.value.code == "name_too_long"
+
+
+def test_save_doc_roundtrip_and_validation(home):
+    record = projects.create_project("ok", "")
+    doc = projects.save_doc(record["id"], "notes.md", "# notes\n")
+    assert doc == {"name": "notes.md", "content": "# notes\n"}
+    assert projects.save_doc(record["id"], "notes.md", "v2")["content"] == "v2"
+    names = [d["name"] for d in projects.list_docs(record["id"])]
+    assert "notes.md" in names
+
+    for bad in ("../evil.md", "sub/x.md", ".hidden.md", "run.sh", ""):
+        with pytest.raises(projects.ProjectError) as exc:
+            projects.save_doc(record["id"], bad, "x")
+        assert exc.value.code == "invalid_doc_name"
+
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.save_doc("nope", "a.md", "x")
+    assert exc.value.code == "project_not_found"
+
+
+def test_draft_save_dedupes_and_lists_newest_first(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+
+    # the first draft is recorded even when it equals the committed content
+    first = projects.save_draft(pid, "workflow.md", "a\n")
+    assert first["deduped"] is False
+    assert first["record"] is not None
+
+    # identical content writes no new record, but the current draft is current
+    again = projects.save_draft(pid, "workflow.md", "a\n")
+    assert again["deduped"] is True
+    assert again["record"] is None
+
+    second = projects.save_draft(pid, "workflow.md", "b\n")
+    assert second["deduped"] is False
+
+    drafts = projects.list_draft_versions(pid, "workflow.md")
+    assert [d["content"] for d in drafts] == ["b\n", "a\n"]  # newest first
+    assert all(d["time"] and d["name"] for d in drafts)
+
+    # the current-draft file is the latest word, overwritten in place
+    cur = projects.projects_root() / pid / "drafts" / "workflow.md.md"
+    assert cur.read_text(encoding="utf-8") == "b\n"
+
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.save_draft(pid, "../evil.md", "x")
+    assert exc.value.code == "invalid_doc_name"
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.list_draft_versions("nope", "a.md")
+    assert exc.value.code == "project_not_found"
+
+
+def test_list_draft_docs_lists_current_drafts_with_changed_flag(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+    assert projects.list_draft_docs(pid) == []
+
+    projects.save_draft(pid, "workflow.md", "# 草稿\n")
+    # a draft equal to the committed doc still lists (the project-level
+    # commit must clear it), but reads changed=False
+    committed = next(d for d in projects.list_docs(pid) if d["name"] == "requirements.md")
+    projects.save_draft(pid, "requirements.md", committed["content"])
+
+    drafts = projects.list_draft_docs(pid)
+    assert [d["name"] for d in drafts] == ["requirements.md", "workflow.md"]
+    by_name = {d["name"]: d for d in drafts}
+    assert by_name["workflow.md"] == {"name": "workflow.md", "content": "# 草稿\n", "changed": True}
+    assert by_name["requirements.md"]["changed"] is False
+
+    # committing removes the doc from the list (both draft files go)
+    projects.save_doc(pid, "workflow.md", "# 草稿\n")
+    assert [d["name"] for d in projects.list_draft_docs(pid)] == ["requirements.md"]
+
+    # a non-project reads as empty rather than raising
+    assert projects.list_draft_docs("nope") == []
+
+
+def test_commit_snapshots_versions_and_clears_drafts(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+
+    # first commit: with no prior version its diff reads as a whole-document
+    # addition (every content line carries a +)
+    doc = projects.save_doc(pid, "workflow.md", "# v1\n")
+    assert doc["content"] == "# v1\n"
+    versions = projects.list_versions(pid, "workflow.md")
+    assert len(versions) == 1
+    assert "+# v1" in versions[0]["diff"]
+    assert not [
+        ln for ln in versions[0]["diff"].splitlines() if ln.startswith("-") and not ln.startswith("---")
+    ]
+
+    # draft, then commit: the request buffer is authoritative (it is newer
+    # than or equal to what the debounced autosave persisted), and the whole
+    # drafts layer clears with the commit
+    projects.save_draft(pid, "workflow.md", "# v2 draft\n")
+    projects.save_draft(pid, "workflow.md", "# v2 draft more\n")
+    assert len(projects.list_draft_versions(pid, "workflow.md")) == 2
+    committed = projects.save_doc(pid, "workflow.md", "# v2 committed\n")
+    assert committed["content"] == "# v2 committed\n"
+    assert projects.list_draft_versions(pid, "workflow.md") == []
+    cur = projects.projects_root() / pid / "drafts" / "workflow.md.md"
+    assert not cur.exists()
+
+    # the trail lists every change, newest first; each row diffs against the
+    # version committed before it
+    versions = projects.list_versions(pid, "workflow.md")
+    assert len(versions) == 2
+    assert "+# v2 committed" in versions[0]["diff"]
+    assert "-# v1" in versions[0]["diff"]
+
+    # a commit without a draft writes the request body
+    projects.save_doc(pid, "workflow.md", "# v3\n")
+    assert projects.list_docs(pid)  # docs still readable
+    content = next(d for d in projects.list_docs(pid) if d["name"] == "workflow.md")
+    assert content["content"] == "# v3\n"
+    assert len(projects.list_versions(pid, "workflow.md")) == 3
+
+    # an unchanged re-commit stores no new version row: nothing was superseded
+    versions = projects.list_versions(pid, "workflow.md")
+    projects.save_doc(pid, "workflow.md", "# v3\n")
+    assert len(projects.list_versions(pid, "workflow.md")) == len(versions)
+
+    with pytest.raises(projects.ProjectError) as exc:
+        projects.list_versions("nope", "a.md")
+    assert exc.value.code == "project_not_found"
+
+
+def test_version_snapshots_never_collide(home):
+    record = projects.create_project("ok", "")
+    pid = record["id"]
+    # same-second commits must each keep their own snapshot file
+    for i in range(5):
+        projects.save_doc(pid, "workflow.md", f"# v{i}\n")
+    assert len(projects.list_versions(pid, "workflow.md")) == 5
+
+
+# ---------------------------------------------------------------------------
+# routes
+# ---------------------------------------------------------------------------
+
+
+def _make_app(monkeypatch, enabled=True):
+    monkeypatch.setattr(routes, "is_app_enabled", lambda _name: enabled)
+    app = web.Application()
+    routes.register_routes(app)
+    return app
+
+
+@pytest.mark.asyncio
+async def test_routes_disabled_app_403(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch, enabled=False))) as client:
+        resp = await client.get("/api/apps/ai-studio/projects")
+        assert resp.status == 403
+        assert (await resp.json())["code"] == "app_disabled"
+
+
+@pytest.mark.asyncio
+async def test_routes_create_list_get_save(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post(
+            "/api/apps/ai-studio/projects",
+            json={"name": "示例项目", "description": "描述"},
+        )
+        assert resp.status == 201
+        record = (await resp.json())["project"]
+
+        resp = await client.get("/api/apps/ai-studio/projects")
+        assert [p["id"] for p in (await resp.json())["projects"]] == [record["id"]]
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{record['id']}")
+        body = await resp.json()
+        assert body["project"]["id"] == record["id"]
+        assert [d["name"] for d in body["docs"]] == [
+            "requirements.md",
+            "ui-spec.md",
+            "workflow.md",
+        ]
+
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/{record['id']}/docs",
+            json={"name": "requirements.md", "content": "# changed"},
+        )
+        assert resp.status == 200
+        assert (await resp.json())["doc"]["content"] == "# changed"
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{record['id']}")
+        docs = (await resp.json())["docs"]
+        assert next(d for d in docs if d["name"] == "requirements.md")["content"] == "# changed"
+
+
+@pytest.mark.asyncio
+async def test_routes_draft_and_histories(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post(
+            "/api/apps/ai-studio/projects",
+            json={"name": "历史", "description": ""},
+        )
+        pid = (await resp.json())["project"]["id"]
+
+        # empty until a draft exists; both history reads key ``versions``
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        assert resp.status == 200
+        assert (await resp.json())["versions"] == []
+
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs/draft",
+            json={"name": "workflow.md", "content": "编辑中\n"},
+        )
+        assert resp.status == 200
+        body = (await resp.json())["draft"]
+        assert body["deduped"] is False and body["record"] is not None
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        drafts = (await resp.json())["versions"]
+        assert [d["content"] for d in drafts] == ["编辑中\n"]
+        assert "time" in drafts[0]
+
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs",
+            json={"name": "workflow.md", "content": "编辑中\n"},
+        )
+        assert (await resp.json())["doc"]["content"] == "编辑中\n"
+
+        # committing clears the draft history
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        assert (await resp.json())["versions"] == []
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/versions")
+        assert resp.status == 200
+        versions = (await resp.json())["versions"]
+        assert len(versions) == 1 and "+编辑中" in versions[0]["diff"]
+        assert "time" in versions[0]
+
+
+@pytest.mark.asyncio
+async def test_routes_project_drafts_list(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post(
+            "/api/apps/ai-studio/projects",
+            json={"name": "全局提交", "description": ""},
+        )
+        pid = (await resp.json())["project"]["id"]
+
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/drafts")
+        assert resp.status == 200
+        assert (await resp.json())["drafts"] == []
+
+        await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs/draft",
+            json={"name": "workflow.md", "content": "草稿一\n"},
+        )
+        await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs/draft",
+            json={"name": "ui-spec.md", "content": "草稿二\n"},
+        )
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/drafts")
+        drafts = (await resp.json())["drafts"]
+        assert [d["name"] for d in drafts] == ["ui-spec.md", "workflow.md"]
+        assert all(d["changed"] and d["content"] for d in drafts)
+
+        # committing one doc drops it from the list — the top bar's work list
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/docs",
+            json={"name": "workflow.md", "content": "草稿一\n"},
+        )
+        assert resp.status == 200
+        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/drafts")
+        assert [d["name"] for d in (await resp.json())["drafts"]] == ["ui-spec.md"]
+
+        resp = await client.get("/api/apps/ai-studio/projects/missing/drafts")
+        assert resp.status == 404
+        assert (await resp.json())["code"] == "project_not_found"
+
+
+@pytest.mark.asyncio
+async def test_routes_draft_and_history_errors(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post(
+            f"/api/apps/ai-studio/projects/missing/docs/draft",
+            json={"name": "a.md", "content": "x"},
+        )
+        assert resp.status == 404
+        assert (await resp.json())["code"] == "project_not_found"
+
+        resp = await client.post(
+            "/api/apps/ai-studio/projects/missing/docs/draft",
+            json={"name": "a.md"},
+        )
+        assert resp.status == 400
+
+        resp = await client.get("/api/apps/ai-studio/projects/missing/docs/a.md/versions")
+        assert resp.status == 404
+        resp = await client.get("/api/apps/ai-studio/projects/missing/docs/a.md/draft-versions")
+        assert resp.status == 404
+
+
+@pytest.mark.asyncio
+async def test_routes_errors(home, monkeypatch):
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post("/api/apps/ai-studio/projects", json={"name": ""})
+        assert resp.status == 400
+        assert (await resp.json())["code"] == "name_required"
+
+        resp = await client.post(
+            "/api/apps/ai-studio/projects", json={"name": "x", "description": 5}
+        )
+        assert resp.status == 400
+
+        resp = await client.get("/api/apps/ai-studio/projects/missing")
+        assert resp.status == 404
+        assert (await resp.json())["code"] == "project_not_found"
+
+        resp = await client.post(
+            "/api/apps/ai-studio/projects/missing/docs",
+            json={"name": "a.md", "content": ""},
+        )
+        assert resp.status == 404

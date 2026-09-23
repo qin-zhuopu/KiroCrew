@@ -1,0 +1,30 @@
+{
+  "buffer": "# 空项目示例 需求说明\n\n> 刚创建、从未编辑过的项目\n\n## 目标\n\n- （待补充：这个项目要解决什么问题）\n",
+  "docs": [
+    {
+      "content": "# 空项目示例 需求说明\n\n> 刚创建、从未编辑过的项目\n\n## 目标\n\n- （待补充：这个项目要解决什么问题）\n",
+      "name": "requirements.md"
+    },
+    {
+      "content": "# 空项目示例 流程设计\n\n## 阶段划分\n\n- （待补充）\n",
+      "name": "workflow.md"
+    },
+    {
+      "content": "# 空项目示例 界面设计\n\n## 页面清单\n\n- （待补充：页面与入口）\n",
+      "name": "ui-spec.md"
+    }
+  ],
+  "draftVersions": [],
+  "focusDoc": "requirements.md",
+  "project": {
+    "createdAt": 1758513600,
+    "description": "刚创建、从未编辑过的项目",
+    "id": "demo-empty-project",
+    "name": "空项目示例"
+  },
+  "versions": {
+    "requirements.md": [],
+    "ui-spec.md": [],
+    "workflow.md": []
+  }
+}
