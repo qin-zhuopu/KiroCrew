@@ -14,6 +14,8 @@ import {
   DEV,
   DEV_HISTORY,
   GRAPH_NODES,
+  type ChangedFile,
+  type CommitEntry,
   type ProgressModel,
 } from './fixtures'
 import type { StudioDoc } from './studioApi'
@@ -37,10 +39,21 @@ export interface ToolSidebarProps {
   docs: StudioDoc[]
   /** The project whose versions the publish tab lists. */
   projectId: string
+  // ---- two OPTIONAL seams the state-direct demo's frames pin (ACP-795).
+  // Both default to today's behaviour, so an ordinary workbench that passes
+  // neither renders exactly what it rendered before: the sidebar always opens
+  // on 文档, and the commits tab reads the CHANGED / COMMITS fixtures.
+  /** which tool tab is showing on first paint (a demo frame sets 'commits'
+   * to pin the 提交 tab lit); omitted = 'docs' */
+  initialTool?: Tool
+  /** the commits tab's 「待提交的改动」 rows (a demo frame's own list) */
+  changed?: ChangedFile[]
+  /** the commits tab's 「提交历史」 rows (a demo frame's own list) */
+  commits?: CommitEntry[]
 }
 
-export default function ToolSidebar({ onOpenTab, docs, projectId }: ToolSidebarProps) {
-  const [tool, setTool] = useState<Tool>('docs')
+export default function ToolSidebar({ onOpenTab, docs, projectId, initialTool = 'docs', changed, commits }: ToolSidebarProps) {
+  const [tool, setTool] = useState<Tool>(initialTool)
   // graph drill state: null = type list, string = inside a type
   const [graphType, setGraphType] = useState<string | null>(null)
 
@@ -73,7 +86,7 @@ export default function ToolSidebar({ onOpenTab, docs, projectId }: ToolSidebarP
       </div>
       <div className="flex-1 min-h-0 overflow-auto p-3">
         {tool === 'docs' && <DocsTool docs={docs} onOpenTab={onOpenTab} />}
-        {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} />}
+        {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} changed={changed} commits={commits} />}
         {tool === 'releases' && <PublishVersionList projectId={projectId} />}
         {tool === 'graph' && <GraphTool graphType={graphType} setGraphType={setGraphType} onOpenTab={onOpenTab} />}
         {tool === 'dev' && <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />}
@@ -131,11 +144,18 @@ function DocsTool({ docs, onOpenTab }: Pick<ToolSidebarProps, 'docs' | 'onOpenTa
   )
 }
 
-function CommitsTool({ onOpenTab }: Pick<ToolSidebarProps, 'onOpenTab'>) {
+/** The commits tab. Its two lists are PROPS with the fixtures as defaults
+ * (ACP-795): a demo frame hands in its own 「本次迭代的待提交改动」 and
+ * 「提交历史」 without a second sidebar, and every ordinary caller keeps
+ * reading CHANGED / COMMITS exactly as before. */
+function CommitsTool({ onOpenTab, changed = CHANGED, commits = COMMITS }: Pick<ToolSidebarProps, 'onOpenTab'> & {
+  changed?: ChangedFile[]
+  commits?: CommitEntry[]
+}) {
   return (
     <div>
       <Section>{i18nT('apps.aiStudio.pending_changes')}</Section>
-      {CHANGED.map((c) => (
+      {changed.map((c) => (
         <Row
           key={c.file}
           title={c.file}
@@ -145,7 +165,7 @@ function CommitsTool({ onOpenTab }: Pick<ToolSidebarProps, 'onOpenTab'>) {
         />
       ))}
       <Section>{i18nT('apps.aiStudio.commit_history')}</Section>
-      {COMMITS.map((c) => (
+      {commits.map((c) => (
         <Row
           key={c.id}
           title={c.message}
