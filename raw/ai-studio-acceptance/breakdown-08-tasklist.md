@@ -10,20 +10,23 @@
 - 范围：release-job / release 两类记录的存储与查询（两概念不混，§〇-2 拍板）；
   `GET /publish/records?project`（B3 字段齐全：form/version/requirementVersion/
   jiraTaskIds/status/url；B4 两态与「最新发布 hash」由此推导）；
-  `GET /publish/preview?project&version`（B1：form full|demo|rejected、reason 非空、
-  acceptanceRef 指向验收记录）。**不做发布触发（T2），不碰前端，不做日志（T4）**。
+  `GET /publish/preview?project&version`（B1：form full|demo|rejected、reason 非空）。
+  **判定源 = git tag 的标签（demo/full），不读验收记录接口；B1 的 acceptanceRef 作废**
+  （owner 2026-09-23 拍板，req-design 同步修 08 正文）。**不做发布触发（T2），不碰前端，不做日志（T4）**。
 - 文件与 testid：`src/kiro_crew/apps/builtins/ai_studio/backend/routes.py` 及存储层；
   新增 `test/test_ai_studio_publish_records.py`。无前端 testid。
 - 验收命令：`python3 -m pytest test/test_ai_studio_publish_records.py test/test_ai_studio_projects.py -q`
-- 依赖：blocked by 待确认-3（验收记录来源，07 范围）；blocks T2、T5。
-- 拍板依据：§三 B1/B3/B4；§〇-2「两个概念，Owner 已拍板」。
+- 依赖：无前置（owner 拍板后不再等 07 验收记录）；blocks T2、T5。
+- 拍板依据：§三 B1/B3/B4；§〇-2「两个概念，Owner 已拍板」；owner 2026-09-23 拍板（判定源=git tag）。
 
 ## T2 [后台] 实现发布触发端点与 job 状态机
 
 - 范围：`POST /publish`（B2）：hash ≠ 最新发布 hash → 新建部署返回 deploymentId；
   相同 → 不新建、返回既有 deploymentId + `idempotent: true`（D2）；hash 非最新（含发过的旧 hash）
   → 正常新建（D3 回滚式重发，正式契约）；同 hash 进行中再调 → 409；失败 → status:"failed"。
-  job 三态流转（发布中/成功/失败）。**实例真停旧起新与域名生效在 T3 验收；本单只验端点应答与记录状态**。
+  job 三态流转（发布中/成功/失败）。触发时写入记录的 `jiraTaskIds` 取自**项目当前关联的任务 md
+  集合**（owner 拍板：DAG 拆解 agent 发 Jira 后把任务号回写 md，md 文件名与任务号双向绑定）。
+  **实例真停旧起新与域名生效在 T3 验收；本单只验端点应答与记录状态**。
 - 文件与 testid：`backend/routes.py` 及存储层；新增 `test/test_ai_studio_publish_trigger.py`。
 - 验收命令：`python3 -m pytest test/test_ai_studio_publish_trigger.py -q`
 - 依赖：blocked by T1；blocks T3、T4、T6。
@@ -32,6 +35,7 @@
 ## T3 [后台] 实现单实例替换执行与发布域名
 
 - 范围：发布成功后应用在 `{版本号}-{应用名}-{工号}.gb10.jereh-pe.cn` 服务（域名逐字模板）；
+  **工号从 JWT 的 `sub` 取；开发环境不校验 JWT 签名与有效期**（owner 2026-09-23 拍板）。
   同一时刻同一项目单实例，新旧不并存；发布失败不留对外结果。含 §四 进程级四条。
   **不碰前端、不碰日志流（T4）**。
 - 文件与 testid：ai_studio 后台执行层；域名模板断言进 pytest；`ai-studio-publish-url-<版本号>`
@@ -59,8 +63,10 @@
   `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>`；行内发布按钮 `ai-studio-publish-btn-<版本号>`
   在本新组件内自建（072257f52 拍板：**不复用、不改动顶栏 `ReleaseControl`**，其
   `release-btn` testid 不动），**渲染与否按 hash 对比**
-  （行 hash vs 最新发布 hash，相同=不渲染且状态「已发布」，不是禁用）；无版本选择器/手输框/确认弹层；
-  四列行内布局。**不做点击后的发布链路与结果条（T6）；不碰 dev 页签共用的 ReleasesTool 分支**。
+  （行 hash vs 最新发布 hash，相同=不渲染且状态「已发布」，不是禁用）；行内形态判定与原因
+  （`ai-studio-publish-reason-<版本号>`）取数自 B1，**其源已改 git tag（demo/full），不再承接 07 验收记录**
+  （owner 2026-09-23 拍板）；无版本选择器/手输框/确认弹层；四列行内布局。
+  **不做点击后的发布链路与结果条（T6）；不碰 dev 页签共用的 ReleasesTool 分支**。
 - 文件与 testid：`ToolSidebar.tsx`、新建发布视图组件、`studioApi.ts`（publish 取数）；
   新增 `src/apps/ai-studio/PublishView.test.tsx`；同提交更新 `raw/ai-studio-acceptance/frontend-component-tree.md`。
 - 验收命令：`cd website && npx vitest run src/apps/ai-studio/PublishView.test.tsx && npm run i18n:check && npm run build`
@@ -106,22 +112,22 @@
 T1 → T2 → {T3, T4 → T7} ；T1 → T5 → T6（T2 亦 blocks T6）；T7+T1 → T8。
 关键路径：T1 → T2 → T4 → T7 → T8。
 
-## 待确认（随清单交 master，不阻塞无争议任务）
+## 拍板记录（原「待确认」全部落定）
 
-> 进度：问题 6 已由 req-design 定稿（08 commit 072257f52，选「不复用、不改动 ReleaseControl」，
-> 行内发布按钮在发布版本列表新组件内自建），已同步进 T5 措辞。其余 1–5 仍在 owner 处等答复。
+> 问题 6：req-design 定稿（08 commit 072257f52，已并入 main）。
+> 问题 1–4：owner 2026-09-23 拍板，req-design 同步在改 08 正文（B1 会变）。
+> 问题 5：owner 令「不设 T9」，已删。
 
-1. **commit hash 来源与「项目级版本」粒度**：08 的行数据、B2 的 `commitHash`、hash 对比全依赖
-   每版本一个 commit hash，但现状版本接口是**按文档**的 `versions/<doc>/<timestamp>`
-   （前端 `StudioVersion{name,time,diff}`、后端 projects.py 均无 hash 字段）。08 §〇-1 说行与
-   02 的 `version-history-list` 同源——hash 由 02 侧哪张单产生？未派则 T1 前需补前置单，请 master 转 req-design 澄清。
-2. **工号来源**：域名模板 `{版本号}-{应用名}-{工号}` 的工号（例 14409）取数处（登录态？项目字段？）文档未写明。
-3. **验收记录端点（07 范围）悬空**：B1 判定源=验收记录（acceptanceRef），后台现无任何 acceptance 实现；
-   07 是否已定稿/派单？T1 的 blocked by 取决于此。
-4. **B3 记录字段链路**：`requirementVersion` 与 `jiraTaskIds` 非空的写入方是谁（02 冻结版本 × Jira 任务），
-   08 只断言存在，实现前需指明数据从哪来。
-5. **§五 验收是否单列自动化验收脚本单**（e2e）：本清单只覆盖实现侧；若 §五 要成 script，master 决定是否另立。
-6. ~~**§六 复用表与 testid 契约的措辞冲突**~~ **已定（08 commit 072257f52，已并入 main）**：
-   选「不复用、不改动 ReleaseControl」——它是顶栏三态一表的控制条，`release-btn` testid 不动；
-   行内发布按钮 `ai-studio-publish-btn-<版本号>` 在「发布版本列表」新组件内自建。
-   T5 措辞已按此同步。
+- **版本 hash 来源（原问题 1）**：版本 hash = **git commit + git tag**——开发测试完提交后打版本标签，
+  tag 注明演示版（demo）还是完整版（full）。故 T1 记录与 B2 的 `commitHash` 是项目级 git 概念，
+  不是现状按文档的 `versions/<doc>/<timestamp>`；hash 对比、幂等、回滚全部锚在这个 git hash 上。
+- **域名工号（原问题 2）**：从 **JWT 的 `sub`** 取；**开发环境不校验 JWT 签名与有效期**。已写进 T3。
+- **形态判定源（原问题 3）**：改判 **git tag 的标签（demo/full）**，**不再读验收记录接口**，
+  B1 的 `acceptanceRef` 作废。T1 的记录存储保留，但 **B1 判定不再 blocked by 07**——T1 前置清空。
+  T5 行内 reason 取数源随之改（经 B1，源头是 tag）。
+- **jiraTaskIds 写入方（原问题 4）**：DAG 任务拆解 agent 写任务 md → 调 CLI/MCP 发布 Jira →
+  任务号回写 md（**md 文件名与任务号双向绑定**）；发布记录的 jiraTaskIds 来自项目当前关联的
+  任务 md 集合，**T2 触发时写入**。已写进 T2。
+- **e2e 脚本单（原问题 5）**：owner 拍板不设，本清单无 T9；§五 整体验收由 master 另行安排，不在本清单。
+- **行内发布按钮（原问题 6）**：不复用、不改动顶栏 `ReleaseControl`（`release-btn` 不动），
+  `ai-studio-publish-btn-<版本号>` 在发布版本列表新组件内自建。已同步 T5。
