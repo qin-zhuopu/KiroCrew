@@ -26,9 +26,48 @@
 | 行内发布状态 | `ai-studio-publish-version-state`（行内） | 已发布/未发布两态；由发布记录推导（无记录=未发布） |
 | 行内发布按钮 | `ai-studio-publish-btn-<版本号>` | 渲染与否=hash 对比规则（见 §〇）；点击即发布，无确认弹层、无表单 |
 | 行内形态判定与原因 | `ai-studio-publish-reason-<版本号>`（行内） | 承接 07 的验收记录（demo/full 通过状态）；未过验收的行在这里给出不可发的原因 |
-| 行内发布结果 | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` / `ai-studio-publish-record-<版本号>` | 本步自身产出，发布后出现在该行内 |
+| 行内发布结果 | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` | 本步自身产出，发布后出现在该行内 |
+| 行内发布号链接 | `ai-studio-publish-id-<版本号>`（链接，指向发布详情页） | 点击发布后行状态=「发布中」并出现发布号；点它在新页签打开 `/release-jobs/<发布号>`（见 §〇-2） |
+
+**行内空间规划（侧栏窄，逐列排布，不许折行堆叠）**：
+
+| 列 | 内容 | 承载 |
+|---|---|---|
+| 版本 | 版本号 + 短 hash | 行本体文本 |
+| 状态 | 未发布 / 发布中 / 已发布 / 失败 | `ai-studio-publish-version-state` |
+| 动作 | 发布按钮（hash 规则决定渲染）或形态判定原因（挤不进时收进行内 title/悬浮提示） | `ai-studio-publish-btn-<版本号>` / `ai-studio-publish-reason-<版本号>` |
+| 链接 | **发布地址写在 `<a href>` 里**（列内显示短文案如「打开」，不裸贴长 URL）；发布号同理是 `<a href>` 指向 `/release-jobs/<发布号>` | `ai-studio-publish-url-<版本号>` / `ai-studio-publish-id-<版本号>` |
+
+断言不变：`ai-studio-publish-url-<版本号>` 的 **href** 逐字匹配域名模板（显示文案可以短，href 必须全量）。
+
+**行内两个状态元素的分工**（都是行内，不许混）：
+- `ai-studio-publish-version-state` = 该版本的生命周期状态：未发布 / 发布中 / 已发布 / 失败；
+- `ai-studio-publish-status-<版本号>` = 本次发布动作的结果文案：发布中（进行时）/ 发布成功 / 发布失败+原因。
+两者在发布期间同步（同现「发布中」），终态由 release 决定（成功→已发布；失败→未发布+失败原因）。
 
 后序文档（09 view-history）承接本步的产出：发布记录、应用地址——已在其视图内列为可跳转节点。
+
+## 〇-2、发布详情页（Jenkins 式发布历史 + 流式日志）
+
+**两个概念，不许混用**（Owner 已拍板）：
+
+- **release-job（发布任务）**：点一次发布按钮产生的一个**执行体**——有发布号、有状态（发布中/成功/失败）、有流式日志。失败的任务不产生任何对外结果。侧栏行内出现、以及详情页 `/release-jobs/<发布号>` 列出的历史，都是 release-job。
+- **release（发布结果）**：release-job **成功后**产生的对外事实——某版本的应用以某形态在某个 URL 上服务。侧栏行内的「已发布」状态、`ai-studio-publish-url-<版本号>`、「最新发布 hash」的判定，都读 release，不读任务。
+
+点击发布后，行状态=「发布中」，行内出现**发布号**；点发布号**在新页签打开** `/release-jobs/<发布号>`——一个独立页面，像 Jenkins 一样：
+
+- **发布历史列表**：该项目全部 **release-job** 逐条列出（含本条），进行中的置顶；每条含发布号、版本号、形态、状态、时间。
+- **流式日志**：对**正在发布**的那条，页面下方流式输出发布日志（边发边长，非完成后一次性展示）；已完成的记录打开则是完整日志回放。
+
+| 断言点 | testid / 端点 |
+|---|---|
+| 详情页路由 | 新页签 URL=`/release-jobs/<发布号>`；断言 `window.location.pathname` 匹配 |
+| 页面本体 | `ai-studio-release-job-page` |
+| 发布记录（job 列表） | `ai-studio-release-job-history-list`；行=`ai-studio-release-job-row-<发布号>`。**这就是发布记录的展示处**（侧栏行内不再另放记录） |
+| job 状态 | `ai-studio-release-job-status-<发布号>`：只有三态——已完成 / 已失败 / 发布中 |
+| 列表只读 | job 列表**只允许点击查看详情，不允许任何操作**：行内不得出现重试/取消/删除等按钮；断言行内可点击元素仅「查看详情」一类 |
+| 流式日志 | `ai-studio-release-job-log-<发布号>`：发布中的 job，日志文本随时间增长（断言两次采样行数递增且最终含完成标记）；已完成的 job 打开是完整日志回放；日志渲染复用 `DeployLog` 形态 |
+| 后台日志流 | `GET /publish/<deploymentId>/log`（流式；最终路径以实现为准，调整须同提交改本文档） |
 
 ## 一、发布前的状态前提（fixture）
 
@@ -46,11 +85,11 @@
 |---|---|---|---|
 | A1 | 在右侧边栏点「发布」页签 | `ai-studio-publish-entry`（页签本体，挂在 ToolSidebar 内） | 可见、可点击；点击后发布视图在右侧边栏展开，展开结构=§〇-1 的固定区块表：版本列表逐行列出前序提交产生的版本（每行可见版本号），无任何版本下拉或手输框 |
 | A2 | 找到目标版本行 | `ai-studio-publish-version-row-<版本号>` | 该行渲染 `ai-studio-publish-btn-<版本号>`（其 hash ≠ 最新发布 hash）；行状态 `ai-studio-publish-version-state` 文本=「未发布」 |
-| A3 | 点击该行的发布按钮 | `ai-studio-publish-btn-<版本号>` | 点击后**直接进入发布**（无确认弹层、无表单提交）；行内 `ai-studio-publish-status-<版本号>` 文本含「发布中」（轮询刷新，非一次性文案） |
+| A3 | 点击该行的发布按钮 | `ai-studio-publish-btn-<版本号>` | 点击后**直接进入发布**（无确认弹层、无表单提交）；行状态改为「发布中」，行内出现发布号链接 `ai-studio-publish-id-<版本号>`；`ai-studio-publish-status-<版本号>` 文本含「发布中」（轮询刷新，非一次性文案） |
 | A4 | 发布成功 | `ai-studio-publish-status-<版本号>` | 文本含「发布成功」 |
 | A5 | 形态标识 | `ai-studio-publish-form-badge-<版本号>` | 文本=「完整版」 |
-| A6 | 发布地址可点 | `ai-studio-publish-url-<版本号>`（链接） | href 匹配域名模板 `{版本号}-{应用名}-{工号}.gb10.jereh-pe.cn`（见 §四探活） |
-| A7 | 发布记录可见 | `ai-studio-publish-record-<版本号>` | 含：版本号、形态、需求版本号、关联 Jira 任务号 |
+| A6 | 发布地址可点 | `ai-studio-publish-url-<版本号>`（链接） | 发布成功后该行内可见；href 匹配域名模板 `{版本号}-{应用名}-{工号}.gb10.jereh-pe.cn`；点击在**新页签**打开发布好的应用地址（见 §四探活） |
+| A7 | 发布记录在哪看 | `ai-studio-publish-id-<版本号>` | 发布记录=release-job 页的 job 列表（见 §〇-2）：点发布号链接进入后可见，列表含版本号、形态、状态、时间，**不在侧栏行内展示** |
 | A8 | 行状态回写 | — | 该行「未发布」→「已发布」，且 `ai-studio-publish-btn-<版本号>` **从 DOM 消失**（其 hash 已成最新发布 hash）；其余版本行的按钮与状态不变 |
 
 ### 场景 B：仅演示版过验收 → 只发演示版
@@ -105,6 +144,7 @@
 - [ ] 场景 D：版本 hash 与最新发布 hash 相同 → 行内不渲染按钮，重复进入不新增发布记录；旧 hash（非最新）→ 按钮正常渲染，可回滚式重发（D3）
 - [ ] 失败路径：制造一次构建失败，`status:"failed"` + 行内失败提示可见
 - [ ] 并发路径：发布进行中再触发，409 + 该行不出现两个「发布中」
+- [ ] §〇-2 发布详情页：发布号链接新页签打开 `/release-jobs/<发布号>`；历史列表齐全；进行中记录日志流式增长、完成后可回放
 
 ## 六、前端组件枚举与复用（防膨胀）
 
@@ -119,12 +159,13 @@
 | `CommitView.tsx` / 版本列表相关 | `version-history-list` 等 | 版本列表数据来源（前序产生），发布视图的版本列表从这里取数，不重复实现版本来源 |
 | `ToolSidebar.tsx` | `tool-sidebar` | 发布页签挂在它内，不新建侧栏壳 |
 
-### 新建（仅此三件，超出需先改本文档）
+### 新建（仅此四件，超出需先改本文档）
 
 | 新组件 | 承载 testid | 理由 |
 |---|---|---|
-| 发布页签（ToolSidebar 内新页签） | `ai-studio-publish-entry` | 右边栏现有页签不含发布 |
+| 发布页签（现有 `ToolSidebar` 的 releases 页签） | `ai-studio-publish-entry` | 页签本体已存在（现无 testid），**本条只要求补挂 testid**；其内容从现有 fixture 桩换成发布版本列表（见上一行） |
 | 发布版本列表（行=版本+状态+按钮+原因） | `ai-studio-publish-version-list` / `ai-studio-publish-version-row-<版本号>` / `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>` | 现无「每行可发布」的版本列表；列表数据复用版本接口，但行内发布语义是新内容 |
-| 行内发布结果条（状态+徽标+地址+记录） | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` / `ai-studio-publish-record-<版本号>` | 现无对应物 |
+| 行内发布结果条（状态+徽标+地址+发布号链接） | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` / `ai-studio-publish-id-<版本号>` | 现无对应物；发布记录不在行内，收进 release-job 页的 job 列表 |
+| 发布详情页 ReleaseJobPage（独立路由 `/release-jobs/<发布号>`，历史列表+流式日志） | `ai-studio-release-job-page` / `ai-studio-release-job-history-list` / `ai-studio-release-job-row-<发布号>` / `ai-studio-release-job-status-<发布号>` / `ai-studio-release-job-log-<发布号>` | Jenkins 式发布历史与流式日志，现无对应页面；日志渲染复用 `DeployLog` 形态，不另造日志组件 |
 
-**禁止**：为发布再造第二套版本列表、第二套日志视图、第二套确认按钮、任何版本选择器/手输框。发现要新建第四个组件时，先回来改本节。
+**禁止**：为发布再造第二套版本列表、第二套日志视图、第二套确认按钮、任何版本选择器/手输框。发现要新建第五个组件时，先回来改本节。
