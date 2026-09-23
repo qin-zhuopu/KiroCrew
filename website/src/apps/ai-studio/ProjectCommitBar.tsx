@@ -10,7 +10,7 @@
 // a mid-list failure should leave the earlier commits done rather than race
 // partial writes. Afterwards the caller re-mounts its open editors onto the
 // committed content (onCommitted carries the refetched docs).
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { GitCommit } from 'lucide-react'
 import ErrorNotice from '../../components/ErrorNotice'
@@ -18,12 +18,18 @@ import { Btn } from '../../components/ui'
 import { i18nT } from '../../i18n/t'
 import { studioApi, type StudioApi, type StudioDoc } from './studioApi'
 
-export default function ProjectCommitBar({ projectId, api = studioApi, onCommitted }: {
+export default function ProjectCommitBar({ projectId, api = studioApi, onCommitted, onDraftsSeen }: {
   projectId: string
   /** data source, injectable for the demo's snapshot fake */
   api?: StudioApi
   /** called after a successful commit with the freshly committed docs */
   onCommitted?: (docs: StudioDoc[]) => void
+  /** reports the drafted doc names this bar's own query read, whenever that
+   * read changes (ACP-754): the ordinary workbench feeds its 「最近活动」
+   * list off this instead of opening a SECOND drafts query — one read, one
+   * consumer list, no second fetch (the fetch-count test in AiStudioPage
+   * counts exactly these calls) */
+  onDraftsSeen?: (names: string[]) => void
 }) {
   const [committing, setCommitting] = useState(false)
   const [commitErr, setCommitErr] = useState<string | null>(null)
@@ -37,6 +43,21 @@ export default function ProjectCommitBar({ projectId, api = studioApi, onCommitt
     queryFn: () => api.listDraftDocs(projectId).then((r) => r.drafts),
   })
   const draftDocs = draftsQuery.data ?? []
+
+  // report the read upward whenever it CHANGES (name-set compare), not every
+  // render: the workbench's recent-activity feed consumes this without
+  // mounting its own observer (which would add a refetch — the fetch-count
+  // test in AiStudioPage.test.tsx pins the call count).
+  const seenRef = useRef<string>('')
+  useEffect(() => {
+    if (!onDraftsSeen) return
+    const names = draftDocs.map((d) => d.name)
+    const key = names.join('\n')
+    if (key !== seenRef.current) {
+      seenRef.current = key
+      onDraftsSeen(names)
+    }
+  }, [draftDocs, onDraftsSeen])
 
   const commitAll = useCallback(async () => {
     const work = draftDocs

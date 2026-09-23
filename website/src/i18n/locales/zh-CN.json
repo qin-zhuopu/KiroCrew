@@ -398,6 +398,8 @@
       "commit_all_hint": "提交所有含未提交草稿的文档",
       "committing": "提交中…",
       "drafts_pending": "未提交的草稿",
+      "recent_activity": "最近活动",
+      "recent_activity_empty": "暂无活动",
       "diff_vs_committed": "与最近提交对比",
       "draft_history": "修改历史",
       "draft_history_empty": "上次提交以来暂无自动保存记录",

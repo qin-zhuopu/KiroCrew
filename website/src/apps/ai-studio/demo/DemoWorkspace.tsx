@@ -31,6 +31,7 @@ import DistillPanel from '../DistillPanel'
 import GraphView from '../GraphView'
 import { RegenDiffPair, RegenDocView } from '../RegenDiffView'
 import ProjectCommitBar from '../ProjectCommitBar'
+import RecentActivityFeed from '../RecentActivityFeed'
 import ReleaseControl from '../ReleaseControl'
 import WorkArea, { type WorkTab } from '../WorkArea'
 import type { DemoFixture } from './types'
@@ -221,7 +222,20 @@ export default function DemoWorkspace({ params }: {
          * (§4: the demo acts on the real business path, through the fake's
          * data), running against the snapshot fake */}
         <div className="relative flex items-center gap-2">
-          <ProjectCommitBar projectId={ctl.fixture.project.id} api={ctl.api} onCommitted={onDocCommitted} />
+          {/* the commit's landing stamp (ACP-754): the editor re-keys through
+           * liveCommit, and the step stamp additionally moves `landed` to the
+           * step's afterFix so the snapshot-driven panels — the recent-activity
+           * feed — show the LANDED frame's facts (main-8's click lands exactly
+           * on its declared afterFix; an off-script commit at a step without
+           * one re-reads that step's own frame, swapping nothing). */}
+          <ProjectCommitBar
+            projectId={ctl.fixture.project.id}
+            api={ctl.api}
+            onCommitted={(fresh) => {
+              onDocCommitted(fresh)
+              setLandedStep(ctl.stepIndex)
+            }}
+          />
           {/* the release / distill buttons appear only on the step whose
            * after-fix snapshot actually carries that payload (main-10 /
            * main-11) — nowhere else, so no step ever offers a button whose
@@ -244,6 +258,13 @@ export default function DemoWorkspace({ params }: {
           )}
         </div>
       </header>
+      {/* the recent-activity feed (ACP-754): the frame's own recent facts —
+       * commits, drafts, the release, the applied distillation — every entry
+       * a derived fact of `landed` (check_activity at generation re-verifies
+       * it against the snapshot's payloads). Sourced from `landed` like every
+       * panel below: when a live act lands, the feed shows the landed
+       * frame's activities, never the pre-click frame's. */}
+      <RecentActivityFeed items={landed.recentActivity} />
       <div className="flex-1 min-h-0">
         <WorkArea
           tabs={tabs}

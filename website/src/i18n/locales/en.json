@@ -180,6 +180,8 @@
       "commit_all_hint": "Commit every document with an uncommitted draft",
       "committing": "Committing…",
       "drafts_pending": "Uncommitted drafts",
+      "recent_activity": "Recent activity",
+      "recent_activity_empty": "No activity yet",
       "diff_vs_committed": "Diff against last commit",
       "draft_history": "Autosave history",
       "draft_history_empty": "No autosaved changes since the last commit",
