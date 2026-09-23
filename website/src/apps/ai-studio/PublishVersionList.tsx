@@ -307,7 +307,7 @@ export default function PublishVersionList({ projectId }: { projectId: string })
                     {deploymentId && (
                       <a
                         data-testid={`ai-studio-publish-id-${v.version}`}
-                        href={`/release-jobs/${encodeURIComponent(deploymentId)}`}
+                        href={`/release-jobs/${encodeURIComponent(deploymentId)}?project=${encodeURIComponent(projectId)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] text-muted hover:text-accent hover:underline truncate max-w-full"

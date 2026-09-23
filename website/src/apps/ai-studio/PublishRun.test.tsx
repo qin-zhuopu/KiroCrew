@@ -113,7 +113,7 @@ describe('inline publish run (T6)', () => {
     // the release-job id link appears, pointing at /release-jobs/<发布号>
     // and opening in a NEW tab (§〇-1 链接列)
     const idLink = await within(row).findByTestId('ai-studio-publish-id-v3')
-    expect(idLink).toHaveAttribute('href', '/release-jobs/job-9')
+    expect(idLink).toHaveAttribute('href', '/release-jobs/job-9?project=p1')
     expect(idLink).toHaveAttribute('target', '_blank')
   })
 
@@ -153,7 +153,7 @@ describe('inline publish run (T6)', () => {
     expect(within(v2).getByTestId('ai-studio-publish-btn-v2')).toBeInTheDocument()
     expect(within(v2).getByTestId('ai-studio-publish-version-state')).toHaveTextContent('Published')
     // A7: the job-id link survives the settle and still opens the job page
-    expect(within(row).getByTestId('ai-studio-publish-id-v3')).toHaveAttribute('href', '/release-jobs/job-9')
+    expect(within(row).getByTestId('ai-studio-publish-id-v3')).toHaveAttribute('href', '/release-jobs/job-9?project=p1')
   }, 15000)
 
   it('场景 B: a demo release badges the record form (演示版 reads Demo in the en catalog)', async () => {
@@ -242,7 +242,7 @@ describe('inline publish run (T6)', () => {
     // D1/A7: the published row keeps its url and job-id links even without
     // a run this visit — both come off the success record.
     expect(within(row).getByTestId('ai-studio-publish-url-v3')).toHaveAttribute('href', URL_V3)
-    expect(within(row).getByTestId('ai-studio-publish-id-v3')).toHaveAttribute('href', '/release-jobs/job-9')
+    expect(within(row).getByTestId('ai-studio-publish-id-v3')).toHaveAttribute('href', '/release-jobs/job-9?project=p1')
     expect(within(row).getByTestId('ai-studio-publish-form-badge-v3')).toHaveTextContent('Full')
   })
 
