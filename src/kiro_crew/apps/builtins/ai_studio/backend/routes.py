@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable
 
 from aiohttp import web
 
-from kiro_crew.apps.builtins.ai_studio.backend import projects
+from kiro_crew.apps.builtins.ai_studio.backend import projects, publish
 from kiro_crew.apps.manager import is_app_enabled
 
 logger = logging.getLogger(__name__)
@@ -172,6 +172,31 @@ async def _handle_doc_versions(request: web.Request) -> web.StreamResponse:
     return web.json_response({"versions": versions})
 
 
+async def _handle_publish_records(request: web.Request) -> web.StreamResponse:
+    # B3/B4: the release records of one project, newest first. The publish
+    # view derives the per-version published/unpublished states and the
+    # "latest published hash" (the newest success record's hash) from this
+    # one read.
+    project_id = request.query.get("project", "")
+    try:
+        records = await asyncio.to_thread(publish.list_release_records, project_id)
+    except publish.PublishError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response({"records": records})
+
+
+async def _handle_publish_preview(request: web.Request) -> web.StreamResponse:
+    # B1: per-version form judgment. A ``rejected`` form is a 200 verdict
+    # body, not an error — the publish view renders the reason inline.
+    project_id = request.query.get("project", "")
+    version = request.query.get("version", "")
+    try:
+        verdict = await asyncio.to_thread(publish.preview_version, project_id, version)
+    except publish.PublishError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(verdict)
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -199,3 +224,5 @@ def register_routes(app: web.Application) -> None:
         f"{_BASE}/projects/{{project_id}}/docs/{{doc_name}}/versions",
         _require_enabled(_handle_doc_versions),
     )
+    app.router.add_get(f"{_BASE}/publish/records", _require_enabled(_handle_publish_records))
+    app.router.add_get(f"{_BASE}/publish/preview", _require_enabled(_handle_publish_preview))
