@@ -17,13 +17,15 @@ open-project 有两种「进入项目工作台」的方式，断言分两组，�
 
 | 路线 | URL | 数据源 | 用途 |
 |---|---|---|---|
-| **演示路线（demo）** | `/ai-studio?demo=<场景id>` | 快照 fixture（零 API、零写请求） | 断言「当前状态」的**内容级**一致性——fixture 是唯一权威数据源 |
-| **普通路线（ordinary）** | `/ai-studio` → 点选/新建 → `/ai-studio/projects/<id>` | 真实后端 `/api/apps/ai-studio/*` | 断言进入流程、加载态、空项目初始态 |
+| **演示路线（demo）** | `/workspaces?demo=<场景id>` | 快照 fixture（零 API、零写请求） | 断言「当前状态」的**内容级**一致性——fixture 是唯一权威数据源 |
+| **普通路线（ordinary）** | `/workspaces` → 点选/新建 → `/workspaces/<id>/ai-studio` | 真实后端 `/api/apps/ai-studio/*` | 断言进入流程、加载态、空项目初始态 |
 
 路由契约（踩过坑，写死）：
 
-- 内置应用路由是 `/:builtinApp/*`：**`/ai-studio` 与 `/ai-studio/…` 都命中**；
-  **`/apps/ai-studio` 不命中**（落回聊天页），**根路径 `/?demo=…` 不命中**（`?demo=` 只在 `/ai-studio` 前缀下被解析）。
+- 内置应用路由是 `/:builtinApp/*`：**`/workspaces` 与 `/workspaces/…` 都命中**；
+  **`/apps/ai-studio` 不命中**（落回聊天页），**根路径 `/?demo=…` 不命中**（`?demo=` 只在 `/workspaces` 前缀下被解析）。
+- 旧地址自动跳转：`/ai-studio`（含子路径）由 App.tsx 静态路由重定向到 `/workspaces`（query/hash 保留，`?demo=` 书签不断）；
+  `/projects/<id>/ai-studio` 由 ProjectsPage 垫片跳 `/workspaces/<id>/ai-studio`。
 - 场景 id = `website/src/apps/ai-studio/demo/steps/*.json` 的文件名。主单里写的 `?demo=main`
   **不是合法场景 id**（主场景为 `main-membership-points`，另有 `alt-1-draft-restore`、`alt-2-empty-gray`）；
   未知场景必须落 `demo-unknown-scenario`，不得渲染真实工作台、不得回落到真实数据（本文档 N2 断言）。
@@ -75,8 +77,8 @@ home 落定（`PUT /api/config/theme {onboarded,import_onboarded,privacy_acked:t
 
 | # | 操作 | 定位 | 断言 |
 |---|---|---|---|
-| P1 | 打开 `/ai-studio` | `ai-studio-projects` | 项目列表页渲染 |
-| P2 | 点「新建项目」，填名称/描述，提交 | `form input` / `form textarea` / `form button[type=submit]` | 跳转到 `/ai-studio/projects/<新 id>`（URL 可判定） |
+| P1 | 打开 `/workspaces` | `ai-studio-projects` | 项目列表页渲染 |
+| P2 | 点「新建项目」，填名称/描述，提交 | `form input` / `form textarea` / `form button[type=submit]` | 跳转到 `/workspaces/<新 id>/ai-studio`（URL 可判定） |
 | P3 | 进入新项目工作台（project GET 人为延迟 1.2s） | `ai-studio-loading` → `ai-studio` | **出现→消失**：延迟期间 skeleton `attached`；工作台 `attached` 后 skeleton **不在 DOM** |
 | P4 | 看工作台壳 | `ai-studio` / `tool-sidebar` / `recent-activity` / `drafts-pending` / `commit-all-btn` | 壳与侧栏存在；recent-activity `count=0` 且空态节点存在；**「草稿初始为 0」的谓词 = `drafts-pending` 徽标不在 DOM 且 `commit-all-btn.disabled == true`**（徽标组件只在 >0 时渲染，这对组合就是「0」的可判定读法） |
 | P5 | （反向）打开不存在的项目 id | `ai-studio-load-error` | 出现，且文本语义命中 `不存在|no longer exists`（不锁单一语言文案） |
@@ -107,7 +109,7 @@ P1/P4/P5 的 vitest 佐证：`AiStudioPage.test.tsx` 中
 
 ## 五、已知坑登记（填坑笔记同步）
 
-- `?demo=` 只在 `/ai-studio` 前缀下生效；`/apps/ai-studio?demo=` 与 `/?demo=` 都静默渲染别的页面。
+- `?demo=` 只在 `/workspaces` 前缀下生效（旧 `/ai-studio` 前缀经静态重定向后同样生效，query 保留）；`/apps/ai-studio?demo=` 与 `/?demo=` 都静默渲染别的页面。
 - 首启引导模态链拦截点击且**异步弹出**（theme-boot 返回后才出现），goto 后立即 dismiss 会漏。
 - 富文本编辑器 Raw 视图是模型的**再序列化**，非源文逐字（任务清单勾选项被规范化）。
 - vite 的 `/?token=` 握手页禁止 `waitUntil:'networkidle'`（dashboard 长连接永不 idle）。

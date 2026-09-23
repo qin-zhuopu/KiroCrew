@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { Hourglass, ClipboardList, ClipboardCheck, RefreshCw, CheckCircle, XCircle, Square, Sparkles, FileText, Settings, X, MessageSquare, Pencil, Clock, Pause, Play, RotateCcw, Plus, PanelLeftOpen, Zap } from 'lucide-react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppSelector, useAppDispatch } from '../store'
 import { setPendingInput, switchSlot } from '../store/chatSlice'
 import { api } from '../api/client'
@@ -13,7 +13,6 @@ import AgentSelector from '../components/AgentSelector'
 import { useAgents } from '../hooks/useAgents'
 import { triggerRefresh } from '../store/dashboardSlice'
 import ProjectDetailPage from './ProjectDetailPage'
-import AiStudioPage from '../apps/ai-studio/AiStudioPage'
 import {
   COLLAPSED_RAIL_WIDTH, MAX_RAIL_WIDTH, MIN_RAIL_WIDTH,
   RAIL_COLLAPSED_KEY, RAIL_WIDTH_KEY, loadRailCollapsed, loadRailWidth,
@@ -64,20 +63,25 @@ function TextInputPanel({ text, setText, rows, placeholder, accept, onUpload, on
   )
 }
 
-/** The AI Studio workbench is routed at `/projects/<id>/ai-studio`, under this
- * page's own top-level segment. `BuiltinAppRoute` resolves only the first
- * segment against the builtin registry, so without this dispatch the URL
- * would render the Projects page instead of the studio. */
-const AI_STUDIO_WORKSPACE_RE = /^\/projects\/[^/]+\/ai-studio/
+/** Legacy URL from the rename: the AI Studio workbench once rode on this
+ * page's own top-level segment (`/projects/<id>/ai-studio`). It now owns the
+ * `/workspaces` segment and resolves through the builtin registry directly,
+ * so this page only redirects — bookmarks and acceptance scripts written
+ * against the old URL land on the new one. Returned BEFORE ProjectsPageBody
+ * so neither side runs the other's hooks. */
+const LEGACY_AI_STUDIO_RE = /^\/projects\/([^/]+)\/ai-studio(\/.*)?$/
 
-/** Route dispatch first: the AI Studio workbench lives at
- * `/projects/<id>/ai-studio`, under this page's own top-level segment.
- * `BuiltinAppRoute` resolves only the first segment against the builtin
- * registry, so without this the URL would render the Projects page instead
- * of the studio. Returned BEFORE ProjectsPageBody so neither side runs the
- * other's hooks. */
 export default function ProjectsPage() {
-  if (useLocation().pathname.match(AI_STUDIO_WORKSPACE_RE)) return <AiStudioPage />
+  const { pathname, search, hash } = useLocation()
+  const legacy = pathname.match(LEGACY_AI_STUDIO_RE)
+  if (legacy) {
+    return (
+      <Navigate
+        to={`/workspaces/${legacy[1]}/ai-studio${legacy[2] ?? ''}${search}${hash}`}
+        replace
+      />
+    )
+  }
   return <ProjectsPageBody />
 }
 

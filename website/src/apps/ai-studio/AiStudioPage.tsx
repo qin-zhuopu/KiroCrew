@@ -1,10 +1,13 @@
 // AI Studio — a three-column coding-studio shell over Kiro Crew.
 //
 // This component is the app's whole route surface: the dashboard's catch-all
-// (`/:builtinApp/*`) resolves every sub-path through the registry's single
-// `/ai-studio` entry, so the split between the two views happens here by URL:
-//   /ai-studio                   → ProjectsListPage (list + create)
-//   /projects/<id>/ai-studio     → StudioWorkspace (the workbench for one project)
+// (`/:builtinApp/*`) resolves every sub-path through the registry's
+// `/workspaces` entry, so the split between the two views happens here by URL:
+//   /workspaces                  → ProjectsListPage (list + create)
+//   /workspaces/<id>/ai-studio   → StudioWorkspace (the workbench for one project)
+// The pre-rename URLs redirect here — `/ai-studio` through a static route in
+// App.tsx, `/projects/<id>/ai-studio` through ProjectsPage's legacy shim — so
+// bookmarks and acceptance scripts keep landing on the right view.
 //
 // Workspace: left the native chat (ChatEmbed, real sessions — same embed
 // contract the spec-builder uses), center a tabbed work area (docs / diffs /
@@ -65,13 +68,12 @@ function loadHidden(): Hidden {
   return { left: false, center: false, right: false }
 }
 
-/** `/projects/<id>/ai-studio` → the id; anything else → the list. The id is
+/** `/workspaces/<id>/ai-studio` → the id; anything else → the list. The id is
  * read off the pathname rather than nested <Route>s because the dashboard
- * mounts this page as one catch-all entry (see BuiltinAppRoute). The
- * workspace lives under `/projects` — the Projects app's own top-level
- * segment — so ProjectsPage dispatches here for this sub-path; this page
- * stays mounted at `/ai-studio` for the list. */
-const WORKSPACE_RE = /^\/projects\/([^/]+)\/ai-studio/
+ * mounts this page as one catch-all entry (see BuiltinAppRoute). The legacy
+ * `/projects/<id>/ai-studio` URL is redirected by ProjectsPage before this
+ * page is reached. */
+const WORKSPACE_RE = /^\/workspaces\/([^/]+)\/ai-studio/
 
 export default function AiStudioPage() {
   const location = useLocation()
@@ -218,7 +220,7 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
           message={gone ? i18nT('apps.aiStudio.err_project_missing') : String(projectQuery.error?.message ?? projectQuery.error)}
           askAgent={false}
         />
-        <Btn onClick={() => navigate('/ai-studio')}>
+        <Btn onClick={() => navigate('/workspaces')}>
           <ArrowLeft size={14} className="lucide-inline" /> {i18nT('apps.aiStudio.back_to_projects')}
         </Btn>
       </div>
@@ -229,7 +231,7 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="ai-studio">
       <header className="flex items-center gap-3 px-4 h-[44px] shrink-0 border-b border-border bg-card">
-        <Btn onClick={() => navigate('/ai-studio')} title={i18nT('apps.aiStudio.back_to_projects')} aria-label={i18nT('apps.aiStudio.back_to_projects')}>
+        <Btn onClick={() => navigate('/workspaces')} title={i18nT('apps.aiStudio.back_to_projects')} aria-label={i18nT('apps.aiStudio.back_to_projects')}>
           <ArrowLeft size={14} className="lucide-inline" />
         </Btn>
         <span className="text-sm font-semibold text-text-strong">AI Studio</span>

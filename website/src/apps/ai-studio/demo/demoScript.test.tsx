@@ -151,7 +151,7 @@ function mountDemo(scenario: string, extraQuery = '') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/ai-studio/projects/demo-x?demo=${scenario}${extraQuery}`]}>
+      <MemoryRouter initialEntries={[`/workspaces/demo-x/ai-studio?demo=${scenario}${extraQuery}`]}>
         <AiStudioPage />
       </MemoryRouter>
     </QueryClientProvider>,

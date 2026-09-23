@@ -174,4 +174,4 @@ docs/guides/ai-studio-demo-methodology.md   # 本方法论（登记进 docs/READ
    ```
 
 2. 往网关里灌演示项目数据（或直接复用 `fixtures/*.json` 里的 `project`/`docs` 经 API 创建）。
-3. 浏览器打开 `#/ai-studio/projects/<项目id>?demo=main-membership-points`（剧本名对应 `steps/<剧本名>.json`）。命中演示模式时：数据层由快照 fake 接管（不发任何 fetch、写操作只动内存），右下角出现步进器；未带 `?demo=` 时页面行为与平时完全一致。
+3. 浏览器打开 `/workspaces/any/ai-studio?demo=main-membership-points`（路径里的项目 id 会被忽略，剧本自带演示项目；剧本名对应 `steps/<剧本名>.json`）。命中演示模式时：数据层由快照 fake 接管（不发任何 fetch、写操作只动内存），右下角出现步进器；未带 `?demo=` 时页面行为与平时完全一致。

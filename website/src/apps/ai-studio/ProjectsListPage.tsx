@@ -34,7 +34,7 @@ export default function ProjectsListPage() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['ai-studio', 'projects'] })
       setCreating(false)
-      navigate(`/projects/${encodeURIComponent(res.project.id)}/ai-studio`)
+      navigate(`/workspaces/${encodeURIComponent(res.project.id)}/ai-studio`)
     },
   })
 
@@ -70,7 +70,7 @@ export default function ProjectsListPage() {
               <ProjectCard
                 key={p.id}
                 project={p}
-                onOpen={() => navigate(`/projects/${encodeURIComponent(p.id)}/ai-studio`)}
+                onOpen={() => navigate(`/workspaces/${encodeURIComponent(p.id)}/ai-studio`)}
               />
             ))}
           </div>

@@ -1,6 +1,6 @@
-// Tests for the app's route surface and the workbench shell: /ai-studio lands
-// on the project list (empty state + new-project dialog), /projects/<id>/ai-studio
-// /<id> lands on the three-column workbench whose header names the project,
+// Tests for the app's route surface and the workbench shell: /workspaces lands
+// on the project list (empty state + new-project dialog), /workspaces/<id>/ai-studio
+// lands on the three-column workbench whose header names the project,
 // its Docs tool lists the project's real files, and opening one lands a
 // closable tab. ChatEmbed is stubbed (it opens a WebSocket the test
 // environment neither serves nor needs); studioApi is stubbed so no fetch
@@ -65,15 +65,15 @@ function renderAt(entry: string) {
 }
 
 describe('route dispatch', () => {
-  it('/ai-studio renders the project list with its cards', async () => {
-    renderAt('/ai-studio')
+  it('/workspaces renders the project list with its cards', async () => {
+    renderAt('/workspaces')
     expect(await screen.findByTestId('ai-studio-projects')).toBeInTheDocument()
     expect(await screen.findByText('测试项目')).toBeInTheDocument()
     expect(screen.queryByTestId('ai-studio')).not.toBeInTheDocument()
   })
 
-  it('/projects/<id>/ai-studio renders the workbench and names the project', async () => {
-    renderAt('/projects/p1/ai-studio')
+  it('/workspaces/<id>/ai-studio renders the workbench and names the project', async () => {
+    renderAt('/workspaces/p1/ai-studio')
     expect(await screen.findByTestId('ai-studio')).toBeInTheDocument()
     // the header shows the fetched project's name, not a hardcoded demo
     expect(screen.getByText(/测试项目/)).toBeInTheDocument()
@@ -84,7 +84,7 @@ describe('route dispatch', () => {
   it('an unknown project id offers a way back to the list', async () => {
     const { StudioApiError } = await import('./studioApi')
     api.getProject.mockRejectedValue(new StudioApiError(404, 'project_not_found', 'project not found'))
-    renderAt('/projects/gone/ai-studio')
+    renderAt('/workspaces/gone/ai-studio')
     expect(await screen.findByTestId('ai-studio-load-error')).toBeInTheDocument()
     expect(screen.getByText('Project no longer exists')).toBeInTheDocument()
   })
@@ -92,7 +92,7 @@ describe('route dispatch', () => {
 
 describe('workbench shell', () => {
   it('renders the three columns with the embedded chat', async () => {
-    renderAt('/projects/p1/ai-studio')
+    renderAt('/workspaces/p1/ai-studio')
     expect(await screen.findByTestId('chat-embed-stub')).toBeInTheDocument()
     expect(screen.getByTestId('tool-sidebar')).toBeInTheDocument()
     expect(screen.getByTestId('resizer-left')).toBeInTheDocument()
@@ -101,7 +101,7 @@ describe('workbench shell', () => {
 
   it('opens a real project doc from the sidebar into a closable center tab', async () => {
     const user = userEvent.setup()
-    renderAt('/projects/p1/ai-studio')
+    renderAt('/workspaces/p1/ai-studio')
     await user.click(await screen.findByText('requirements.md'))
     const tab = await screen.findByRole('tab', { name: /requirements\.md/ })
     expect(document.querySelector('[data-testid="doc-requirements.md"]')).toBeInTheDocument()
@@ -111,7 +111,7 @@ describe('workbench shell', () => {
 
   it('refuses to hide the last visible pane', async () => {
     const user = userEvent.setup()
-    renderAt('/projects/p1/ai-studio')
+    renderAt('/workspaces/p1/ai-studio')
     // the shell renders only once the project query resolves; the toggles do
     // not exist during the skeleton
     await screen.findByTestId('ai-studio')
@@ -125,7 +125,7 @@ describe('workbench shell', () => {
 
 describe('recent activity (ACP-754)', () => {
   it('the workbench feed exists and shows its empty state when nothing is drafted', async () => {
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/workspaces/p1/ai-studio')
     await screen.findByTestId('ai-studio')
     const feed = await screen.findByTestId('recent-activity')
     expect(feed).toHaveAttribute('data-activity-count', '0')
@@ -139,7 +139,7 @@ describe('recent activity (ACP-754)', () => {
         { name: 'workflow.md', content: '# 流程草稿', changed: true },
       ],
     })
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/workspaces/p1/ai-studio')
     const feed = await screen.findByTestId('recent-activity')
     await waitFor(() => expect(feed).toHaveAttribute('data-activity-count', '2'))
     expect(within(feed).getByTestId('recent-activity-item-0')).toHaveTextContent(/requirements\.md/)
@@ -157,7 +157,7 @@ describe('project-level commit', () => {
       ],
     })
     api.saveDoc.mockResolvedValue({ doc: { name: 'x', content: 'x' } })
-    renderAt('/projects/p1/ai-studio')
+    renderAt('/workspaces/p1/ai-studio')
     await screen.findByTestId('ai-studio')
     // the summary names the drafted docs next to the button; waiting on it
     // also waits for the drafts query to land, so the click below cannot
@@ -178,7 +178,7 @@ describe('project-level commit', () => {
   })
 
   it('the commit button is disabled while nothing is drafted', async () => {
-    renderAt('/projects/p1/ai-studio')
+    renderAt('/workspaces/p1/ai-studio')
     await screen.findByTestId('ai-studio')
     expect(screen.getByRole('button', { name: /Commit all/i })).toBeDisabled()
     expect(api.saveDoc).not.toHaveBeenCalled()
@@ -191,7 +191,7 @@ describe('new-project dialog', () => {
     api.createProject.mockResolvedValue({
       project: { ...TEST_PROJECT, id: 'p2', name: '新项目' },
     })
-    renderAt('/ai-studio')
+    renderAt('/workspaces')
     await user.click(await screen.findByRole('button', { name: /New project/i }))
     await user.type(screen.getByLabelText(/Project name/i), '新项目')
     await user.type(screen.getByLabelText(/Description/i), '描述')
@@ -204,7 +204,7 @@ describe('new-project dialog', () => {
   it('keeps the dialog open and names the failure when create is refused', async () => {
     const { StudioApiError } = await import('./studioApi')
     api.createProject.mockRejectedValue(new StudioApiError(400, 'name_required', 'project name is required'))
-    renderAt('/ai-studio')
+    renderAt('/workspaces')
     await userEvent.click(await screen.findByRole('button', { name: /New project/i }))
     await userEvent.type(screen.getByLabelText(/Project name/i), 'x')
     await userEvent.click(screen.getByRole('button', { name: /Create project/i }))

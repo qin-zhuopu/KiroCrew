@@ -42,7 +42,7 @@
   "ui": {
     "pages": [
       {
-        "route": "/ai-studio",
+        "route": "/workspaces",
         "label": "AI Studio",
         "icon": "Sparkles"
       }

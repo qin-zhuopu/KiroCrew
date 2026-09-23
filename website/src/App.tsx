@@ -1030,6 +1030,11 @@ function NavToggle({ collapsed, expanded, hiddenCount, onClick }: {
 }
 
 function TasksRedirect() { const { search } = useLocation(); return <Navigate to={'/projects' + search} replace /> }
+// AI Studio's pages moved to /workspaces; this carries the pre-rename URL
+// (and its query, so `?demo=` bookmarks survive) onto the new segment. The
+// `/projects/<id>/ai-studio` spelling redirects in ProjectsPage itself — that
+// path resolves through the registry to that page's own segment.
+function AiStudioRedirect() { const { search, hash } = useLocation(); return <Navigate to={'/workspaces' + search + hash} replace /> }
 function ChatRedirect() { const { search } = useLocation(); return <Navigate to={'/chat' + search} replace /> }
 function OrchestratedRedirect() { const { slug } = useParams(); const { search } = useLocation(); return <Navigate to={`/chat${slug ? '/' + slug : ''}${search}`} replace /> }
 
@@ -4803,6 +4808,8 @@ export default function App() {
             <Route path="/mc-agents" element={<Navigate to="/capabilities" replace />} />
             <Route path="/connections" element={<Navigate to="/capabilities?tab=mcp" replace />} />
             <Route path="/tasks" element={<TasksRedirect />} />
+            <Route path="/ai-studio" element={<AiStudioRedirect />} />
+            <Route path="/ai-studio/*" element={<AiStudioRedirect />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/hooks" element={<HooksPage />} />
             <Route path="/webhooks" element={<ErrorBoundary><WebhooksPage /></ErrorBoundary>} />

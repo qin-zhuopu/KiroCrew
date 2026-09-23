@@ -17,9 +17,9 @@ KIROCREW_HOME=/tmp/kiro-demo-home python3 -m kiro_crew gateway
 浏览器打开（路径里的项目 id 会被忽略，剧本自带演示项目）：
 
 ```
-/ai-studio/projects/any?demo=main-membership-points   # 主线
-/ai-studio/projects/any?demo=alt-1-draft-restore      # 分支 A
-/ai-studio/projects/any?demo=alt-2-empty-gray         # 分支 B
+/workspaces/any/ai-studio?demo=main-membership-points   # 主线
+/workspaces/any/ai-studio?demo=alt-1-draft-restore      # 分支 A
+/workspaces/any/ai-studio?demo=alt-2-empty-gray         # 分支 B
 ```
 
 右下角出现步进器（上一步 / 下一步 / 自动播放 / 重开）。演示模式下数据层由快照

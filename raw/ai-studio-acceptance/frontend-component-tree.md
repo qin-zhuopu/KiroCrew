@@ -21,15 +21,17 @@ note: 本树随组件结构漂移，改组件须同提交更新
 
 ```
 路由（两套 URL，互不掺和）：
-  /ai-studio                  → ProjectsListPage（项目列表+新建，独立路由页）
-  /projects/<id>/ai-studio    → AiStudioPage（单个项目的工作台）
+  /workspaces                 → ProjectsListPage（项目列表+新建，独立路由页）
+  /workspaces/<id>/ai-studio  → AiStudioPage（单个项目的工作台）
   /release-jobs/<发布号>           → ReleaseJobPage（发布详情页，08 细节文档新增；Jenkins 式
                                 发布历史+流式日志，独立路由页，不经工作台）
+  旧地址（静态重定向，query/hash 保留）：/ai-studio* → /workspaces；
+  /projects/<id>/ai-studio → /workspaces/<id>/ai-studio（ProjectsPage 垫片）
 
-ProjectsListPage.tsx                    项目列表页（独立路由 /ai-studio）
+ProjectsListPage.tsx                    项目列表页（独立路由 /workspaces）
 └─  testid: ai-studio-projects
 
-AiStudioPage.tsx                        工作台页壳（路由 /ai-studio/projects/<id>）
+AiStudioPage.tsx                        工作台页壳（路由 /workspaces/<id>/ai-studio）
 ├─  testid: ai-studio · ai-studio-loading · ai-studio-load-error
 ├─ RecentActivityFeed.tsx               最近活动条（01 试点新建；顶栏下横条，
 │                                       demo 由快照 recentActivity 喂、普通模式由草稿读喂）

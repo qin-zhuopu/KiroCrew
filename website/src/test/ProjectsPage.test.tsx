@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
-import { useNavigate, type NavigateFunction } from 'react-router-dom'
+import { Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { renderWithProviders } from './helpers'
 import ProjectsPage from '../pages/ProjectsPage'
 import PhasedView from '../pages/aidlc/PhasedView'
@@ -53,6 +53,17 @@ describe('ProjectsPage', () => {
     expect(screen.getByText('Task Runner')).toBeInTheDocument()
     expect(screen.getByText(/Compose/)).toBeInTheDocument()
     expect(screen.getByText(/From Spec/)).toBeInTheDocument()
+  })
+
+  it('redirects the legacy /projects/<id>/ai-studio URL to /workspaces', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/projects/:id/ai-studio" element={<ProjectsPage />} />
+        <Route path="/workspaces/:id/ai-studio" element={<div data-testid="studio-landed" />} />
+      </Routes>,
+      { route: '/projects/p1/ai-studio' },
+    )
+    expect(await screen.findByTestId('studio-landed')).toBeInTheDocument()
   })
 
   it('renders the New Task button (renamed from New Project) when runs exist', async () => {
