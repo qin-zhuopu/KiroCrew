@@ -21,15 +21,28 @@ note: 本树随组件结构漂移，改组件须同提交更新
 
 ```
 路由（两套 URL，互不掺和）：
-  /workspaces                 → ProjectsListPage（项目列表+新建，独立路由页）
+/workspaces                 → ProjectsListPage（项目列表+新建，独立路由页）
   /workspaces/<id>/ai-studio  → AiStudioPage（单个项目的工作台）
-  /release-jobs/<发布号>           → ReleaseJobPage（发布详情页，08 细节文档新增；Jenkins 式
-                                发布历史+流式日志，独立路由页，不经工作台）
+  /release-jobs/<发布号>?project=<项目id> → ReleaseJobPage（发布详情页，08 细节文档新增；
+                                Jenkins 式发布历史+流式日志，独立路由页，不经工作台。
+                                发布号=deploymentId=job id；发布存储按项目分目录，
+                                项目 id 走 query。注册在 App.tsx 静态路由，不进
+                                builtinRegistry——注册表只解析单段路径，且 ui.pages
+                                奇偶校验会把它挂进导航栏）
   旧地址（静态重定向，query/hash 保留）：/ai-studio* → /workspaces；
   /projects/<id>/ai-studio → /workspaces/<id>/ai-studio（ProjectsPage 垫片）
 
 ProjectsListPage.tsx                    项目列表页（独立路由 /workspaces）
 └─  testid: ai-studio-projects
+
+ReleaseJobPage.tsx                      发布详情页（独立路由 /release-jobs/<发布号>?project=<项目id>，
+│                                       08 §〇-2；Jenkins 式只读历史+流式日志，T8 新建）
+└─  testid: ai-studio-release-job-page · ai-studio-release-job-history-list
+         · ai-studio-release-job-row-<发布号> · ai-studio-release-job-status-<发布号>
+         · ai-studio-release-job-log-<发布号>（日志渲染=复用 DeployLog，非新组件；
+           其自带 testid deploy-log-<部署id> 仍在内层）
+         列表只读：行唯一交互=点击切换详情，无重试/取消/删除；
+         发布号=deploymentId=job id，日志端点 GET /publish/<id>/log 直接可用
 
 AiStudioPage.tsx                        工作台页壳（路由 /workspaces/<id>/ai-studio）
 ├─  testid: ai-studio · ai-studio-loading · ai-studio-load-error

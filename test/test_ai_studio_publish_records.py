@@ -6,6 +6,7 @@ monkeypatched), so the fixtures mirror test_ai_studio_projects.py. The B1
 form judgment reads the project directory's git tags, so those tests build a
 real throwaway git repo in the project directory.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -98,9 +99,7 @@ def test_latest_release_reads_only_success(home, project):
     pid = project["id"]
     assert publish.latest_release(pid) is None  # no record = 未发布
     publish.record_release(pid, **_record_kwargs("v1"))
-    publish.record_release(
-        pid, **{**_record_kwargs("v2", commit="bad"), "status": "failed"}
-    )
+    publish.record_release(pid, **{**_record_kwargs("v2", commit="bad"), "status": "failed"})
     latest = publish.latest_release(pid)
     assert latest is not None and latest["commitHash"] == "abc1234"
 
@@ -246,9 +245,45 @@ async def test_routes_publish_records_and_preview(home, monkeypatch, project):
         assert body["reason"]
 
         # a rejected form is a 200 verdict, not an error
-        resp = await client.get(f"/api/apps/ai-studio/publish/preview?project={pid}&version=vmissing")
+        resp = await client.get(
+            f"/api/apps/ai-studio/publish/preview?project={pid}&version=vmissing"
+        )
         assert resp.status == 200
         assert (await resp.json())["form"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_routes_publish_jobs(home, monkeypatch, project):
+    # T8 (§〇-2): the release-job list endpoint the detail page reads. It is
+    # a transparent pass-through of publish.list_jobs — newest first, running
+    # and finished jobs alike, the store's own fields.
+    pid = project["id"]
+    running = publish.record_job(pid, version="v1", form="full", commit_hash="abc1234")
+    done = publish.record_job(pid, version="v2", form="demo")
+    publish.update_job_status(pid, done["id"], "success")
+
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.get(f"/api/apps/ai-studio/publish/jobs?project={pid}")
+        assert resp.status == 200
+        jobs = (await resp.json())["jobs"]
+        assert [j["id"] for j in jobs] == [done["id"], running["id"]]  # newest first
+        by_id = {j["id"]: j for j in jobs}
+        assert by_id[running["id"]]["status"] == "running"
+        assert by_id[running["id"]]["commitHash"] == "abc1234"
+        assert by_id[done["id"]]["status"] == "success"
+        assert by_id[done["id"]]["version"] == "v2"
+        assert by_id[done["id"]]["form"] == "demo"
+
+        # an unknown project is the store's 404, not an empty list
+        resp = await client.get("/api/apps/ai-studio/publish/jobs?project=nope")
+        assert resp.status == 404
+        assert (await resp.json())["code"] == "project_not_found"
+
+    monkeypatch.setattr(routes, "is_app_enabled", lambda _name: False)
+    async with TestClient(TestServer(_make_app(monkeypatch, enabled=False))) as client:
+        resp = await client.get(f"/api/apps/ai-studio/publish/jobs?project={pid}")
+        assert resp.status == 403
+        assert (await resp.json())["code"] == "app_disabled"
 
 
 @pytest.mark.asyncio

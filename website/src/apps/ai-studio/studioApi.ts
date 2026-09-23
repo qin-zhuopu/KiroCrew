@@ -321,6 +321,19 @@ export interface StudioPublishPreview {
   reason: string
 }
 
+/** One release-job (08 §〇-2): one execution of the publish button — an id
+ * (which IS the deploymentId the log endpoint takes), a version, a form, one
+ * of three statuses, and the publish time. `commitHash` is absent on jobs the
+ * store wrote before the trigger began recording it. */
+export interface StudioPublishJob {
+  id: string
+  version: string
+  form: string
+  status: string
+  ts: number
+  commitHash?: string
+}
+
 export type StudioPublishApi = {
   /** The project's publishable versions (tag + hash), newest first. */
   listVersions: (id: string) => Promise<{ versions: StudioPublishVersion[] }>
@@ -334,6 +347,8 @@ export type StudioPublishApi = {
    * the only carrier of that reason, since a failed job writes no record. */
   trigger: (id: string, version: string, commitHash: string) =>
     Promise<{ deploymentId: string; idempotent?: boolean; status?: string; reason?: string }>
+  /** The project's release-jobs, newest first (§〇-2 history list; T8). */
+  listJobs: (id: string) => Promise<{ jobs: StudioPublishJob[] }>
 }
 
 export class StudioApiError extends Error {
@@ -406,6 +421,8 @@ export const publishApi: StudioPublishApi = {
       method: 'POST',
       body: JSON.stringify({ project: id, version, commitHash }),
     }),
+  listJobs: (id: string) =>
+    request<{ jobs: StudioPublishJob[] }>(`/publish/jobs?project=${encodeURIComponent(id)}`),
 }
 
 export const studioApi: StudioApi = {

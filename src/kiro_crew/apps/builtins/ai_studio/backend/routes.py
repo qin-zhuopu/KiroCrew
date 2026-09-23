@@ -187,6 +187,22 @@ async def _handle_publish_records(request: web.Request) -> web.StreamResponse:
     return web.json_response({"records": records})
 
 
+async def _handle_publish_jobs(request: web.Request) -> web.StreamResponse:
+    # T8 (§〇-2 发布历史列表): the project's release-jobs, newest first —
+    # the release-job detail page renders its whole history from this one
+    # read (pinning the running job to the top is the frontend's sort).
+    # A transparent pass-through of ``publish.list_jobs``: the job fields
+    # are the store's (id/version/form/status/ts, plus commitHash when the
+    # publish trigger wrote one), and the detail page reads nothing else
+    # into them.
+    project_id = request.query.get("project", "")
+    try:
+        jobs = await asyncio.to_thread(publish.list_jobs, project_id)
+    except publish.PublishError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response({"jobs": jobs})
+
+
 async def _handle_publish_preview(request: web.Request) -> web.StreamResponse:
     # B1: per-version form judgment. A ``rejected`` form is a 200 verdict
     # body, not an error — the publish view renders the reason inline.
@@ -343,6 +359,9 @@ def register_routes(app: web.Application) -> None:
     app.router.add_post(f"{_BASE}/publish", _require_enabled(_handle_publish_trigger))
     app.router.add_get(f"{_BASE}/publish/records", _require_enabled(_handle_publish_records))
     app.router.add_get(f"{_BASE}/publish/preview", _require_enabled(_handle_publish_preview))
+    # The literal ``publish/jobs`` cannot collide with the
+    # ``publish/{deployment_id}/log`` route: that one carries a further segment.
+    app.router.add_get(f"{_BASE}/publish/jobs", _require_enabled(_handle_publish_jobs))
     app.router.add_get(
         f"{_BASE}/publish/{{deployment_id}}/log",
         _require_enabled(_handle_publish_log),
