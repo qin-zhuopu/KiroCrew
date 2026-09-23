@@ -1,3 +1,14 @@
+---
+title: AI Studio 前端组件树
+doc-id: component-tree
+status: 定稿
+snapshot-date: 2026-09-23
+source: website/src/apps/ai-studio/
+maintainer: sid-req-design
+updated: 2026-09-23
+note: 本树随组件结构漂移，改组件须同提交更新
+---
+
 # AI Studio 前端组件树（写验收文档前先查这里）
 
 - 快照日期：2026-09-23，源码位置 `website/src/apps/ai-studio/`

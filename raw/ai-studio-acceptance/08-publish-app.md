@@ -1,3 +1,15 @@
+---
+title: 08 · 发布应用（按验收状态定形态）— 细节验收文档
+doc-id: "08"
+status: 定稿
+expands: publish-app
+parent: 00-e2e-top-level.md
+owner: qinshuguo
+maintainer: sid-req-design
+updated: 2026-09-23
+review: 子代理全文体检通过（testid 双向覆盖/无矛盾/断言可执行）
+---
+
 # 08 · 发布应用（按验收状态定形态）— 细节验收文档
 
 对应顶层：`00-e2e-top-level.md` 步骤 **publish-app**（前序 dev-full-phase，后序 view-history）。
