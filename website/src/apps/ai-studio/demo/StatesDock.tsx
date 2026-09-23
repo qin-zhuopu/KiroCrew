@@ -4,9 +4,11 @@
 // Every control SETS a frame index — nothing replays, so entering the same
 // frame twice is the same picture (methodology §6 idempotence, structural).
 // The frames are grouped by the big phase of the product's happy path
-// (设计 → 发版 → 开发 → 部署, `allStates.ts`), because eleven buttons in one
-// undifferentiated row stopped reading as a story; a group renders only when
-// its phase actually has merged frames.
+// (设计 → 提交 → 发版 → 开发 → 部署, `allStates.ts`), because a flat row of
+// buttons stopped reading as a story; a group renders only when its phase
+// actually has merged frames. Each group header also names the stage's PRODUCT
+// (文档 / 需求图谱 / 开发任务 / git tag / 应用 url) so the five rows read as a
+// chain rather than as five folders.
 //
 // The ✕ closes the demo: it drops the `demo` query param, which is the whole
 // demo switch — the same route then renders the ordinary workbench again
@@ -17,7 +19,7 @@
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import Clickable from '../../../components/Clickable'
 import { i18nT } from '../../../i18n/t'
-import { ALL_STATES, PHASE_LABEL_KEY, PHASE_ORDER, statesOfPhase } from './allStates'
+import { ALL_STATES, PHASE_LABEL_KEY, PHASE_ORDER, PHASE_PRODUCT_KEY, statesOfPhase } from './allStates'
 import type { StateSnapshot } from './states'
 
 export default function StatesDock({ index, onSelect, onPrev, onNext, onClose }: {
@@ -64,16 +66,24 @@ export default function StatesDock({ index, onSelect, onPrev, onNext, onClose }:
       </div>
       <div className="mt-1 text-[11px] leading-5 text-muted">{i18nT('apps.aiStudio.demo_event', { event: state.caption })}</div>
 
-      {/* one row per big phase: the phase name, then its frames as direct-select
-        * buttons. A frame's own label is long ("S2 · 未提交修改"), so the button
-        * carries the id and the label rides the tooltip — the dock stays one
-        * glance wide however many frames a phase grows to. */}
+      {/* one row per big phase: the phase name and the PRODUCT it hands to the
+        * next stage (owner, ACP-796 — the chain is 设计→文档, 提交→需求图谱,
+        * 发版→开发任务, 开发→git tag, 部署→应用 url), then its frames as
+        * direct-select buttons. A frame's own label is long ("C1 · 提交页签"),
+        * so the button carries the id and the label rides the tooltip — the dock
+        * stays one glance wide however many frames a phase grows to. */}
       {PHASE_ORDER.map((phase) => {
         const frames = statesOfPhase(phase)
         if (frames.length === 0) return null
         return (
           <div key={phase} className="mt-2 flex items-center gap-1.5" data-testid={`demo-states-group-${phase}`}>
-            <span className="w-[28px] shrink-0 text-[10px] text-muted">{i18nT(PHASE_LABEL_KEY[phase])}</span>
+            <span className="w-[84px] shrink-0 text-[10px] leading-4 text-muted">
+              {i18nT(PHASE_LABEL_KEY[phase])}
+              {/* the stage's产物, on its own testid: 「这一组交出去的是什么」 */}
+              <span className="ml-1 text-muted/80" data-testid={`demo-states-product-${phase}`}>
+                · {i18nT(PHASE_PRODUCT_KEY[phase])}
+              </span>
+            </span>
             {frames.map((s: StateSnapshot) => {
               const i = ALL_STATES.indexOf(s)
               return (

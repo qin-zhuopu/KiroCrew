@@ -134,15 +134,23 @@ describe('state demo inside the real workbench (ACP-794)', () => {
     expect(api.getProject.mock.calls.length).toBe(projectCallsBefore)
   })
 
-  it('docks every frame under its big phase, in story order, and prev/next walks it', async () => {
+  it('docks every frame under its five stages, in story order, and prev/next walks it', async () => {
     mount('/workspaces/p1/ai-studio')
     await enterDemo()
 
     const design = within(screen.getByTestId('demo-states-group-design'))
-    // C1/C2 (the 提交 tab pair) stand at D6's commit moment, in front of it
-    for (const id of ['C1', 'C2', 'D6', 'D7', 'D8']) {
+    for (const id of ['D6', 'D7', 'D8']) {
       expect(design.getByTestId(`demo-states-select-${id}`)).toBeInTheDocument()
     }
+    // C1/C2 LEFT the design group (owner, ACP-796): 提交 is its own stage, so
+    // the pair lives in the commit group and nowhere else
+    expect(design.queryByTestId('demo-states-select-C1')).toBeNull()
+
+    const commit = within(screen.getByTestId('demo-states-group-commit'))
+    for (const id of ['C1', 'C2']) {
+      expect(commit.getByTestId(`demo-states-select-${id}`)).toBeInTheDocument()
+    }
+
     const release = within(screen.getByTestId('demo-states-group-release'))
     for (const id of ['R1', 'R2', 'R3', 'R4', 'R5', 'R6']) {
       expect(release.getByTestId(`demo-states-select-${id}`)).toBeInTheDocument()
@@ -152,18 +160,44 @@ describe('state demo inside the real workbench (ACP-794)', () => {
     const deploy = within(screen.getByTestId('demo-states-group-deploy'))
     for (const id of ['P1', 'P2']) expect(deploy.getByTestId(`demo-states-select-${id}`)).toBeInTheDocument()
 
-    // the demo opens on the first frame of the story: C1, the dirty doc with
-    // the 提交 tab lit — 「有未提交修改」 through the real editor's own rule
-    expect(dock()).toHaveAttribute('data-demo-state', 'C1')
+    // exactly five stages, rendered top to bottom in the owner's order — the
+    // story order IS the group order, which is what makes prev/next readable
+    const groups = [...dock().querySelectorAll('[data-testid^="demo-states-group-"]')]
+      .map((el) => el.getAttribute('data-testid'))
+    expect(groups).toEqual([
+      'demo-states-group-design', 'demo-states-group-commit', 'demo-states-group-release',
+      'demo-states-group-dev', 'demo-states-group-deploy',
+    ])
+
+    // the story opens on the design stage's first frame — a committed doc that
+    // reads clean through the real editor's own rule
+    expect(dock()).toHaveAttribute('data-demo-state', 'D6')
     const editor = await screen.findByTestId(`doc-${FOCUS_DOC}`)
-    expect(editor).toHaveAttribute('data-doc-dirty', 'true')
+    expect(editor).toHaveAttribute('data-doc-dirty', 'false')
 
     fireEvent.click(screen.getByTestId('demo-states-next'))
-    await waitFor(() => expect(dock()).toHaveAttribute('data-demo-state', 'C2'))
-    // C2 is the same world committed: the editor stands clean
-    await waitFor(() =>
-      expect(screen.getByTestId(`doc-${FOCUS_DOC}`)).toHaveAttribute('data-doc-dirty', 'false'),
-    )
+    await waitFor(() => expect(dock()).toHaveAttribute('data-demo-state', 'D7'))
+  })
+
+  it('names the product each stage hands on, next to its group', async () => {
+    mount('/workspaces/p1/ai-studio')
+    await enterDemo()
+
+    // the chain the owner pinned (ACP-796): 设计→文档, 提交→需求图谱,
+    // 发版→开发任务, 开发→git tag, 部署→应用 url. Rendered here from the
+    // catalog — this suite pins English, so the values are the en catalog's;
+    // zh-CN carries the owner's own wording for the same keys.
+    const product = (phase: string) => screen.getByTestId(`demo-states-product-${phase}`)
+    expect(product('design')).toHaveTextContent('Docs')
+    expect(product('commit')).toHaveTextContent('Requirement graph')
+    expect(product('release')).toHaveTextContent('Dev tasks')
+    expect(product('dev')).toHaveTextContent('git tag')
+    expect(product('deploy')).toHaveTextContent('App URL')
+    // each one rides its own group's header row, not a legend somewhere else
+    for (const phase of ['design', 'commit', 'release', 'dev', 'deploy']) {
+      expect(within(screen.getByTestId(`demo-states-group-${phase}`)).getByTestId(`demo-states-product-${phase}`))
+        .toBeInTheDocument()
+    }
   })
 
   it('lights the sidebar tab the frame names: 提交 for C1/C2, 发布 for the R frames', async () => {

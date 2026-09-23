@@ -33,11 +33,18 @@
 import type { DemoFixture } from './types'
 
 /** The product stage a state belongs to — the current AI-Studio happy path
- * (owner 范围更正): design → release → dev → deploy. D1 ships design-phase
- * states only, but the field is here from day one so a later 发版/开发/部署
- * state is `{ phase: 'release', activeSurface: 'release', fixture: {...release} }`
- * — a data addition plus one render branch, never a reshape of this type. */
-export type DemoPhase = 'design' | 'release' | 'dev' | 'deploy'
+ * (owner 范围更正, then ACP-796): design → commit → release → dev → deploy.
+ * D1 shipped design-phase states only, but the field has been here from day one
+ * so a later 发版/开发/部署 state is
+ * `{ phase: 'release', activeSurface: 'release', fixture: {...release} }`
+ * — a data addition plus one render branch, never a reshape of this type.
+ *
+ * `'commit'` is the stage the owner split out of `'design'` (ACP-796): the
+ * commit page and the requirement graph it produces are their own big step in
+ * the product chain, not a tail of authoring. The dock groups by this value;
+ * `allStates.ts` (not a slice file) is where a frame's slice default is
+ * re-stated when the owner's stage model moves under it. */
+export type DemoPhase = 'design' | 'commit' | 'release' | 'dev' | 'deploy'
 
 /** Which center surface a state shows. The values cover the WHOLE design-phase
  * pipeline the owner named (文档 / 聊天+AI建议 / diff / 提交 / 版本历史 / 图谱)
