@@ -20,6 +20,9 @@ ProjectsListPage.tsx                    项目列表页（独立路由 /ai-studi
 
 AiStudioPage.tsx                        工作台页壳（路由 /ai-studio/projects/<id>）
 ├─  testid: ai-studio · ai-studio-loading · ai-studio-load-error
+├─ RecentActivityFeed.tsx               最近活动条（01 试点新建；顶栏下横条，
+│                                       demo 由快照 recentActivity 喂、普通模式由草稿读喂）
+│   └─  testid: recent-activity · recent-activity-item-<i> · recent-activity-empty
 ├─ demo/DemoWorkspace.tsx               ?demo= 演示模式壳（零 API）
 │   └─ demo/overlay.tsx                 demo-hint · demo-stepper · demo-play
 │                                       demo-next · demo-prev · demo-restart

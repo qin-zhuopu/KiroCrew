@@ -1,11 +1,34 @@
-# Pitfall notes
+# 填坑笔记（Pitfall Notes）
 
-Retrospectives, not contracts: what was slow to diagnose and why. A note records
-the symptom, the root cause (never visible in the error itself), the fix, and how
-to avoid it next time. Changing code does NOT require updating a note.
+按 `{YYYYMMDD-HHMMSS}-{英文主题}.md` 命名，一篇记一次踩坑：现象 → 根因 → 修法 → 怎么避免。
 
-Naming: `{YYYYMMDD-HHMMSS}-{english-topic}.md`.
+这里是**工程复盘**，不是契约：改代码不需要"同一提交更新它"（那是
+[system-specs/](../system-specs/README.md) 的规矩）；也不进发布包（用户文档在
+[`../../src/kiro_crew/docs/`](../../src/kiro_crew/docs/README.md)）。
 
-| Note | Covers |
-|---|---|
-| [20260923-122306-t7-frontend-gate-baseline-drift.md](20260923-122306-t7-frontend-gate-baseline-drift.md) | Proving a red frontend gate (ai-studio vitest, i18n parity/deadKeys) is inherited, not yours: the shared-stash-safe baseline check, and happy-dom's missing EventSource. |
+写这里的内容，标准只有一条：**当时的我查了多久才挖到的东西**。报错信息看不出根因的、
+试错才排除掉的、文档里没写的，都值得记一行。
+
+## 目录
+
+- [20260922-154851-ai-studio-tiptap.md](20260922-154851-ai-studio-tiptap.md) —
+  AI Studio 可视化文档编辑器：@tiptap/markdown 没有默认导出、ChatEmbed 的槽 404、
+  模式切换时编辑器实例的生命周期。
+- [20260922-170210-builtin-app-registration-and-csrf.md](20260922-170210-builtin-app-registration-and-csrf.md) —
+  builtin 路由 404 但 REPL 全绿（没进 BUILTIN_NAMES）、反代域名 GET 通 POST 403
+  （CSRF 只拦写方法，Origin 不在白名单）。
+- [20260923-090621-kiro-dev-login-and-topology.md](20260923-090621-kiro-dev-login-and-topology.md) —
+  登录 kiro-dev：容器名 ≠ 域名归宿（nginx-proxy 多域名）、dashboard 令牌用
+  `kirocrew token` 现签不扒浏览器、vite 冷启动假加载错误。
+- [20260923-103512-tmux-send-keys-enter.md](20260923-103512-tmux-send-keys-enter.md) —
+  tmux send-keys 括号粘贴模式吞回车：文本与 Enter 必须拆两条发，发完 capture-pane 自证。
+- [20260923-110012-tmux-claude-session-ops.md](20260923-110012-tmux-claude-session-ops.md) —
+  tmux claude 会话运维：会话名先 tmux ls 查真名、换 settings=杀进程原目录重启、派活
+  三件套（文本/单独回车/capture 自证）、resume 要 cd 对目录。
+- [20260923-120325-ai-studio-demo-route-and-first-run-gate.md](20260923-120325-ai-studio-demo-route-and-first-run-gate.md) —
+  AI Studio 真机取证：`?demo=` 只认 `/ai-studio` 前缀、fresh home 应用默认 disabled、
+  首启引导模态链异步拦截点击（服务端权威，清 localStorage 没用）、token 5 分钟现签、
+  HttpOnly 端口名 cookie、networkidle 永不满足、Raw textarea 是再序列化。
+- [20260923-122306-t7-frontend-gate-baseline-drift.md](20260923-122306-t7-frontend-gate-baseline-drift.md) —
+  证明红灯前端门禁（ai-studio vitest、i18n parity/deadKeys）是继承来的不是自己引入的：
+  共享 stash 安全的基线对照法，以及 happy-dom 缺 EventSource。

@@ -201,7 +201,12 @@ gate locally with
 
 - MUST read the owning spec under `docs/system-specs/` before changing the code it
   covers, and MUST update it in the SAME commit.
-- MUST NOT create additional markdown files unless explicitly instructed.
+- MUST NOT create additional markdown files unless explicitly instructed. The one
+  standing instruction is a pitfall note: when a bug's root cause was NOT readable
+  from the error (found by trial-and-error, or undocumented behavior), write
+  `docs/pitfall-notes/{YYYYMMDD-HHMMSS}-{english-topic}.md` — symptom → root cause
+  → fix → how to avoid — and add one line to that directory's README index. A
+  post-mortem, not a contract: code changes never need to update it.
 - Everything else about adding, moving, indexing and linting a doc — including
   `scripts/docs-lint.sh` — is [docs/README.md](docs/README.md). Treat
   `docs/task-specs/` as an archive, never as current context.

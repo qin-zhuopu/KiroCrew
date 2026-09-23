@@ -21,6 +21,7 @@ New here? Start with [guides/install.md](guides/install.md), then
 | [system-specs/](system-specs/README.md) | Change-control contracts. The doc a code change MUST update in the same commit. |
 | [request-for-change/](request-for-change/README.md) | Proposals and decision records for large or contested changes, plus the dated implementation plans that execute them under [plans/](request-for-change/plans/README.md). |
 | [blog/](blog/README.md) | Essays on direction and design philosophy. Arguments, not contracts. |
+| [pitfall-notes/](pitfall-notes/README.md) | Dated engineering post-mortems: what broke, the root cause nobody could read out of the error, and how to avoid it. Not a contract. |
 | [reference/](reference/README.md) | A mirror of upstream kiro-cli documentation, with named local exceptions. |
 | [task-specs/](task-specs/README.md) | Archived per-task specs. Not current context. |
 | [pitfall-notes/](pitfall-notes/README.md) | Dated retrospectives: symptom, root cause, fix. Retrospectives, not contracts. |
