@@ -4,10 +4,13 @@
 // hand-rolled doc list, a text block in the middle. These cases therefore do
 // not assert "a demo is on screen"; they assert the SHIPPED components are on
 // screen while it is: the tool sidebar's six tool tabs, the chat column, the
-// activity feed, both resizers, and the real DocEditor / GraphView /
-// DevRunPanel / PublishVersionList / ReleaseJobPage / DeployLog-contract
-// panels, addressed by their own testids. That is the whole difference
-// between the two surfaces, so it is the thing measured.
+// activity feed, both resizers, and the real DocEditor / the DistillPanel-fed
+// 需求图谱 tab / DevRunPanel / PublishVersionList / ReleaseJobPage /
+// DeployLog-contract panels, addressed by their own testids. That is the whole
+// difference between the two surfaces, so it is the thing measured.
+// (ACP-797 retired the center GraphView: the graph is a list in that tab, and
+// the middle column is a doc editor. The tab's own contract lives in
+// demo/states-graph.test.tsx + demo/states-design.test.tsx.)
 //
 // Two rules ride along:
 //   - 就地接管: entering the demo must not move the page. `location.pathname`
@@ -274,7 +277,14 @@ describe('state demo inside the real workbench (ACP-794)', () => {
     await enterDemo()
 
     await select('D7')
-    expect(await screen.findByTestId('graph-view')).toBeInTheDocument()
+    // ACP-797 changed what "the component for this phase" IS: D7's graph is a
+    // LIST in the 需求图谱 tab of the tool sidebar (its `graphEntries`, wired by
+    // the dock/renderer), and the owner's rule keeps the middle column a doc
+    // editor — so the centre proof here is the editor, and no canvas may exist.
+    // The tab's own list is asserted in demo/states-graph.test.tsx; once the
+    // dock hands `graphEntries` through, this step can assert the lit tab too.
+    expect(await screen.findByTestId(`doc-${FOCUS_DOC}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('graph-view')).toBeNull()
 
     await select('V1')
     expect(await screen.findByTestId('dev-run-panel')).toHaveAttribute('data-dev-run-id', 'dev-v5')

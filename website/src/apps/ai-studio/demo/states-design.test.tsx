@@ -5,9 +5,12 @@
 // so asserting the frames "through the dock" is impossible from this file
 // without touching a public file. The contract the outline pins is a TESTID
 // and COPY contract against the REAL components this story feeds
-// (DocEditor's version-history popover, GraphView, RegenDiffPair,
-// ProjectCommitBar), so this test mounts exactly those, with exactly the
-// data each snapshot carries, and asserts on the shipped business DOM. When
+// (DocEditor's version-history popover, the 需求图谱 tab of ToolSidebar,
+// RegenDiffPair, ProjectCommitBar), so this test mounts exactly those, with
+// exactly the data each snapshot carries, and asserts on the shipped
+// business DOM — the box-and-arrow GraphView is no longer among them: the
+// owner's rule (ACP-797) is that the graph is a LIST in that sidebar tab.
+// When
 // the master adds the render branches, these components are what they will
 // render — a frame cannot pass this test and fail the wired one on the same
 // data. Plus the pure-data layer (parity discipline, wave closure,
@@ -22,7 +25,8 @@ import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import DocEditor from '../DocEditor'
-import GraphView from '../GraphView'
+import ToolSidebar from '../ToolSidebar'
+import type { GraphEntryGroup } from '../ToolSidebar'
 import { RegenDiffPair } from '../RegenDiffView'
 import ProjectCommitBar from '../ProjectCommitBar'
 import { renderStudio } from '../testUtils'
@@ -46,6 +50,11 @@ const byId = (id: string): StateSnapshot => {
 const D6 = byId('D6')
 const D7 = byId('D7')
 const D8 = byId('D8')
+/** D7's graph as the sidebar's 需求图谱 tab renders it (ACP-797). The frames
+ * carry it under `graphEntries`; `StateSnapshot` types the slot as reserved
+ * data, so the contract test reads it through the same shape it asserts. */
+const D7_ENTRIES: GraphEntryGroup[] = (D7 as { graphEntries?: GraphEntryGroup[] }).graphEntries ?? []
+const entryRow = (id: string) => D7_ENTRIES.flatMap((g) => g.rows).find((r) => r.id === id)
 
 const FOCUS_DOC = '产品需求设计文档.md'
 const JOURNEY_DOC = '用户旅程设计.md'
@@ -148,7 +157,11 @@ describe('D6~D8 snapshot data contract', () => {
   })
 
   it('D7 names its own wave: added ∈ graph, removed ∉ graph, edges resolve', () => {
-    expect(D7.activeSurface).toBe('graph')
+    // ACP-797: D7 is a LIST in the sidebar's 需求图谱 tab — the middle column
+    // is the doc editor again, and the frame carries the entries that tab
+    // renders (no 'graph' center surface, so no canvas anywhere on this frame)
+    expect(D7.activeSurface).toBe('doc')
+    expect(D7_ENTRIES.length).toBeGreaterThan(0)
     expect(D7.graphNote).not.toBe('')
     const graph = D7.fixture.graph
     const delta = D7.fixture.graphDelta
@@ -275,49 +288,64 @@ describe('D6 on the real version-history / commit surfaces', () => {
   })
 })
 
-describe('D7 on the real GraphView', () => {
-  it('added=rings solid, modified=rings dashed, removed=struck row, added edges marked', () => {
-    const graph = D7.fixture.graph!
-    const delta = D7.fixture.graphDelta!
+describe('D7 on the real ToolSidebar: the graph as a LIST, never a canvas', () => {
+  /** mount the real sidebar the way the renderer wires a graph frame: the
+   * 需求图谱 tab lit, the frame's own entries handed in */
+  function mountGraphTab() {
+    const onOpenTab = vi.fn()
     renderStudio(
-      <GraphView
-        graph={graph}
-        addedNodeIds={delta.nodes}
-        addedEdges={delta.edges}
-        modifiedNodeIds={delta.modified}
-        removedNodeIds={delta.removed}
+      <ToolSidebar
+        onOpenTab={onOpenTab}
+        docs={D7.fixture.docs}
+        projectId={D7.fixture.project.id}
+        initialTool="graph"
+        graphEntries={D7_ENTRIES}
       />,
     )
-    expect(screen.getByTestId('graph-view')).toBeInTheDocument()
-    // 新增节点: 实线亮框 — accent stroke, NO dash pattern
-    const added = document.querySelector<SVGGElement>('[data-graph-node="req-purchase-approval"]')
-    expect(added).not.toBeNull()
-    expect(added).toHaveAttribute('data-graph-added', 'true')
-    const addedRect = added!.querySelector('rect')!
-    expect(addedRect).toHaveAttribute('stroke', 'var(--accent)')
-    expect(addedRect.getAttribute('stroke-dasharray')).toBeNull()
-    // 修改节点: 虚线亮框 — the OTHER stroke, so the two read differently
-    const modified = document.querySelector<SVGGElement>('[data-graph-node="req-points-earn"]')
-    expect(modified).toHaveAttribute('data-graph-modified', 'true')
-    const modRect = modified!.querySelector('rect')!
-    expect(modRect).toHaveAttribute('stroke', 'var(--accent)')
-    expect(modRect).toHaveAttribute('stroke-dasharray', '6 4')
-    // an untouched node keeps the plain border ring
-    const plain = document.querySelector<SVGGElement>('[data-graph-node="req-points-redeem"]')!
-    expect(plain.querySelector('rect')).toHaveAttribute('stroke', 'var(--border)')
-    // 新增边: data-graph-edge="added" on exactly the delta's edges
-    const addedEdges = document.querySelectorAll('line[data-graph-edge="added"]')
-    expect(addedEdges).toHaveLength(delta.edges.length)
-    for (const e of delta.edges) {
-      expect(document.querySelector(`line[data-graph-edge-id="${e}"][data-graph-edge="added"]`)).not.toBeNull()
+    return onOpenTab
+  }
+
+  it('groups the entries by type and marks what this change did to each', () => {
+    mountGraphTab()
+    // the 需求图谱 tab is the lit one
+    expect(screen.getByRole('tab', { name: 'Graph' }).getAttribute('aria-selected')).toBe('true')
+    // one section per type — the group labels are the frame's own vocabulary
+    for (const label of ['需求', '文档', '模块', '本次移除']) {
+      expect(screen.getByText(label)).toBeInTheDocument()
     }
-    // 移除: 删除线行 under the canvas
-    const removedRow = screen.getByTestId('graph-removed-row')
-    expect(removedRow).toHaveTextContent('Removed:')
-    for (const id of delta.removed ?? []) {
-      expect(removedRow.querySelector(`[data-graph-removed="${id}"]`)).not.toBeNull()
-    }
-    expect(removedRow.querySelector('.line-through')).not.toBeNull()
+    // 新增 / 修改 / 移除 read off the row itself, from the delta
+    const added = screen.getByTestId('graph-entry-req-purchase-approval')
+    expect(within(added).getByText('大额采购一级审批')).toBeInTheDocument()
+    expect(within(added).getByText('Add')).toBeInTheDocument()
+    expect(added.className).not.toContain('line-through')
+    const modified = screen.getByTestId('graph-entry-req-points-earn')
+    expect(within(modified).getByText('Modify')).toBeInTheDocument()
+    expect(modified.className).not.toContain('line-through')
+    // an entry this change left alone carries no mark at all
+    const untouched = screen.getByTestId('graph-entry-req-points-redeem')
+    expect(within(untouched).queryByText('Add')).toBeNull()
+    expect(within(untouched).queryByText('Modify')).toBeNull()
+    expect(within(untouched).queryByText('Remove')).toBeNull()
+    // 移除 is shown, struck through, not quietly omitted
+    const removed = screen.getByTestId('graph-entry-mod-manual-adjust')
+    expect(within(removed).getByText('人工调分模块')).toBeInTheDocument()
+    expect(within(removed).getByText('Remove')).toBeInTheDocument()
+    expect(removed.querySelector('.line-through')).not.toBeNull()
+    // NO canvas, NO arrow, NO node box anywhere on the frame
+    expect(screen.queryByTestId('graph-view')).toBeNull()
+    expect(document.querySelector('[data-graph-node]')).toBeNull()
+    expect(document.querySelector('svg')).toBeNull()
+  })
+
+  it('a row that names a doc opens that doc; one that does not is plain text', async () => {
+    const onOpenTab = mountGraphTab()
+    await userEvent.click(within(screen.getByTestId('graph-entry-req-purchase-approval')).getByText('大额采购一级审批'))
+    expect(onOpenTab).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'doc', docName: FOCUS_DOC, id: `doc-${FOCUS_DOC}`,
+    }))
+    // 审批服务模块 resolves to no doc → read-only: rendered as text, never a
+    // button that would do nothing when pressed
+    expect(screen.getByTestId('graph-entry-mod-approval-service').tagName).not.toBe('BUTTON')
   })
 })
 

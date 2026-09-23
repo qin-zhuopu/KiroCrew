@@ -18,7 +18,8 @@ import {
   type CommitEntry,
   type ProgressModel,
 } from './fixtures'
-import type { StudioDoc, StudioPublishApi } from './studioApi'
+import DistillPanel from './DistillPanel'
+import type { StudioDistillation, StudioDoc, StudioPublishApi } from './studioApi'
 import PublishVersionList from './PublishVersionList'
 import type { WorkTab } from './WorkArea'
 
@@ -57,10 +58,59 @@ export interface ToolSidebarProps {
   // Omitted (every ordinary workbench) => PublishVersionList's own default.
   /** the releases tab's publish read source */
   publishApi?: StudioPublishApi
+  // ---- ACP-797 adds the SAME kind of seam for the 需求图谱 tab, because the
+  // owner's rule is that a stage's artifacts and processes are observed in
+  // their own sidebar tab and never on a canvas in the center column. So a
+  // demo frame hands in its graph AS A LIST — grouped by type, one row per
+  // entry, each row marked 新增 / 修改 / 移除 for this change — plus the
+  // generation run that produced it, which the real DistillPanel renders.
+  // Neither is passed by an ordinary workbench: absent `graphEntries` the tab
+  // is byte-for-byte today's type → node drill-down over GRAPH_NODES, and
+  // absent `distillation` the panel is not mounted at all.
+  /** the 需求图谱 tab's list: entries grouped by type (a demo frame's graph) */
+  graphEntries?: GraphEntryGroup[]
+  /** the 需求图谱 tab's generation run (status 'running' → 进行中, 'done' →
+   * the extracted candidates), rendered by the shipped DistillPanel */
+  distillation?: StudioDistillation
 }
+
+/** One entry row of the 需求图谱 tab's list (ACP-797): a node of the frame's
+ * graph, read as a line of text. `mark` is the frame's own derivation of what
+ * THIS change did to it — never a per-row hand-written label. */
+export interface GraphEntryRow {
+  id: string
+  label: string
+  /** 本次新增 / 修改 / 移除, absent for an entry this change left alone */
+  mark?: 'added' | 'modified' | 'removed'
+  /** the entry's own provenance line (frame data) */
+  meta?: string
+  /** the doc this entry traces to. A row that names one opens that doc's
+   * editor — the middle column's only allowed content under the same rule;
+   * a row without one (a module, a pruned entry) is read-only, and renders as
+   * plain text rather than a button that would do nothing when pressed. */
+  doc?: string
+}
+
+/** A type group of that list. The header is frame DATA, like the shipped
+ * GRAPH_NODES' 页面 / 实体 keys: the graph's vocabulary belongs to the world
+ * the frame describes, not to this component's copy. */
+export interface GraphEntryGroup {
+  label: string
+  rows: GraphEntryRow[]
+}
+
+/** the mark's label, read from the distillation vocabulary the panel already
+ * ships (Add / Modify / Remove) — the same three words for the same three
+ * changes, so the tab and the panel beside it cannot drift apart */
+const MARK_KEY = {
+  added: 'apps.aiStudio.distill_group_add',
+  modified: 'apps.aiStudio.distill_group_modify',
+  removed: 'apps.aiStudio.distill_group_remove',
+} as const
 
 export default function ToolSidebar({
   onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
+  graphEntries, distillation,
 }: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>(initialTool)
   // graph drill state: null = type list, string = inside a type
@@ -97,7 +147,16 @@ export default function ToolSidebar({
         {tool === 'docs' && <DocsTool docs={docs} onOpenTab={onOpenTab} />}
         {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} changed={changed} commits={commits} />}
         {tool === 'releases' && <PublishVersionList projectId={projectId} api={publishApi} />}
-        {tool === 'graph' && <GraphTool graphType={graphType} setGraphType={setGraphType} onOpenTab={onOpenTab} />}
+        {tool === 'graph' && (
+          <GraphTool
+            graphType={graphType}
+            setGraphType={setGraphType}
+            onOpenTab={onOpenTab}
+            docs={docs}
+            entries={graphEntries}
+            distillation={distillation}
+          />
+        )}
         {tool === 'dev' && <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />}
         {tool === 'deploy' && <DeployTool onOpenTab={onOpenTab} />}
       </div>
@@ -109,21 +168,26 @@ function Section({ children }: { children: string }) {
   return <div className="text-[11px] uppercase tracking-wide text-muted mx-0.5 mt-2 mb-1.5 first:mt-0">{children}</div>
 }
 
-function Row({ title, meta, pill, pillTone = 'idle', onClick }: {
+function Row({ title, meta, pill, pillTone = 'idle', strike = false, testid, onClick }: {
   title: string
   meta?: string
   pill?: string
   pillTone?: 'idle' | 'done' | 'now'
+  /** 本次移除的条目: struck through, so the list says what is gone instead of
+   * quietly omitting it (ACP-797 — the same mark the graph view drew) */
+  strike?: boolean
+  /** the row's own testid, for the lists whose rows a frame names (ACP-797's
+   * graph entries). Omitted everywhere else → no attribute, as before. */
+  testid?: string
+  /** absent → the row is NOT interactive and renders as plain text: a button
+   * that does nothing when pressed is a lie about what the row offers. Every
+   * shipped call site passes one, so their DOM is unchanged. */
   onClick?: () => void
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full text-left rounded-lg border border-border bg-card px-3 py-2.5 mb-2 transition-colors hover:border-accent cursor-pointer"
-    >
+  const body = (
+    <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[12px] font-semibold text-text truncate">{title}</span>
+        <span className={`text-[12px] font-semibold truncate ${strike ? 'text-muted line-through' : 'text-text'}`}>{title}</span>
         {pill && (
           <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${
             pillTone === 'done' ? 'bg-accent-subtle text-accent' : pillTone === 'now' ? 'bg-bg-hover text-accent' : 'bg-bg-hover text-muted'
@@ -131,6 +195,13 @@ function Row({ title, meta, pill, pillTone = 'idle', onClick }: {
         )}
       </div>
       {meta && <div className="text-[11px] text-muted mt-1">{meta}</div>}
+    </>
+  )
+  const shell = 'w-full text-left rounded-lg border border-border bg-card px-3 py-2.5 mb-2'
+  if (!onClick) return <div data-testid={testid} className={shell}>{body}</div>
+  return (
+    <button type="button" data-testid={testid} onClick={onClick} className={`${shell} transition-colors hover:border-accent cursor-pointer`}>
+      {body}
     </button>
   )
 }
@@ -233,11 +304,56 @@ function ReleasesTool({ model, history, noun, onOpenTab }: {
   )
 }
 
-function GraphTool({ graphType, setGraphType, onOpenTab }: {
+/** The 需求图谱 tab (ACP-797). Two shapes, and which one is on screen is
+ * DATA: a frame that carries `entries` shows its own graph as a list — the
+ * generation run above it (the shipped DistillPanel, on the run's own status),
+ * then one section per type, one row per entry, each row marked with what THIS
+ * change did to it. No frame carries entries → the shipped drill-down, byte
+ * for byte as before. Neither shape draws a node-and-arrow canvas: the owner's
+ * rule is that the graph is observed here, as text. */
+function GraphTool({ graphType, setGraphType, onOpenTab, docs, entries, distillation }: {
   graphType: string | null
   setGraphType: (t: string | null) => void
   onOpenTab: ToolSidebarProps['onOpenTab']
+  docs: StudioDoc[]
+  entries?: GraphEntryGroup[]
+  distillation?: StudioDistillation
 }) {
+  if (entries) {
+    return (
+      <div>
+        {distillation && (
+          <div className="mb-2" data-testid="graph-tab-run">
+            <DistillPanel distillation={distillation} />
+          </div>
+        )}
+        {entries.map((group) => (
+          <div key={group.label}>
+            <Section>{group.label}</Section>
+            {group.rows.map((r) => {
+              // an entry that names a doc opens that doc's editor — the only
+              // content the middle column may hold; one that does not is text
+              const doc = r.doc ? docs.find((d) => d.name === r.doc) : undefined
+              return (
+                <Row
+                  key={r.id}
+                  testid={`graph-entry-${r.id}`}
+                  title={r.label}
+                  meta={r.meta}
+                  strike={r.mark === 'removed'}
+                  pill={r.mark ? i18nT(MARK_KEY[r.mark]) : undefined}
+                  pillTone={r.mark === 'added' ? 'now' : r.mark === 'modified' ? 'done' : 'idle'}
+                  onClick={doc
+                    ? () => onOpenTab({ id: `doc-${doc.name}`, kind: 'doc', title: doc.name, docName: doc.name, initialContent: doc.content })
+                    : undefined}
+                />
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    )
+  }
   if (graphType === null) {
     return (
       <div>

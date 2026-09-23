@@ -3,20 +3,28 @@
 // acceptance/demo-script-outline.md 阶段一).
 //
 // This file is DATA ONLY by contract: it exports a `StateSnapshot[]` and imports
-// nothing but types. Public files (`states.ts`, `StateDemo.tsx`, `AiStudioPage.tsx`)
-// are untouched — the master wires these frames into the renderer. Because the
-// renderer does not draw the reserved surfaces yet, the CONTRACT tests in
-// `states-design.test.tsx` mount the REAL business components this phase's
-// story feeds (DocEditor's version-history popover, GraphView, RegenDiffPair,
-// ProjectCommitBar) with exactly the data each snapshot carries, so the testid
-// and copy assertions are checked against the shipped components, not against a
-// look-alike built for the test.
+// nothing but types — plus, since ACP-797, the graph wave itself from
+// `states-graph.ts`, which owns it. Public files (`states.ts`, `StateDemo.tsx`,
+// `AiStudioPage.tsx`) are untouched — the master wires these frames into the
+// renderer. Because the renderer does not draw every reserved surface yet, the
+// CONTRACT tests in `states-design.test.tsx` mount the REAL business components
+// this phase's story feeds (DocEditor's version-history popover, RegenDiffPair,
+// ProjectCommitBar, and the 需求图谱 tab of the real ToolSidebar) with exactly
+// the data each snapshot carries, so the testid and copy assertions are checked
+// against the shipped components, not against a look-alike built for the test.
 //
 // THE STORY so far (carried over verbatim from states.ts): the 会员积分系统
 // stands at V4 on 《产品需求设计文档.md》; the workspace holds the uncommitted
 // 「## 5. 用户补充」 rule (大额采购需追加一级审批…). D6 commits it, D7 is the
-// graph wave that commit feeds, D8 is the three downstream docs syncing to the
+// graph that commit feeds, D8 is the three downstream docs syncing to the
 // regenerated facts.
+//
+// D7 IS A LIST, NOT A CANVAS (ACP-797, owner 口径): the 需求图谱 is observed in
+// the tool sidebar's 「需求图谱」 tab as entries grouped by type, never as a
+// box-and-arrow graph in the middle column — so D7 names no `graph` surface,
+// its center is the doc editor like every other design frame, and the graph it
+// carries is handed to the tab through `graphEntries` (the same derivation the
+// G1/G2 frames use, from the same wave).
 //
 // PARITY DISCIPLINE (附一): a version row's number parity and its
 // parity/source fields are the same fact — vN odd ⇔ manual, even ⇔ regen.
@@ -36,7 +44,8 @@
 // `version-row-vN` testid literally spells.
 import type { StateDocRow, StateSnapshot, StateVersionRow } from './states'
 import type { DemoFixture } from './types'
-import type { StudioDiffGroup, StudioDistillCandidate, StudioDoc, StudioGraph, StudioVersion } from '../studioApi'
+import { DISTILL_CANDIDATES, DISTILLATION, GRAPH_DELTA, GRAPH_WAVE, graphEntryGroups } from './states-graph'
+import type { StudioDiffGroup, StudioDoc, StudioVersion } from '../studioApi'
 
 // ---------------------------------------------------------------------------
 // the world carried over from states.ts (re-declared, not imported: states.ts
@@ -200,97 +209,13 @@ const PAGE_V4_ROW = row('v4', 1735695000, hunk(
 ))
 
 // ---------------------------------------------------------------------------
-// the graph wave D7 shows: what THIS commit moved. ids are ASCII like the
-// shipped fixtures; labels are the Chinese facts the nodes carry.
-// ---------------------------------------------------------------------------
-
-const GRAPH_BASE_NODES = [
-  { id: 'req-points-earn', kind: 'requirement' as const, label: '消费积分', doc: FOCUS_DOC },
-  { id: 'req-points-redeem', kind: 'requirement' as const, label: '积分兑换', doc: FOCUS_DOC },
-  { id: 'doc-requirements', kind: 'doc' as const, label: FOCUS_DOC },
-  { id: 'mod-points-center', kind: 'module' as const, label: '积分中心模块' },
-]
-/** nodes this wave ADDED (solid accent rings): the approval rule and its home module */
-const GRAPH_ADDED_NODES = [
-  { id: 'req-purchase-approval', kind: 'requirement' as const, label: '大额采购一级审批', doc: FOCUS_DOC },
-  { id: 'mod-approval-service', kind: 'module' as const, label: '审批服务模块' },
-]
-const GRAPH_BASE_EDGES = [
-  { from: 'req-points-earn', to: 'doc-requirements', kind: 'trace' as const },
-  { from: 'req-points-redeem', to: 'doc-requirements', kind: 'trace' as const },
-  { from: 'req-points-earn', to: 'mod-points-center', kind: 'depends' as const },
-  { from: 'req-points-redeem', to: 'mod-points-center', kind: 'depends' as const },
-]
-/** edges spelled "from->to" exactly as GraphView's addedEdgeSet keys read them */
-const GRAPH_ADDED_EDGES = [
-  'req-purchase-approval->doc-requirements',
-  'req-purchase-approval->mod-approval-service',
-  'req-points-earn->mod-approval-service',
-]
-
-const GRAPH_WAVE: StudioGraph = {
-  nodes: [
-    ...GRAPH_BASE_NODES.slice(0, 1),
-    GRAPH_ADDED_NODES[0],
-    ...GRAPH_BASE_NODES.slice(1),
-    ...GRAPH_ADDED_NODES.slice(1),
-  ],
-  edges: [
-    ...GRAPH_BASE_EDGES,
-    ...GRAPH_ADDED_EDGES.map((e) => {
-      const [from, to] = e.split('->')
-      return { from, to, kind: to === 'doc-requirements' ? ('trace' as const) : ('depends' as const) }
-    }),
-  ],
-}
-
-const GRAPH_DELTA = {
-  nodes: GRAPH_ADDED_NODES.map((n) => n.id),
-  edges: GRAPH_ADDED_EDGES,
-  /** the wave CHANGED 消费积分: large-consumption points now release only
-   * after the approval passes (dashed accent ring) */
-  modified: ['req-points-earn'],
-  /** pruned orphan: the manual-adjust module the approval flow replaces —
-   * by contract absent from GRAPH_WAVE, rendered struck-through under it */
-  removed: ['mod-manual-adjust'],
-}
-
-// ---------------------------------------------------------------------------
-// D8's regeneration facts: the distillation the wave applied, the regenerated
-// document it stands for, and the three-segment groups pairing every
+// the graph wave D7 shows and the distillation D8 applies are both owned by
+// `states-graph.ts` (ACP-797) and imported above: the design slice's 图谱修订
+// and the 提交 slice's 生成过程 are two moments of ONE wave, so a second copy
+// here could only drift. What stays local is D8's regeneration data below —
+// the regenerated document and the three-segment groups pairing every
 // structured change against the user's diff and the regen's diff.
 // ---------------------------------------------------------------------------
-
-const DISTILL_CANDIDATES: StudioDistillCandidate[] = [
-  {
-    id: 'dc-add-approval-req', kind: 'add', target: 'req-purchase-approval',
-    summary: '新增需求「大额采购一级审批」：审批人请假自动转交代理人',
-    evidenceDoc: `${FOCUS_DOC} § 5. 用户补充`,
-  },
-  {
-    id: 'dc-add-approval-service', kind: 'add', target: 'mod-approval-service',
-    summary: '新增模块「审批服务」：审批流转与代理转交都归它',
-    evidenceDoc: `${FOCUS_DOC} § 5. 用户补充`,
-  },
-  {
-    id: 'dc-modify-points-earn', kind: 'modify', target: 'req-points-earn',
-    summary: '细化「消费积分」：大额消费的积分发放以审批通过为前置',
-    evidenceDoc: `${FOCUS_DOC} § 5. 用户补充`,
-  },
-  {
-    id: 'dc-remove-manual-adjust', kind: 'remove', target: 'mod-manual-adjust',
-    summary: '「人工调分模块」被审批流取代，从图谱移除',
-    evidenceDoc: `${MODEL_DOC} § 实体`,
-  },
-]
-
-const DISTILLATION = {
-  id: 'distill-r3',
-  releaseVersion: 'v5',
-  status: 'done' as const,
-  candidates: DISTILL_CANDIDATES,
-  appliedAt: 1735695000,
-}
 
 const REGENERATION = {
   version: 'v4',
@@ -436,10 +361,12 @@ export const DESIGN_STATES: StateSnapshot[] = [
     phase: 'design',
     label: 'D7 · 图谱修订',
     title: '图谱修订：这次改动动到了什么',
-    caption: 'v5 提交喂进图谱：新增审批需求与审批服务模块（实线亮框），消费积分被细化（虚线亮框），人工调分模块被移除（删除线）',
+    caption: '工具边栏「需求图谱」页签里，图谱按类型列成条目：本次新增的两条、被细化的消费积分都带标记，人工调分模块划掉',
     docs: DOC_ROWS_V5,
     selectedDoc: FOCUS_DOC,
-    activeSurface: 'graph',
+    // 中间列是文档编辑器（owner 口径）；图谱是边栏「需求图谱」页签里的列表，
+    // 由 `graphEntries` 送进去，页面里不再出现方框箭头的画布
+    activeSurface: 'doc',
     buffer: COMMITTED_V5,
     baseline: COMMITTED_V5,
     committedVersion: 'V5',
@@ -449,6 +376,7 @@ export const DESIGN_STATES: StateSnapshot[] = [
     commitEnabled: false,
     versionHistory: FOCUS_HISTORY,
     graphNote: '本次提交喂图谱：新增 2 节点 / 新增 3 边 / 修改 1 / 移除 1',
+    graphEntries: graphEntryGroups(GRAPH_WAVE, GRAPH_DELTA),
     fixture: {
       ...designFixture([
         { time: 1735694000, label: '图谱修订：+2 节点 / 改 1 / 删 1' },
