@@ -267,6 +267,20 @@ larger than 8 MiB is refused without truncating or deleting it; editable-history
 GET and PUT retain the existing `store_unavailable` (503) error response.
 Ordinary V2 message context does not scan learned history.
 
+Whether a group is in scope is the intersection of the caller-passed
+`context_groups` (subagent narrowing) with the operator's config toggles —
+`memory.inject_memory` / `memory.inject_lessons`, with
+`memory.persistence_enabled` as the global switch — computed inside
+`build_session_context()` so every surface (dashboard, channels, cron,
+heartbeat, task runner, eval, subagents) obeys the config without passing
+anything. The member-essentials builder and the post-compaction re-injection in
+`build_message()` route through the same intersection, because each restores a
+block the session-start build gates: reading the caller scope alone there would
+hand back withheld memory for the rest of the session. The `[CONTEXT SCOPE]`
+withheld-groups block stays keyed to the caller-passed value only: "your parent
+withheld" describes per-spawn narrowing, not the operator's standing config
+choice.
+
 `MemoryStore.get_context()` retains `history_cap=25_000` as its default for
 programmatic readers. V1 `ContextBuilder` calls it with the scaled history cap
 when building fresh session context. V2 reads preference/project anchors without
@@ -3679,6 +3693,16 @@ exclude). To keep it off the per-message filesystem/config hot path:
   explicitly injected config honours that config rather than resolving a cap the
   injected document never carried (the absent-key default is 0, which would
   suppress every skill);
+- that cap is read BEFORE the scan, and a cap of 0 (the shipped default) skips
+  the scan entirely: the message is not tokenized, no visible-skill walk,
+  frontmatter read, `repo_scope` fence check or trigger score runs, and no
+  `skill_trigger` audit row is written -- a `!` veto at cap 0 excludes nothing
+  that could have been injected, so it is not a permission DENY. The matcher's
+  own per-message cost at cap 0 is the one snapshot read. `select` is still
+  called at cap 0, but the selection point owns its own zero-cap refusal and
+  answers `None` there (see [decisions.md](decisions.md)), which keeps the empty
+  match and writes no row. Only a `select` that returns a pick or `[]` at cap 0
+  is injected and audited as a selection;
 - `extra_paths` is re-resolved by `reconfigure(cfg)` on a config write, running
   the SAME screening as construction — expanduser, resolve, `is_sensitive_path`
   reject, existence check — and failing closed per entry, so a root added by hand

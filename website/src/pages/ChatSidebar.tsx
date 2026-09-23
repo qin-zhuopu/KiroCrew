@@ -43,7 +43,7 @@ import { SearchInput, Input, Btn, IconButton, IconButtonGroup } from '../compone
 import SimpleSelect from '../components/SimpleSelect'
 import FolderConfigModal from '../components/FolderConfigModal'
 import ModelDropdownList from '../components/ModelDropdownList'
-import { useAvailableModels } from '../hooks/useAvailableModels'
+import { useAvailableModelsQuery } from '../hooks/useAvailableModels'
 import { useListboxKeyboard } from '../hooks/useListboxKeyboard'
 import { useDndSensors } from '../hooks/useDndSensors'
 import { useSessionPalette } from '../hooks/useSessionPalette'
@@ -4095,14 +4095,33 @@ function ChatSidebar({
   // Per-instance id: ChatPage mounts a mobile-drawer sidebar and a desktop one, so a
   // literal id would collide and point one panel's checkbox at the other's label.
   const bulkSkipRunningLabelId = useId()
-  const bulkModelOptions = useAvailableModels({ enabled: bulkModelOpen })
+  const bulkModelsQuery = useAvailableModelsQuery({ enabled: bulkModelOpen })
+  const bulkModelOptions = bulkModelsQuery.data
+  // The roster failed to load when EITHER flag is up. The ACP adapter never
+  // rejects: a 503 / network error / empty response resolves with the last-good
+  // cached list or Auto alone and marks the provider degraded, so `isError`
+  // alone would stay false through every real failure and the panel would show
+  // a one-entry list as if that were the whole catalog. Same pair Settings >
+  // Chat reads for its model selects.
+  const bulkModelsFailed = bulkModelsQuery.isError || bulkModelsQuery.isDegraded
+  // The pick counts only while the roster still lists it. A degraded roster is
+  // the last-good CACHED list, so a model can be picked from it, Retry can then
+  // succeed with a roster that no longer carries that model, and nothing else
+  // would unpick it: the backend accepts any non-registry id, so Switch would
+  // reset every session onto a model kiro-cli then refuses. Derived, not
+  // stored, so there is no window between the roster changing and the pick
+  // being cleared in which Switch could still fire with the stale id.
+  const bulkModelPick = useMemo(
+    () => (bulkModelOptions.some(m => m.name === bulkModel) ? bulkModel : ''),
+    [bulkModelOptions, bulkModel],
+  )
   const bulkRunningCount = useMemo(() => localSlots.filter(s => s.running).length, [localSlots])
   // Count only slots that would actually change: model differs from the target
   // (the backend leaves already-on-target slots as `unchanged`), minus running
   // slots when skipping. Keeps the "Switch N" label + disable guard honest.
   const bulkAffectedCount = useMemo(() => {
-    return localSlots.filter(s => (s.model ?? '') !== bulkModel && (!bulkSkipRunning || !s.running)).length
-  }, [localSlots, bulkModel, bulkSkipRunning])
+    return localSlots.filter(s => (s.model ?? '') !== bulkModelPick && (!bulkSkipRunning || !s.running)).length
+  }, [localSlots, bulkModelPick, bulkSkipRunning])
   const bulkModelMutation = useMutation({
     // 'auto' goes on the wire verbatim (not collapsed to ''): '' doubles as the
     // "never chosen" state that every reader re-resolves to the agent template's
@@ -4200,7 +4219,7 @@ function ChatSidebar({
 
   // ── Stale-session collapse ─────────────────────────────────────────────────
   // Sessions idle past the threshold collapse behind a per-container
-  // "Dormant sessions (N)" expander row, independently at every tree level (each
+  // "N dormant sessions hidden" expander row, independently at every tree level (each
   // folder body + the ungrouped root). Pinned, focused, running and
   // needs-input sessions are exempt: collapsing de-noises settled work, it is
   // never a place where live or deliberately-kept rows can disappear.
@@ -4326,19 +4345,32 @@ function ChatSidebar({
     const open = staleExpanded.has(containerId)
     const regionId = `stale-rows-${containerId}`
     const lblId = `stale-lbl-${containerId}`
-    const countId = `stale-count-${containerId}`
     const ctxId = `stale-ctx-${containerId}`
+    // One pluralised sentence carries the count AND says where the rows went,
+    // so a folder badge of "2" over one visible row plus "1 dormant session
+    // hidden" visibly adds up. A bare noun + count pill read as a category,
+    // not as "the rest are in here" (gui-user-test friction on this row).
+    const count = staleSlots.length
+    const label = open
+      ? i18nT('pages.chatSidebar.stale_collapse_row_shown', { count })
+      : i18nT('pages.chatSidebar.stale_collapse_row_hidden', { count })
+    // The threshold is otherwise only named in the sort/filter menu; the same
+    // compact window label ("7d") ties the row back to that setting.
+    const windowLabel = formatRecentWindow(staleCollapseMs)
+    const hint = open
+      ? i18nT('pages.chatSidebar.stale_collapse_row_hint_open', { window: windowLabel })
+      : i18nT('pages.chatSidebar.stale_collapse_row_hint', { window: windowLabel })
     return (
       <Fragment key={`stale-${containerId}`}>
-        {/* aria-labelledby composes the visible label + count badge + a
-            visually-hidden container name, so AT announces "Dormant sessions
-            3 <folder>" — an aria-label would drop the count (it overrides
-            button contents) and re-pluralizing it per locale is exactly the
-            concatenation trap the i18n rules ban. */}
+        {/* aria-labelledby composes the visible sentence + a visually-hidden
+            container name, so AT announces "1 dormant session hidden <folder>"
+            — an aria-label would override the button contents and re-composing
+            it per locale is exactly the concatenation trap the i18n rules ban. */}
         <button type="button"
           aria-expanded={open}
           aria-controls={regionId}
-          aria-labelledby={`${lblId} ${countId} ${ctxId}`}
+          aria-labelledby={`${lblId} ${ctxId}`}
+          title={hint}
           data-testid={`stale-expander-${containerId}`}
           onClick={() => setStaleExpanded(prev => {
             const next = new Set(prev)
@@ -4347,8 +4379,7 @@ function ChatSidebar({
           })}
           className="w-full flex items-center gap-1.5 px-3 py-0.5 rounded-md text-[11px] leading-4 text-muted hover:text-accent hover:bg-bg-hover transition-all bg-transparent border-none cursor-pointer text-left">
           <DisclosureChevron open={open} size={11} />
-          <span id={lblId}>{i18nT('pages.chatSidebar.stale_collapse_row')}</span>
-          <span id={countId} className="px-1 rounded-full bg-bg-hover text-[10px] tabular-nums">{staleSlots.length}</span>
+          <span id={lblId} className="tabular-nums">{label}</span>
           <span id={ctxId} className="sr-only">{containerName
             ? i18nT('pages.chatSidebar.stale_collapse_ctx_in_name', { name: containerName })
             : i18nT('pages.chatSidebar.stale_collapse_row_ungrouped')}</span>
@@ -8032,8 +8063,29 @@ function ChatSidebar({
         <div className="mx-2 mb-2 p-3 rounded-lg bg-bg border border-border shadow-md text-sm animate-rise">
           <div className="font-medium text-text-strong mb-2"><Cpu size={14} className="lucide-inline" /> {i18nT('pages.chatSidebar.switch_all_sessions')}</div>
           <div className="text-muted text-[12px] mb-2">{i18nT('pages.chatSidebar.pick_a_model_for_every_session_switching_a_sessi')} <span className="text-danger">{i18nT('pages.chatSidebar.resets_its_conversation')}</span>.</div>
+          {bulkModelsFailed && (
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              {/* No hand-off: the chosen bulkModel/skipRunning selection is unsaved,
+                  and the navigation would discard it. Retry stays in the panel.
+                  Its own row above the listbox, wrapping the Retry button under
+                  the notice when the sidebar is too narrow for both: an inline
+                  notice sharing a fixed row collapses to one character per line
+                  at sidebar width, and the Cancel/Switch row below is already at
+                  the two-button limit. */}
+              <ErrorNotice
+                className="flex-1 min-w-[12rem]"
+                message={i18nT('pages.chatSidebar.model_list_failed')}
+                testId="bulk-model-roster-error"
+              />
+              <Btn
+                className="text-[12px] px-3 py-1 shrink-0"
+                disabled={bulkModelsQuery.isFetching}
+                onClick={() => bulkModelsQuery.refetch()}
+              >{i18nT('pages.chatSidebar.retry')}</Btn>
+            </div>
+          )}
           <div ref={bulkListRef} role="listbox" aria-label={i18nT('pages.chatSidebar.model_list')} tabIndex={-1} onKeyDown={bulkOnListKeyDown} className="max-h-[220px] overflow-y-auto rounded-md border border-border bg-bg-elevated p-1 mb-2 outline-hidden">
-            <ModelDropdownList models={bulkModelOptions} activeModel={bulkModel} onSelect={setBulkModel} />
+            <ModelDropdownList models={bulkModelOptions} activeModel={bulkModelPick} onSelect={setBulkModel} />
           </div>
           {bulkRunningCount > 0 && (
             <label className="flex items-center gap-2 text-[12px] text-muted mb-2 cursor-pointer">
@@ -8053,7 +8105,7 @@ function ChatSidebar({
           <ErrorNotice message={bulkModelError} className="mb-2" testId="bulk-model-error" />
           <div className="flex items-center gap-2 justify-end">
             <Btn className="text-[12px] px-3 py-1" onClick={() => { setBulkModelOpen(false); setBulkModel(''); setBulkModelError('') }}>{i18nT('pages.chatSidebar.cancel')}</Btn>
-            <Btn className="text-[12px] px-3 py-1 bg-accent text-accent-fg hover:bg-accent-hover" disabled={!bulkModel || bulkAffectedCount === 0 || bulkModelMutation.isPending} onClick={() => { setBulkModelError(''); bulkModelMutation.mutate({ model: bulkModel, skipRunning: bulkSkipRunning }) }}>{bulkModelMutation.isPending ? i18nT('pages.chatSidebar.switching') : i18nT('pages.chatSidebar.switch_session', { count: bulkAffectedCount })}</Btn>
+            <Btn className="text-[12px] px-3 py-1 bg-accent text-accent-fg hover:bg-accent-hover" disabled={!bulkModelPick || bulkAffectedCount === 0 || bulkModelMutation.isPending} onClick={() => { setBulkModelError(''); bulkModelMutation.mutate({ model: bulkModelPick, skipRunning: bulkSkipRunning }) }}>{bulkModelMutation.isPending ? i18nT('pages.chatSidebar.switching') : i18nT('pages.chatSidebar.switch_session', { count: bulkAffectedCount })}</Btn>
           </div>
         </div>
       )}

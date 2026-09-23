@@ -2948,6 +2948,9 @@ def _build_memory_config(memory_data: dict) -> MemoryConfig:
         history_max_days=_safe_nonnegative_int(memory_data.get("history_max_days", 365), 365),
         backup_enabled=_safe_bool(memory_data.get("backup_enabled", True), True),
         backup_keep=_safe_int(memory_data.get("backup_keep", 7), 7, 1, None),
+        persistence_enabled=_safe_bool(memory_data.get("persistence_enabled", True), True),
+        inject_memory=_safe_bool(memory_data.get("inject_memory", True), True),
+        inject_lessons=_safe_bool(memory_data.get("inject_lessons", True), True),
         migrated=memory_data.get("migrated", False),
     )
 
@@ -5523,6 +5526,7 @@ class KiroCrewConfig:
             # caller passing it into the catch-all would be swallowed here and
             # the session would spawn on the backend's default with no error.
             permission_mode: str | None = None,
+            shared_scratch: Path | None = None,
             **_kwargs: object,
         ) -> AcpProvider:
             wdir = Path(cwd) if cwd else _session_work_dir(session_key)
@@ -5658,6 +5662,10 @@ class KiroCrewConfig:
                 mcp_gateway_overlay=_gw_overlay,
                 mcp_gateway_socket=_gw_socket,
                 permission_mode=resolve_cc_permission_mode(permission_mode, _backend),
+                # A dedicated subagent process joins its parent's session tree:
+                # the tree's work directory is mounted beside its own scratch
+                # and is what its ``$KIROCREW_SCRATCH`` names (agent_scratch).
+                shared_scratch=shared_scratch,
             )
 
         return _acp
@@ -6496,17 +6504,14 @@ def resolve_agent_bindings(
 
     # Existing V1 members keep their exact configured store binding.
     # Canonical member/store mismatches are rejected before legacy use.
-    store_name = (
-        execution_context.store.store_id
-        if execution_context is not None
-        else (
-            DEFAULT_MEMORY_STORE
-            if passthrough
-            else require_member_memory_store(
-                config, resolved_alias, require_directory=validate_memory_files
-            )
+    if execution_context is not None:
+        store_name = execution_context.store.store_id
+    elif passthrough:
+        store_name = DEFAULT_MEMORY_STORE
+    else:
+        store_name = require_member_memory_store(
+            config, resolved_alias, require_directory=validate_memory_files
         )
-    )
 
     kiro_agent = (
         execution_context.template_id
