@@ -35,7 +35,15 @@ export function isDemoSearch(search: string): boolean {
   return new URLSearchParams(search).has('demo')
 }
 
-export default function DemoEntryButton() {
+export default function DemoEntryButton({ demoTarget }: {
+  /** The path the demo opens ON. On a workbench that is the current path —
+   * entering is a query-only switch, so the page (and its loaded project) stays
+   * put. On the project LIST there is no project page to take over, so the
+   * caller passes the representative project's workbench path and the click
+   * navigates there once, the ordinary way. `undefined` = this page has
+   * nothing the demo could take over (an empty project list) → no button. */
+  demoTarget?: string
+}) {
   const navigate = useNavigate()
   const location = useLocation()
   const inDemo = isDemoSearch(location.search)
@@ -45,11 +53,19 @@ export default function DemoEntryButton() {
   // an enter→exit round trip).
   const toggle = () => {
     const params = new URLSearchParams(location.search)
-    if (params.has('demo')) params.delete('demo')
-    else params.set('demo', STATE_DEMO_SCENARIO)
-    const qs = params.toString()
-    navigate(qs ? `${location.pathname}?${qs}` : location.pathname)
+    if (params.has('demo')) {
+      params.delete('demo')
+      const qs = params.toString()
+      navigate(qs ? `${location.pathname}?${qs}` : location.pathname)
+      return
+    }
+    if (!demoTarget) return
+    params.set('demo', STATE_DEMO_SCENARIO)
+    navigate(`${demoTarget}?${params.toString()}`)
   }
+
+  // Nothing to take over on this page (and not already demoing from elsewhere).
+  if (!inDemo && !demoTarget) return null
 
   const label = inDemo ? i18nT('apps.aiStudio.demo_exit') : i18nT('apps.aiStudio.demo_enter')
 

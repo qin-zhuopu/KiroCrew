@@ -71,24 +71,47 @@ interface DiffModal {
   restore?: () => void
 }
 
-export default function DocEditor({ projectId, docName, initialContent, api = studioApi }: {
+export default function DocEditor({
+  projectId, docName, initialContent, api = studioApi,
+  initialDraft, initialDiffOpen = false, initialVersionsOpen = false,
+}: {
   projectId: string
   docName: string
   initialContent: string
   /** the data source, injectable for the demo's snapshot fake; the ordinary
    * path uses the real client and never passes this */
   api?: StudioApi
+  /** A starting workspace buffer that DIFFERS from the committed content, so
+   * the dirty / diff-available state renders on mount without anyone typing.
+   * Omitted (every ordinary path) the buffer starts equal to `initialContent`
+   * and nothing below changes. The state-direct demo (`?demo=states`) needs
+   * it because its frames carry "有未提交修改" as data — this component's own
+   * rule is `dirty = draft !== saved`, so the snapshot has to arrive as a
+   * draft to be honest about the state it claims. */
+  initialDraft?: string
+  /** Open the existing V(n)→工作区 diff dialog on mount (the demo's 「当前
+   * Diff」 frame). Default false: an ordinary open starts on the editor body. */
+  initialDiffOpen?: boolean
+  /** Open the existing 版本历史 popover on mount (the demo's 「提交出版本」
+   * frame). Default false. */
+  initialVersionsOpen?: boolean
 }) {
-  const [draft, setDraft] = useState(initialContent)
+  const [draft, setDraft] = useState(initialDraft ?? initialContent)
   // The committed baseline IS the initial buffer: since ACP-727 nothing in
   // this component commits, so nothing moves the baseline — a project-level
   // commit from the top bar re-mounts the tab (new WorkArea content) rather
   // than mutating this state.
   const saved = initialContent
   const [raw, setRaw] = useState(false)
-  const [diffModal, setDiffModal] = useState<DiffModal | null>(null)
+  const [diffModal, setDiffModal] = useState<DiffModal | null>(initialDiffOpen
+    ? {
+      heading: i18nT('apps.aiStudio.diff_vs_committed'),
+      oldText: initialContent,
+      newText: initialDraft ?? initialContent,
+    }
+    : null)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [versionsOpen, setVersionsOpen] = useState(false)
+  const [versionsOpen, setVersionsOpen] = useState(initialVersionsOpen)
   // Which version-history row is open in the read-only diff body (the version
   //'s timestamp); null while editing. Draft-history diffs render in a modal
   // instead — they are transient, a body takeover would hide the editor.
@@ -104,7 +127,7 @@ export default function DocEditor({ projectId, docName, initialContent, api = st
   // instance's create options — the flip handlers write it before setRaw, so
   // the create always reads the just-edited text, never a stale initial.
   const [gen, setGen] = useState(0)
-  const sourceRef = useRef(initialContent)
+  const sourceRef = useRef(initialDraft ?? initialContent)
   const editor = useEditor(
     {
       immediatelyRender: false,

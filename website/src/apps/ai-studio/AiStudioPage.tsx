@@ -15,9 +15,9 @@
 // Docs are the project's real files from /api/apps/ai-studio; the other tool
 // tabs are still fixture-backed (fixtures.ts) until those APIs exist. Pane
 // widths and visibility persist per app in localStorage.
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, FolderKanban, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { AppScopedApiProvider } from '../../app-sdk/scopedApi'
 import ErrorNotice from '../../components/ErrorNotice'
@@ -31,17 +31,18 @@ import RecentActivityFeed from './RecentActivityFeed'
 import ToolSidebar from './ToolSidebar'
 import WorkArea, { type WorkTab } from './WorkArea'
 import { DESIGN_VERSION, RUN_VERSION } from './fixtures'
-import { parseDemoScenario, STATE_DEMO_SCENARIO } from './demo/runtime'
+import { parseDemoScenario, STATE_DEMO_SCENARIO, createDemoApi } from './demo/runtime'
+import { ALL_STATES, DEPLOY_PAYLOADS } from './demo/allStates'
+import StatesDock from './demo/StatesDock'
+import DeployFramePanel from './demo/DeployFramePanel'
+import DevRunPanel, { RunPreviewScreen } from './DevRunView'
+import GraphView from './GraphView'
 import DemoEntryButton from './DemoEntryButton'
 import { studioApi, StudioApiError, type StudioDoc } from './studioApi'
 
 // The demo surface (steps, fixtures, overlay, fake) loads ONLY on the
 // `?demo=` route — an ordinary visit never pays its bundle cost.
 const DemoWorkspace = lazy(() => import('./demo/DemoWorkspace'))
-// The state-direct demo (`?demo=states`, ACP-787): renders a snapshot straight
-// out, prev/next/direct-select all just re-read a state — no replay. Sibling to
-// the step-replay surface; the same `?demo=` guard keeps it fetch-free.
-const StateDemo = lazy(() => import('./demo/StateDemo'))
 
 const LS_WIDTHS = 'ai-studio.widths'
 const LS_HIDDEN = 'ai-studio.hidden'
@@ -84,35 +85,80 @@ export default function AiStudioPage() {
   const location = useLocation()
   // `?demo=<scenario>` is the whole demo injection point (§4): the query is
   // read here and nowhere else in the app — no business component below
-  // learns a demo exists. On this route the URL's project id is ignored:
-  // the scenario's fixture carries its own demo project (§5).
-  // ACP-793: one floating control, rendered on every branch, whose label and
-  // behaviour flip on `?demo=` presence — the entry the owner could not find.
+  // learns a demo exists.
+  // ACP-793: one floating control, whose label and behaviour flip on `?demo=`
+  // presence — the entry the owner could not find.
   const demo = parseDemoScenario(location.search)
-  if (demo) {
-    const Surface = demo.scenario === STATE_DEMO_SCENARIO ? StateDemo : DemoWorkspace
+  const match = location.pathname.match(WORKSPACE_RE)
+  const projectId = match ? decodeURIComponent(match[1]) : null
+
+  // ACP-794: the state-direct demo is a MODE of the real workbench, not a
+  // sibling page. Same route, same already-loaded project, query-only switch —
+  // which is the only shape that keeps `location.pathname` and the project id
+  // intact (owner 口径) and re-reads nothing: `projectQuery` is keyed on the id,
+  // and the id does not change here.
+  if (demo && demo.scenario === STATE_DEMO_SCENARIO && projectId) {
+    return (
+      <>
+        <StudioWorkspace projectId={projectId} demoStates />
+        <DemoEntryButton demoTarget={location.pathname} />
+      </>
+    )
+  }
+  // the step-replay line (`?demo=<script name>`) keeps its own surface
+  if (demo && demo.scenario !== STATE_DEMO_SCENARIO) {
     return (
       <>
         <Suspense fallback={<div className="h-full p-6"><ContentSkeleton rows={6} /></div>}>
           {/* keyed on the scenario: swapping `?demo=` remounts the runtime
            * from step 0 instead of leaving it mid-script on another line */}
-          <Surface key={demo.scenario} params={demo} />
+          <DemoWorkspace key={demo.scenario} params={demo} />
         </Suspense>
-        <DemoEntryButton />
+        <DemoEntryButton demoTarget={location.pathname} />
       </>
     )
   }
-  const match = location.pathname.match(WORKSPACE_RE)
+  if (projectId) {
+    return (
+      <>
+        <StudioWorkspace projectId={projectId} />
+        <DemoEntryButton demoTarget={location.pathname} />
+      </>
+    )
+  }
+  return <ProjectsList />
+}
+
+/** The project list, plus the demo entry. The list carries no project page to
+ * take over, so the button opens the demo on a REPRESENTATIVE project — the
+ * first one, read from the same React Query cache `ProjectsListPage` already
+ * fills (same key → one request, never a second one for the button). No
+ * projects → nothing to demo → no button. */
+function ProjectsList() {
+  const projectsQuery = useQuery({
+    queryKey: ['ai-studio', 'projects'],
+    queryFn: () => studioApi.listProjects(),
+  })
+  const first = projectsQuery.data?.projects?.[0]?.id
   return (
     <>
-      {match ? <StudioWorkspace projectId={decodeURIComponent(match[1])} /> : <ProjectsListPage />}
-      <DemoEntryButton />
+      <ProjectsListPage />
+      <DemoEntryButton demoTarget={first ? `/workspaces/${encodeURIComponent(first)}/ai-studio` : undefined} />
     </>
   )
 }
 
-export function StudioWorkspace({ projectId }: { projectId: string }) {
+export function StudioWorkspace({ projectId, demoStates = false }: {
+  projectId: string
+  /** ACP-794: render this workbench as the state-direct demo (`?demo=states`)
+   * — the SAME component tree, the same loaded project, driven by a frame's
+   * snapshot instead of the store (see the demo block below). Default false:
+   * every ordinary visit renders exactly the page it always has. */
+  demoStates?: boolean
+}) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const queryClient = useQueryClient()
   // Stable identity: a fresh arrow per render would rebuild the scoped-api
   // context value, which re-fires ChatPane's slot-open effect.
   const navigateFn = useCallback((path: string) => navigate(path), [navigate])
@@ -124,9 +170,43 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
   // against the committed content (WorkArea keys the editor on it).
   const [commitRev, setCommitRev] = useState(0)
 
+  // ---------------------------------------------------------------------
+  // ACP-794 demo mode. Everything below this block is inert until `demoStates`
+  // is on; when it is, this component renders the SAME columns, the same
+  // sidebar and the same editors — fed by one frame's snapshot instead of the
+  // store. The project read is deliberately NOT replaced: its query key is the
+  // real id, which does not change when the demo opens, so the top bar keeps
+  // the values this page already loaded and re-reads nothing (owner 口径:
+  // 顶栏项目名/版本徽章沿用当前页面的值，不许发新请求).
+  // ---------------------------------------------------------------------
+  const [stateIndex, setStateIndex] = useState(0)
+  const demoState = demoStates ? ALL_STATES[stateIndex] : null
+  // one fake per frame, minted on the frame: a live write a presenter makes
+  // belongs to the frame that made it and is gone on the next switch
+  const demoApi = useMemo(() => (demoState ? createDemoApi(demoState.fixture) : null), [demoState])
+  const [demoActiveId, setDemoActiveId] = useState<string | null>(null)
+  const [demoExtraTabs, setDemoExtraTabs] = useState<WorkTab[]>([])
+
+  // A frame switch is a wholesale reload: every ai-studio read is stale by
+  // construction (the fake that answered it is gone). The PROJECT key is
+  // spared on purpose — dropping it would re-issue the request this mode
+  // promises not to make.
+  useEffect(() => {
+    if (!demoStates) return
+    queryClient.removeQueries({
+      predicate: (q) => q.queryKey[0] === 'ai-studio' && q.queryKey[1] !== 'project',
+    })
+    setDemoActiveId(null)
+    setDemoExtraTabs([])
+  }, [demoStates, stateIndex, queryClient])
+
   const projectQuery = useQuery({
     queryKey: ['ai-studio', 'project', projectId],
     queryFn: () => studioApi.getProject(projectId),
+    // in the demo the project read is a CACHE read, never a request: a deep
+    // link straight into `?demo=states` has nothing cached, and asking would
+    // both fetch in demo mode and hit the `?demo=` guard's throw
+    enabled: !demoStates,
   })
   const docs: StudioDoc[] = projectQuery.data?.docs ?? []
 
@@ -188,6 +268,47 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
     })
   }, [])
 
+  // The demo's open doc tab, derived from the frame: the committed content is
+  // the editor's baseline and `initialDraft` is the frame's workspace buffer,
+  // so 「有未提交修改」 arrives through the real component's own `dirty` rule
+  // rather than a look-alike panel. `diffOpen` / `versionsOpen` are the two
+  // frames whose headline IS a popover (当前 Diff / 版本历史).
+  const demoTabs: WorkTab[] = useMemo(() => {
+    if (!demoState) return []
+    const docName = demoState.selectedDoc
+    if (!docName || demoState.activeSurface === 'list') return []
+    const committed = demoState.fixture.docs.find((d) => d.name === docName)?.content ?? demoState.baseline
+    return [{
+      id: `demo-${demoState.id}-${docName}`,
+      kind: 'doc',
+      title: docName,
+      docName,
+      initialContent: committed,
+      initialDraft: demoState.dirty && demoState.buffer !== committed ? demoState.buffer : undefined,
+      diffOpen: demoState.activeSurface === 'diff',
+      versionsOpen: demoState.activeSurface === 'versionHistory',
+    }]
+  }, [demoState])
+
+  // In demo mode the sidebar's doc list is real and clickable: opening a doc
+  // from it adds an ordinary tab, backed by the same frame fake.
+  const shownTabs = demoStates ? [...demoTabs, ...demoExtraTabs] : tabs
+  const shownActiveId = demoStates ? (demoActiveId ?? demoTabs[0]?.id ?? null) : activeId
+  const shownApi = demoStates ? (demoApi ?? undefined) : undefined
+  const onShownSelect = demoStates ? setDemoActiveId : setActiveId
+  const onShownClose = demoStates
+    ? (id: string) => {
+      setDemoExtraTabs((ts) => ts.filter((t) => t.id !== id))
+      setDemoActiveId(null)
+    }
+    : closeTab
+  const onShownOpen = demoStates
+    ? (tab: WorkTab) => {
+      setDemoExtraTabs((ts) => (ts.some((t) => t.id === tab.id) ? ts : [...ts, tab]))
+      setDemoActiveId(tab.id)
+    }
+    : openTab
+
   const toggleBtns = useMemo(() => (
     <div className="flex items-center gap-1" role="group" aria-label={i18nT('apps.aiStudio.toggle_panes')}>
       <button
@@ -220,14 +341,14 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
     </div>
   ), [hidden, togglePane])
 
-  if (projectQuery.isLoading) {
+  if (!demoStates && projectQuery.isLoading) {
     return (
       <div className="h-full p-6" data-testid="ai-studio-loading">
         <ContentSkeleton rows={6} />
       </div>
     )
   }
-  if (projectQuery.isError) {
+  if (!demoStates && projectQuery.isError) {
     const gone = projectQuery.error instanceof StudioApiError && projectQuery.error.code === 'project_not_found'
     return (
       <div className="h-full p-6 flex flex-col gap-3 max-w-[560px]" data-testid="ai-studio-load-error">
@@ -241,10 +362,17 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
       </div>
     )
   }
-  const project = projectQuery.data!.project
+  // In the demo this is the already-loaded project (owner 口径); the URL id is
+  // the honest fallback for a deep link that arrived with nothing cached.
+  const project = projectQuery.data?.project
+    ?? { id: projectId, name: projectId, description: '', createdAt: 0 }
 
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid="ai-studio">
+    <div
+      className="flex flex-col h-full min-h-0"
+      data-testid="ai-studio"
+      data-demo-states={demoStates ? STATE_DEMO_SCENARIO : undefined}
+    >
       <header className="flex items-center gap-3 px-4 h-[44px] shrink-0 border-b border-border bg-card">
         <Btn onClick={() => navigate('/workspaces')} title={i18nT('apps.aiStudio.back_to_projects')} aria-label={i18nT('apps.aiStudio.back_to_projects')}>
           <ArrowLeft size={14} className="lucide-inline" />
@@ -258,7 +386,16 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
         {/* Project-level commit (ACP-727): the shared bar owns the badge,
             the button and the commit run; this header just places it. */}
         <div className="relative flex items-center gap-2">
-          <ProjectCommitBar projectId={projectId} onCommitted={onDocCommitted} onDraftsSeen={onDraftsSeen} />
+          {/* keyed on the frame: its drafts read is cached under a key that
+              carries only the project id, so without a remount a switch would
+              serve the PREVIOUS frame's draft list */}
+          <ProjectCommitBar
+            key={demoState?.id ?? 'real'}
+            projectId={projectId}
+            api={demoApi ?? undefined}
+            onCommitted={onDocCommitted}
+            onDraftsSeen={demoStates ? undefined : onDraftsSeen}
+          />
         </div>
         <span className="rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-muted">
           {i18nT('apps.aiStudio.design_version')}: {DESIGN_VERSION}
@@ -270,7 +407,7 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
       {/* the recent-activity feed, the same component the demo workbench
        * mounts (ACP-754) — the hook exists on both surfaces, fed by data
        * each surface honestly holds */}
-      <RecentActivityFeed items={activity} />
+      <RecentActivityFeed items={demoState ? demoState.fixture.recentActivity : activity} />
 
       <div className="flex flex-1 min-h-0">
         {!hidden.left && (
@@ -293,14 +430,43 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
 
         {!hidden.center && (
           <main className="flex-1 min-w-0 flex flex-col min-h-0 bg-bg">
-            <WorkArea
-              tabs={tabs}
-              activeId={activeId}
-              onSelect={setActiveId}
-              onClose={closeTab}
-              projectId={projectId}
-              commitRev={commitRev}
-            />
+            <div className="flex-1 min-h-0">
+              <WorkArea
+                tabs={shownTabs}
+                activeId={shownActiveId}
+                onSelect={onShownSelect}
+                onClose={onShownClose}
+                projectId={projectId}
+                api={shownApi}
+                commitRev={commitRev}
+              />
+            </div>
+            {/* The later-phase frames' payoff panels (ACP-794): a frame whose
+              * story IS the graph / the dev run / the deployment renders the
+              * REAL component for it under the editor, exactly where the
+              * replay surface mounts them. Snapshot-driven: a panel exists
+              * only where the loaded frame carries its payload. */}
+            {demoState?.activeSurface === 'graph' && demoState.fixture.graph && (
+              <div className="shrink-0 max-h-[300px] overflow-auto border-t border-border bg-bg">
+                <GraphView
+                  graph={demoState.fixture.graph}
+                  addedNodeIds={demoState.fixture.graphDelta?.nodes}
+                  addedEdges={demoState.fixture.graphDelta?.edges}
+                  modifiedNodeIds={demoState.fixture.graphDelta?.modified}
+                  removedNodeIds={demoState.fixture.graphDelta?.removed}
+                />
+              </div>
+            )}
+            {demoState?.activeSurface === 'dev' && demoState.fixture.devRun && (
+              <div className="shrink-0 max-h-[340px] overflow-auto border-t border-border bg-bg">
+                <DevRunPanel run={demoState.fixture.devRun} />
+              </div>
+            )}
+            {demoState && DEPLOY_PAYLOADS[demoState.id] && (
+              <div className="shrink-0 max-h-[420px] overflow-auto border-t border-border bg-bg">
+                <DeployFramePanel frame={DEPLOY_PAYLOADS[demoState.id]} />
+              </div>
+            )}
           </main>
         )}
         {!hidden.center && !hidden.right && (
@@ -309,10 +475,33 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
 
         {!hidden.right && (
           <aside style={{ width: widths.right }} className="shrink-0 min-w-[240px] max-w-[55vw] flex flex-col min-h-0 border-l border-border bg-card">
-            <ToolSidebar onOpenTab={openTab} docs={docs} projectId={projectId} />
+            <ToolSidebar
+              onOpenTab={onShownOpen}
+              docs={demoState ? demoState.fixture.docs : docs}
+              projectId={projectId}
+            />
           </aside>
         )}
       </div>
+
+      {/* the runnable experience (V3): an internal overlay onto the frame's own
+        * runPreview data — no server, no container */}
+      {demoState?.fixture.runPreview && <RunPreviewScreen preview={demoState.fixture.runPreview} />}
+
+      {demoState && (
+        <StatesDock
+          index={stateIndex}
+          onSelect={setStateIndex}
+          onPrev={() => setStateIndex((i) => Math.max(0, i - 1))}
+          onNext={() => setStateIndex((i) => Math.min(ALL_STATES.length - 1, i + 1))}
+          onClose={() => {
+            const params = new URLSearchParams(location.search)
+            params.delete('demo')
+            const qs = params.toString()
+            navigate(qs ? `${location.pathname}?${qs}` : location.pathname)
+          }}
+        />
+      )}
     </div>
   )
 }

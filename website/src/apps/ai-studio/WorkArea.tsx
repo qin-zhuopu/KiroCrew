@@ -12,7 +12,20 @@ import NodeDetail from './NodeDetail'
 import type { StudioApi } from './studioApi'
 
 export type WorkTab =
-  | { id: string; kind: 'doc'; title: string; docName: string; initialContent: string }
+  | {
+    id: string
+    kind: 'doc'
+    title: string
+    docName: string
+    initialContent: string
+    /** the state-direct demo's three mount-time seeds (ACP-794): a workspace
+     * buffer that differs from the committed content, and the two popovers a
+     * frame's headline IS (当前 Diff / 版本历史). Omitted everywhere else, so
+     * the ordinary tab object and the ordinary editor are untouched. */
+    initialDraft?: string
+    diffOpen?: boolean
+    versionsOpen?: boolean
+  }
   | { id: string; kind: 'diff'; title: string; file: string }
   | { id: string; kind: 'commit'; title: string; commitId: string }
   | { id: string; kind: 'node'; title: string; type: string; nodeId: string }
@@ -85,6 +98,9 @@ export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId,
             docName={active.docName}
             initialContent={active.initialContent}
             api={api}
+            initialDraft={active.initialDraft}
+            initialDiffOpen={active.diffOpen}
+            initialVersionsOpen={active.versionsOpen}
           />
         ) : active.kind === 'diff' ? (
           <DiffView file={active.file} />
