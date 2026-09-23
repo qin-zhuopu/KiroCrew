@@ -107,10 +107,51 @@
 - 依赖：blocked by T1、T7。
 - 拍板依据：§〇-2 全节（含「列表只读」行，7d212e12a 拍板）；§六 新建表第 4 行。
 
-## 依赖 DAG（定稿复核后，2026-09-23）
+## F1 [后台·完整版·暂不开发] 真实构建器（替换 T3 演示 build）
 
-Jira 板：父单 ACP-765，子单 ACP-766~773 = T1~T8。复核结论：无缺口，未补拆新子任务
-（定稿 08 相对拆分时正文无新增断言点，B1 改 tag 等三处变化已在拍板轮同步进卡片）。
+- 演示归属：完整版专属。ACP-782。
+- 范围：把演示构建段（`backend/deploy.py` 可选 buildCommand + 产物冻结到 `publish/artifacts/<version>/`）
+  替换为完整版真实构建器：按版本 git tag 构建含后端的可运行产物（00 §37：完整版含后端）；
+  构建失败走既有失败路径（job 失败落库、B2 `status:"failed"`、行内失败文案）。
+  **不碰演示版发布路径，不碰前端，不做流水线编排（F2）**。
+- 文件与 testid：`deploy.py`、`publish.py` 执行器接缝；新增 `test/test_ai_studio_publish_full_build.py`；
+  锚点 `ai-studio-publish-status-<版本号>`（失败文案）归 T5/T6，不改。
+- 验收命令：`python3 -m pytest test/test_ai_studio_publish_full_build.py -q`
+  （tag 构建出含后端产物；构建失败→job 失败 + 记录 status:failed + reason 非空）
+- 依赖：blocked by T3（ACP-768）；blocks F3、F2。
+- 拍板依据：08 §三 B2 与失败路径、§五「制造一次构建失败」；T3 卡备注；00 §37。
+
+## F2 [后台·完整版·暂不开发] CI/发布流水线（release-job 服务端执行体）
+
+- 演示归属：完整版专属。ACP-783。
+- 范围：release-job 从网关进程内驱动升级为 CI 流水线式服务端执行体：排队、阶段化执行
+  （构建→停旧起新→探活）、日志实时上报（对接 T4 端点，流式契约不变：两次采样递增+完成标记）。
+  流水线内部重试只在服务端，**UI 保持只读**（job 行内无重试/取消/删除）。不新建前端、不改 T4 契约。
+- 文件与 testid：ai_studio 后端执行/流水线（现 `publish.py` 驱动段为接缝）；
+  新增 `test/test_ai_studio_publish_pipeline.py`；锚点 `ai-studio-release-job-log-<发布号>` 归 T7/T8，不改。
+- 验收命令：`python3 -m pytest test/test_ai_studio_publish_pipeline.py -q`
+- 依赖：blocked by T4（ACP-769）、F1。
+- 拍板依据：08 §〇-2（Jenkins 式+流式+列表只读）；§三 B4。
+
+## F3 [后台·完整版·暂不开发] 完整版实例真实起服与探活（替换静态托管）
+
+- 演示归属：完整版专属。ACP-784。
+- 范围：把演示启动段（`deploy.py` `_DEFAULT_START_COMMAND` 的 `python -m http.server`）
+  替换为完整版应用真实起服（含后端进程），健康检查通过才判 job 成功；§四 3 的
+  「一次核心操作」用完整版验收断言集跑最小一条，跑在真实实例上。停旧起新+域名注册复用 T3 机制不改。
+- 文件与 testid：`deploy.py` 启动段；新增 `test/test_ai_studio_publish_full_serve.py`；
+  §四 进程级断言（旧 PID 消失/旧端口无监听/新 URL 200）；锚点 `ai-studio-publish-url-<版本号>` 归 T6，不改。
+- 验收命令：`python3 -m pytest test/test_ai_studio_publish_full_serve.py -q` + §四 1–4 以完整版实例全过
+  （隔离网关照 `docs/guides/worktree-verification-recipes.md`）
+- 依赖：blocked by F1；blocks F2 端到端收口。
+- 拍板依据：08 §四 3/4；`deploy.py` 备注（a real production server）。
+
+## 依赖 DAG（完整版补拆后，2026-09-23）
+
+Jira 板：父单 ACP-765，子单 ACP-766~773 = T1~T8（演示链路）、ACP-782~784 = F1~F3
+（完整版链路，**暂不开发**，owner 排期）。T1~T8 复核结论见上一轮：范围/testid/验收命令
+与定稿逐条对得上（卡片漂移已修）。F 系列为 owner 纠正后补拆：当初要求演示+完整版都拆、
+只是开发只做演示。
 
 ```mermaid
 graph LR
@@ -124,7 +165,12 @@ graph LR
     T5[T5 ACP-770 页签+版本列表 完成]
     T6[T6 ACP-771 发布链路+结果条 测试中]
     T7[T7 ACP-772 DeployLog 接流 完成]
-    T8[T8 ACP-773 ReleaseJobPage 待办]
+    T8[T8 ACP-773 ReleaseJobPage 完成]
+  end
+  subgraph 完整版专属·暂不开发
+    F1[F1 ACP-782 真实构建器]
+    F3[F3 ACP-784 真实起服+探活]
+    F2[F2 ACP-783 CI/发布流水线]
   end
   T1 --> T2 --> T3
   T2 --> T4 --> T7
@@ -132,16 +178,24 @@ graph LR
   T2 -.联调.-> T6
   T1 --> T8
   T7 --> T8
+  T3 -.替换演示build.-> F1
+  F1 --> F3
+  T4 -.日志源替换.-> F2
+  F1 --> F2
 ```
 
-关键路径：T1 → T2 → T4 → T7 → T8。T3 的 build 步骤为演示实现
-（可选 buildCommand+静态起服），完整版真实构建器不在本 DAG。
+关键路径（演示）：T1 → T2 → T4 → T7 → T8。
+F 系列依赖：F1 blocked by T3；F3 blocked by F1；F2 blocked by T4+F1。
+F 系列是演示实现的**替换件**不是并行件：F1 替换 deploy.py 的 buildCommand+产物冻结，
+F3 替换 http.server 静态托管，F2 把 publish.py 进程内驱动换成 CI 流水线执行体；
+端点与前端契约（T1~T8 的 testid/响应字段）不因 F 系列改变。
 
 ### 演示归属（owner 硬性要求，已逐单写进 Jira 描述）
 
 - 纯演示后端：T1 / T2 / T3 / T4
 - 演示前端：T5 / T6 / T7 / T8
-- 完整版专属：无（T3 标注了 build 为演示实现）
+- 完整版专属：F1 / F2 / F3（ACP-782~784，暂不开发；原「完整版专属：无」作废——
+  T3 卡上「build 为演示实现、完整版构建器另立单」的备注即由 F1 承接）
 
 ## 拍板记录（原「待确认」全部落定）
 
