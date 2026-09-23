@@ -1,5 +1,5 @@
-// The workspace top bar's project-level long-running acts (ACP-730's 发版,
-// ACP-733's 开始沉淀, ACP-735's 开始开发), shaped like ProjectCommitBar:
+// The workspace's project-level long-running acts (ACP-730's 发版, ACP-733's
+// 开始沉淀, ACP-735's 开始开发, ACP-799's 部署), shaped like ProjectCommitBar:
 // one control, both
 // surfaces, the callback seam doing the work. The real path has no release
 // or distillation endpoint yet, so StudioWorkspace does not render this at
@@ -12,7 +12,7 @@
 // lands (the distill click resolves straight into the snapshot's own
 // running state).
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BrainCircuit, Hammer, Rocket } from 'lucide-react'
+import { BrainCircuit, Hammer, Rocket, Upload } from 'lucide-react'
 import { Btn } from '../../components/ui'
 import { i18nT } from '../../i18n/t'
 
@@ -28,7 +28,7 @@ export default function ReleaseControl({ onRelease, phases, phaseMs = 600, disab
   disabled?: boolean
   /** which top-bar act this button is: the testid, labels and icon come from
    * that act's keys, the walk mechanics are shared */
-  act?: 'release' | 'distill' | 'dev'
+  act?: 'release' | 'distill' | 'dev' | 'deploy'
 }) {
   const [pending, setPending] = useState(false)
   const [phase, setPhase] = useState(0)
@@ -64,6 +64,11 @@ export default function ReleaseControl({ onRelease, phases, phaseMs = 600, disab
     // the `dev` i18n key is taken by the sidebar's run label — the button
     // reads dev_start
     dev: { testid: 'dev-btn', key: 'dev_start', pending: 'dev_running', hint: 'dev_hint', Icon: Hammer },
+    // ACP-799's act is the 部署 tab's own: the same button, moved onto the tab
+    // that performs it (动作按钮跟着页签走). Its words are SHIPPED catalogue
+    // keys — 部署 is the tab's own name and 发布中 is what the product calls an
+    // in-flight publish job — so this act adds no i18n key and no new word.
+    deploy: { testid: 'deploy-btn', key: 'tool_deploy', pending: 'release_job_status_running', hint: 'tool_deploy', Icon: Upload },
   } as const
   const conf = ACTS[act]
   const label = pending
