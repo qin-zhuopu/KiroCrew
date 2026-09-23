@@ -12,6 +12,9 @@
   `/ai-studio/…`；`/apps/ai-studio` 命中的是通用 `/apps/:name`（AppPage）；根路径落到
   `ChatRedirect`。`?demo=` 只在 AiStudioPage 内部解析，路由没进它参数就丢了。
 - **修法**：文档与探针全部钉到 `/ai-studio?demo=<场景id>`。
+  （2026-09-23 更新：页面路由已改名，**现在钉 `/workspaces?demo=<场景id>`**；旧
+  `/ai-studio` 仍可用，由 App.tsx 的静态路由重定向到 `/workspaces` 且 query 保留，
+  工作台旧拼写 `/projects/<id>/ai-studio` 由 ProjectsPage 的垫片重定向。）
 - **避免**：验收文档里路由契约要**实测钉死**写进正文，别从"惯例 URL"推。
 
 ## 2. fresh KIROCREW_HOME 上 ai-studio 默认 disabled，403 文案不说"怎么开"
