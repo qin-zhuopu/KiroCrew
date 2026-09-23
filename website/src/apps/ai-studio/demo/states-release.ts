@@ -19,6 +19,9 @@
 //     `LogFrame` wire shape in DeployLog.tsx).
 //   - `runPreview` — R6's experience screen, the same StudioRunPreview the
 //     dev-phase demo already feeds RunPreviewScreen.
+//   - `files` (ACP-798) — 本版修改过的文件: name, 新增/修改/删除, and each
+//     file's 图谱拆解状态 (已 / 正在 / 尚未拆解成图谱). The release tab renders
+//     one list ROW per file; no frame here draws a box-and-arrow diagram.
 //
 // WHY A SUBTYPE INSTEAD OF A `states.ts` EDIT (公共文件不改, the ticket's hard
 // line): `StateSnapshot` carries no publish field and `DemoFixture` fakes only
@@ -48,6 +51,11 @@
 //     whose lines carry this iteration's new rule; the address string itself
 //     still shows verbatim on R4's result bar (template 版本号-应用名-工号
 //     .gb10.jereh-pe.cn, the scheme-less shape publish_url() actually stores).
+//  5. ACP-798: `files` rides a NEW optional prop on ToolSidebar /
+//     PublishVersionList (`releaseFiles`), omitted by every ordinary
+//     workbench — its default is exactly today's render, so the releases tab
+//     is unchanged where the demo is not. The section is a list; the demo's
+//     center column stays the doc editor (`selectedDoc`), per owner 口径.
 //
 // STORY CONSISTENCY (asserted by states-release.test.tsx): the design phase
 // committed 产品需求设计文档.md as V5 (odd = manual, 附一) — the tag cut from
@@ -60,6 +68,7 @@ import type {
   StudioPublishPreview,
   StudioPublishRecord,
   StudioPublishVersion,
+  StudioReleaseFiles,
   StudioRunPreview,
 } from '../studioApi'
 import type { DemoFixture } from './types'
@@ -90,6 +99,18 @@ export interface ReleasePublishPayload {
   selectedJobId?: string
   /** R5: the DeployLog SSE replay — append-only frames, last one done=true */
   logFrames?: { lines: string[]; done: boolean; status: string }[]
+  /** ACP-798: 本版修改过的文件 — which files this version changed, HOW, and
+   * where each stands in the distillation into the requirement graph. Data
+   * only: the release tab renders one list row per file. Every frame carries
+   * it (owner 口径: 一个发版状态里要能读出「历史版本」和「本版改动文件」两样). */
+  files?: StudioReleaseFiles
+  /** ACP-798 (owner 追加): the 发版 tab's own top action — 动作按钮跟着页签走.
+   * `version` is the version the button fires for; `phaseKeys` are i18n KEYS
+   * for the pending walk (labels are resolved where they render — this file
+   * holds no literal label). Every release frame declares it, so the 发版 tab
+   * always carries the button; the component disables it wherever that
+   * version's row would lose its own 发布 button (the §〇 hash rule). */
+  releaseAction?: { version: string; phaseKeys: string[] }
   /** R6: what 「打开这一版」 shows — the real RunPreviewScreen's data */
   runPreview?: StudioRunPreview
 }
@@ -217,6 +238,79 @@ const LOG_FRAMES = [
   { lines: ['健康检查通过', `发布地址 ${URL_V5}（pid 4821）`], done: true, status: 'success' },
 ]
 
+/** ACP-798 · 本版（v5）修改过的文件, one row per file: the name, HOW v5 changed
+ * it, and where it stands in the distillation into the requirement graph.
+ * The three change kinds are all represented (新增 / 修改 / 删除) and the
+ * deleted one is a file that stood at v4 and is gone at v5 — so the list is
+ * 「本版动过的文件」, NOT 「项目现在有哪些文档」 (that is DOC_ROWS, and the two
+ * stay consistent: none of the four current docs is marked deleted here).
+ *
+ * The distill state ADVANCES across the story because the distillation is
+ * launched BY the release (ACP-733): before the v5 record lands every file is
+ * 尚未拆解, R4's landed release shows the run in progress — one file already
+ * distilled, one running, one still pending (all three states on ONE frame,
+ * so no reader has to hop frames to see them) — and R5/R6 carry the run on to
+ * completion. Every file is a LIST ROW, never a box-and-arrow diagram. */
+const FILE_REQ = '产品需求设计文档.md'
+const FILE_JOURNEY = '用户旅程设计.md'
+const FILE_OLD_RULE = '旧版积分规则说明.md'
+
+/** R1~R3: the version's changed files are known (the tag froze them), but the
+ * release has not landed, so nothing has been distilled yet. */
+const FILES_FRESH: StudioReleaseFiles = {
+  version: 'v5',
+  files: [
+    { name: FILE_REQ, change: 'modified', distill: 'pending' },
+    { name: FILE_JOURNEY, change: 'added', distill: 'pending' },
+    { name: FILE_OLD_RULE, change: 'deleted', distill: 'pending' },
+  ],
+}
+
+/** R4: the release landed and its distillation is IN PROGRESS — the frame the
+ * 三态口径 reads on (已拆解 / 正在拆解 / 尚未拆解 side by side). */
+const FILES_SETTLING: StudioReleaseFiles = {
+  version: 'v5',
+  files: [
+    { name: FILE_REQ, change: 'modified', distill: 'done' },
+    { name: FILE_JOURNEY, change: 'added', distill: 'running' },
+    { name: FILE_OLD_RULE, change: 'deleted', distill: 'pending' },
+  ],
+}
+
+/** R5: one file left running. */
+const FILES_ALMOST: StudioReleaseFiles = {
+  version: 'v5',
+  files: [
+    { name: FILE_REQ, change: 'modified', distill: 'done' },
+    { name: FILE_JOURNEY, change: 'added', distill: 'done' },
+    { name: FILE_OLD_RULE, change: 'deleted', distill: 'running' },
+  ],
+}
+
+/** R6: every changed file is in the graph. */
+const FILES_DISTILLED: StudioReleaseFiles = {
+  version: 'v5',
+  files: [
+    { name: FILE_REQ, change: 'modified', distill: 'done' },
+    { name: FILE_JOURNEY, change: 'added', distill: 'done' },
+    { name: FILE_OLD_RULE, change: 'deleted', distill: 'done' },
+  ],
+}
+
+/** ACP-798 · the 发版 tab's own 发版 button (owner 追加: 动作按钮跟着页签走).
+ * The act is the same one a row's 发布 button fires — this only names WHICH
+ * version it aims at, so the tab control and the row control are one code
+ * path. The walk labels are i18n keys (解析图谱 → 生成文件清单 → 就绪), the
+ * same three phases the top bar's release walks. */
+const RELEASE_ACTION: NonNullable<ReleasePublishPayload['releaseAction']> = {
+  version: 'v5',
+  phaseKeys: [
+    'apps.aiStudio.publish_phase_parse',
+    'apps.aiStudio.publish_phase_filelist',
+    'apps.aiStudio.publish_phase_ready',
+  ],
+}
+
 /** R6's experience page: the feature list is the graph's requirement labels,
  * and the added line IS this iteration's rule (逐字对应图谱需求节点) */
 const RUN_PREVIEW: StudioRunPreview = {
@@ -265,7 +359,11 @@ function releaseBase(id: string, label: string, title: string, caption: string):
     title,
     caption,
     docs: DOC_ROWS,
-    selectedDoc: null, // the release surface is the right sidebar's 发布 tab; no doc is open
+    // Owner 口径 (ACP-798): in the demo the CENTER column is only ever the doc
+    // editor — the release story is read in the right sidebar's 发布 tab, so
+    // the frame keeps the focus doc open in the middle rather than leaving it
+    // empty. `activeSurface: 'release'` is what lights the tab.
+    selectedDoc: FOCUS_DOC,
     activeSurface: 'release',
     buffer: BASELINE_V5,
     baseline: BASELINE_V5,
@@ -283,18 +381,23 @@ function releaseBase(id: string, label: string, title: string, caption: string):
 // read each (the differences ARE data: the records list before/after the
 // settle, and R3's one real click); R5 is the release-job page + its log
 // replay; R6 is the experience screen behind the result bar's address.
+// ACP-798: every frame ALSO carries 本版修改过的文件 (name + 新增/修改/删除 +
+// 已/正在/尚未拆解成图谱), because owner's 口径 is that ONE release state reads
+// both the version history and this version's changed files. The three distill
+// states are all on R4 at once (FILES_SETTLING), so a presenter sees them
+// without hopping; R5/R6 show the run finishing.
 // ---------------------------------------------------------------------------
 
 export const RELEASE_STATES: ReleaseStateSnapshot[] = [
   {
     ...releaseBase('R1', 'R1 · 发布页签', '发版页签 · 版本列表', '右侧「发布」页签打开：v5 / v4 / v3 逐行列出，各带短 hash 与发布状态'),
     fixture: releaseFixture(),
-    publish: { versions: VERSIONS, records: RECORDS_BEFORE, previews: PREVIEWS },
+    publish: { versions: VERSIONS, records: RECORDS_BEFORE, previews: PREVIEWS, files: FILES_FRESH, releaseAction: RELEASE_ACTION },
   },
   {
     ...releaseBase('R2', 'R2 · 发版形态', '选中这一版 · 看发版形态', 'v5 行显示本版将以什么形态发布及判定原因（git tag 标注）；hash ≠ 最新成功发布 hash，发布按钮出现'),
     fixture: releaseFixture(),
-    publish: { versions: VERSIONS, records: RECORDS_BEFORE, previews: PREVIEWS, focusVersion: 'v5' },
+    publish: { versions: VERSIONS, records: RECORDS_BEFORE, previews: PREVIEWS, focusVersion: 'v5', files: FILES_FRESH, releaseAction: RELEASE_ACTION },
   },
   {
     // 发布中 is the component's LOCAL run state (useState) — no initial data
@@ -304,7 +407,7 @@ export const RELEASE_STATES: ReleaseStateSnapshot[] = [
     // facts, they appear only when the record lands).
     ...releaseBase('R3', 'R3 · 发布中', '触发发版 · 发布中', '点 v5 行的「发布」：行状态变「发布中」，日志开始长（发布详情里看）'),
     fixture: releaseFixture(),
-    publish: { versions: VERSIONS, records: RECORDS_BEFORE, previews: PREVIEWS, focusVersion: 'v5', inFlight: { version: 'v5', deploymentId: 'job-v5' } },
+    publish: { versions: VERSIONS, records: RECORDS_BEFORE, previews: PREVIEWS, focusVersion: 'v5', inFlight: { version: 'v5', deploymentId: 'job-v5' }, files: FILES_FRESH, releaseAction: RELEASE_ACTION },
   },
   {
     // the settle: v5's success record IS the frame — PublishVersionList
@@ -312,14 +415,15 @@ export const RELEASE_STATES: ReleaseStateSnapshot[] = [
     // hash rule retires v5's button while v4's comes back (D3 rollback case).
     ...releaseBase('R4', 'R4 · 发版成功', '发版成功 · 结果条', 'v5 行出现结果条：完整版徽章、访问地址（v5-points-14409.gb10.jereh-pe.cn）、发布号 job-v5（新页签打开发布详情）'),
     fixture: releaseFixture(),
-    publish: { versions: VERSIONS, records: RECORDS_AFTER, previews: PREVIEWS, focusVersion: 'v5' },
+    publish: { versions: VERSIONS, records: RECORDS_AFTER, previews: PREVIEWS, focusVersion: 'v5', files: FILES_SETTLING, releaseAction: RELEASE_ACTION },
   },
   {
     ...releaseBase('R5', 'R5 · 发布详情', '发布详情页 · 历史与流式日志', '发布详情页：该项目全部发布历史（job-v5 / v4 / v3 均已完成），本次 job-v5 的日志按帧回放、末帧 done 关流'),
     fixture: releaseFixture(),
     publish: {
       versions: VERSIONS, records: RECORDS_AFTER, previews: PREVIEWS, focusVersion: 'v5',
-      jobs: JOBS, selectedJobId: 'job-v5', logFrames: LOG_FRAMES,
+      jobs: JOBS, selectedJobId: 'job-v5', logFrames: LOG_FRAMES, files: FILES_ALMOST,
+      releaseAction: RELEASE_ACTION,
     },
   },
   {
@@ -330,6 +434,6 @@ export const RELEASE_STATES: ReleaseStateSnapshot[] = [
     // (non-demo) visit would open.
     ...releaseBase('R6', 'R6 · 线上可访问', '线上可访问 · 新规则已生效', '打开本次发布的版本：功能清单里能看到本次新增的规则「大额采购需追加一级审批」'),
     fixture: releaseFixture(),
-    publish: { versions: VERSIONS, records: RECORDS_AFTER, previews: PREVIEWS, focusVersion: 'v5', runPreview: RUN_PREVIEW },
+    publish: { versions: VERSIONS, records: RECORDS_AFTER, previews: PREVIEWS, focusVersion: 'v5', runPreview: RUN_PREVIEW, files: FILES_DISTILLED, releaseAction: RELEASE_ACTION },
   },
 ]

@@ -557,12 +557,20 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               changed={demoCommit?.changed}
               commits={demoCommit?.commits}
               publishApi={demoPublishApi ?? undefined}
-              // the graph frame's own list + generation run: the tab renders
+// the graph frame's own list + generation run: the tab renders
               // the shipped DistillPanel above the grouped entries, so the
               // process and the artifact are both observed where the owner's
               // rule puts them — in the tab, never in the middle column
               graphEntries={demoGraph?.graphEntries}
               distillation={demoGraph?.distillation}
+              // ACP-798: 本版修改过的文件 rides the frame's own payload — the
+              // releases tab reads the version history AND this version's
+              // changed files (each with its 图谱拆解状态) from one frame.
+              releaseFiles={demoRelease?.publish.files}
+              // ACP-798 (owner 追加): the 发版 tab carries its own 发版 button
+              // at the top — the frame names the version it fires; the
+              // component's own hash rule decides whether it is live.
+              releaseAction={demoRelease?.publish.releaseAction}
             />
           </aside>
         )}
