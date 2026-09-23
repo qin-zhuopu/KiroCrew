@@ -2,9 +2,11 @@
 // graph / dev / deploy); every row opens a tab in the center work area via
 // onOpenTab. The graph tab drills type → node → (tab), mirroring the demo's
 // two-level navigation. Docs are the project's real files (passed in from the
-// workspace query) and the releases tab is the publish version list; the
-// other four tabs remain fixture-backed.
-import { useState } from 'react'
+// workspace query) and the releases tab is the publish version list; the other
+// four tabs are fixture-backed unless a caller injects its own content — the
+// commits lists (ACP-795) and the 开发 / 部署 tabs (ACP-799). Every injection is
+// optional and defaults to that fixture, so an ordinary workbench is unchanged.
+import { useState, type ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { i18nT } from '../../i18n/t'
 import {
@@ -17,6 +19,7 @@ import {
   type ChangedFile,
   type CommitEntry,
   type ProgressModel,
+  type ReleaseRun,
 } from './fixtures'
 import type { StudioDoc, StudioPublishApi } from './studioApi'
 import PublishVersionList from './PublishVersionList'
@@ -31,6 +34,28 @@ const TOOL_KEYS: Record<Tool, string> = {
   graph: i18nT('apps.aiStudio.tool_graph'),
   dev: i18nT('apps.aiStudio.tool_dev'),
   deploy: i18nT('apps.aiStudio.tool_deploy'),
+}
+
+/** One sidebar tab whose content comes from OUTSIDE (ACP-799). The 开发 and 部署
+ * tabs are the two the demo's dev/deploy frames cover, and a frame knows facts
+ * the shipped fixtures do not (its own run, its own deployment, its own
+ * history). A caller injects the three parts and this file owns the SHAPE, once,
+ * because the owner's layout rule is uniform across tabs: 过程 on top — the
+ * current in-flight items with each one's state — and 历史记录 below. An
+ * injected tab therefore cannot drift into a third arrangement.
+ *
+ * The parts are nodes, not data, on purpose: the demo hands in the render of the
+ * REAL components (`DevRunPanel`, `DeployFramePanel`, `ReleaseControl`), so this
+ * file keeps knowing nothing about the demo and the product keeps one
+ * implementation of each picture. */
+export interface ToolTabInjection {
+  /** the tab-top action button (the frames pass ReleaseControl's own 开始开发 /
+   * 部署 button); omitted = no button, exactly as today */
+  action?: ReactNode
+  /** 「过程」: the current in-flight list and each item's state */
+  current: ReactNode
+  /** 「历史记录」: the previous rounds, newest last */
+  history: ReleaseRun[]
 }
 
 export interface ToolSidebarProps {
@@ -57,10 +82,19 @@ export interface ToolSidebarProps {
   // Omitted (every ordinary workbench) => PublishVersionList's own default.
   /** the releases tab's publish read source */
   publishApi?: StudioPublishApi
+  // ACP-799 adds the same kind of seam to the LAST two fixture-backed tabs: the
+  // 开发 / 部署 tabs read the DEV / DEPLOYMENTS fixtures today, and the demo's
+  // V/P frames carry their own run / deployment / history. Omitted (every
+  // ordinary workbench, and every frame that is not a dev/deploy one) => the
+  // fixtures render exactly as before.
+  /** the 开发 tab's injected 过程 / 历史 (a dev frame's own run) */
+  dev?: ToolTabInjection
+  /** the 部署 tab's injected 过程 / 历史 (a deploy frame's own record) */
+  deploy?: ToolTabInjection
 }
 
 export default function ToolSidebar({
-  onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
+  onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi, dev, deploy,
 }: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>(initialTool)
   // graph drill state: null = type list, string = inside a type
@@ -98,8 +132,12 @@ export default function ToolSidebar({
         {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} changed={changed} commits={commits} />}
         {tool === 'releases' && <PublishVersionList projectId={projectId} api={publishApi} />}
         {tool === 'graph' && <GraphTool graphType={graphType} setGraphType={setGraphType} onOpenTab={onOpenTab} />}
-        {tool === 'dev' && <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />}
-        {tool === 'deploy' && <DeployTool onOpenTab={onOpenTab} />}
+        {tool === 'dev' && (dev
+          ? <InjectedTool tab="dev" injection={dev} onOpenTab={onOpenTab} />
+          : <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />)}
+        {tool === 'deploy' && (deploy
+          ? <InjectedTool tab="deploy" injection={deploy} onOpenTab={onOpenTab} />
+          : <DeployTool onOpenTab={onOpenTab} />)}
       </div>
     </div>
   )
@@ -264,6 +302,38 @@ function GraphTool({ graphType, setGraphType, onOpenTab }: {
           key={n.id}
           title={n.name}
           onClick={() => onOpenTab({ id: `node-${n.id}`, kind: 'node', title: n.name, type: graphType, nodeId: n.id })}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** A 开发 / 部署 tab rendered from an injected 过程 + 历史 (ACP-799). The shape
+ * is the same one `ReleasesTool` / `DeployTool` already use — action, then
+ * 「过程」, then 「历史记录」 — so all four tabs read alike; the only difference is
+ * WHERE the two blocks come from. History rows open the tab their own tool has
+ * always opened (a dev record opens a commit tab, a deployment its deploy log). */
+function InjectedTool({ tab, injection, onOpenTab }: {
+  tab: 'dev' | 'deploy'
+  injection: ToolTabInjection
+  onOpenTab: ToolSidebarProps['onOpenTab']
+}) {
+  return (
+    <div>
+      {injection.action && <div className="mb-2">{injection.action}</div>}
+      <Section>{i18nT('apps.aiStudio.current_progress')}</Section>
+      {injection.current}
+      <Section>{i18nT('apps.aiStudio.history')}</Section>
+      {injection.history.map((r) => (
+        <Row
+          key={r.id}
+          title={r.id}
+          meta={r.time}
+          pill={r.status}
+          pillTone="done"
+          onClick={() => onOpenTab(tab === 'deploy'
+            ? { id: `deploy-${r.id}`, kind: 'deploy', title: `${r.id} · ${i18nT('apps.aiStudio.deploy_log')}`, deployId: r.id }
+            : { id: `rel-${r.id}`, kind: 'commit', title: r.id, commitId: r.id })}
         />
       ))}
     </div>

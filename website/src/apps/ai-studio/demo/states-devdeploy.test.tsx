@@ -1,16 +1,24 @@
-// ACP-792: the dev + deploy state frames (V1~V3 / P1~P2).
+// ACP-792 / ACP-799: the dev + deploy state frames (V1~V3 / P1~P2).
 //
-// WHAT THIS PROVES, AND HOW. The renderer (StateDemo, ACP-794 返工中) is not
-// mine to touch, so mounting the full `?demo=states` route and asserting my
-// frames paint there is not possible from inside this file — but a state frame
-// is only as real as the components it feeds, so every render assertion here
-// mounts the REAL business component the wired surface will use, with MY
+// WHAT THIS PROVES, AND HOW. The renderer (AiStudioPage's demo wiring, ACP-794)
+// is not mine to touch, so mounting the full `?demo=states` route and asserting
+// my frames paint there is not possible from inside this file — but a state
+// frame is only as real as the components it feeds, so every render assertion
+// here mounts the REAL business component the wired surface will use, with MY
 // snapshot's payload: `DevRunPanel` / `RunPreviewScreen` (DevRunView.tsx) from
-// `fixture.devRun` / `fixture.runPreview`. That is the outline's hard rule
-// (testid 与文案必须和真实组件一致，不许另造长得像的) enforced at the data
-// layer: if these frames ever drive a branch, they provably produce
-// dev-run-panel / dev-phase-* / dev-artifacts / dev-runnable-version /
-// run-preview / run-line exactly as the outline names them.
+// `fixture.devRun` / `fixture.runPreview`, and — since ACP-799 moves this slice
+// into the sidebar — the real `ToolSidebar` with the same injection ACP-796 is
+// told to hand it. That is the outline's hard rule (testid 与文案必须和真实组件
+// 一致，不许另造长得像的) enforced at the data layer: if these frames ever drive
+// a branch, they provably produce dev-run-panel / dev-phase-* / dev-artifacts /
+// dev-runnable-version / run-preview / run-line exactly as the outline names
+// them, inside 开发 / 部署 tab that renders them.
+//
+// What ACP-799 adds: the content lives in a SIDEBAR tab (owner's layout rule —
+// 中间列只显示文字内容), so each frame names its tab (`activeSidebarTab`), the
+// history that goes UNDER the 过程, and the tab-top action button's state. The
+// cases below drive the shipped `ToolSidebar` with those fields and assert the
+// uniform shape it owes every tab: action on top, 过程, then 历史记录.
 //
 // The deploy frames have no pure-props business component to mount (the real
 // DeployLog streams SSE, which a zero-fetch demo cannot drive — 任务书:
@@ -19,10 +27,19 @@
 // prefix-extension growth of the log lines, the URL template, and the 单实例
 // replacement facts. A later renderer branch consumes exactly these fields.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
+import { i18nT } from '../../../i18n/t'
 import DevRunPanel, { RunPreviewScreen } from '../DevRunView'
-import { DEPLOY_PAYLOADS, DEV_DEPLOY_STATES } from './states-devdeploy'
+import ReleaseControl from '../ReleaseControl'
+import ToolSidebar from '../ToolSidebar'
+import DeployFramePanel from './DeployFramePanel'
+import {
+  DEPLOY_PAYLOADS,
+  DEV_DEPLOY_STATES,
+  isDevDeployState,
+  type DevDeploySnapshot,
+} from './states-devdeploy'
 
 const byId = (id: string) => {
   const s = DEV_DEPLOY_STATES.find((x) => x.id === id)
@@ -197,6 +214,142 @@ describe('the snapshots feed the REAL business components', () => {
     expect(document.querySelector('[data-testid="run-preview-lines"]')).toHaveTextContent('大额采购')
     fireEvent.click(document.querySelector<HTMLElement>('[data-testid="run-preview-close"]')!)
     expect(onClose).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ACP-799: the same content, rendered where the owner wants it — the sidebar's
+// 开发 / 部署 tab. `injectFor` builds exactly what the frame's contract tells
+// ACP-796 to pass, so these cases measure the real seam rather than a
+// re-implementation of it: the panels are the shipped components, the button is
+// ReleaseControl's own, and the layout is ToolSidebar's.
+// ---------------------------------------------------------------------------
+
+/** what the renderer hands `ToolSidebar` for one frame (the contract's snippet) */
+function injectFor(f: DevDeploySnapshot) {
+  const action = (
+    <ReleaseControl
+      act={f.activeSidebarTab}
+      disabled={f.actionDisabled}
+      onRelease={async () => {}}
+    />
+  )
+  return f.activeSidebarTab === 'dev'
+    ? { action, current: <DevRunPanel run={f.fixture.devRun!} />, history: f.history }
+    : { action, current: <DeployFramePanel frame={DEPLOY_PAYLOADS[f.id]} />, history: f.history }
+}
+
+function mountSidebar(f: DevDeploySnapshot) {
+  const injected = injectFor(f)
+  return render(
+    <ToolSidebar
+      onOpenTab={vi.fn()}
+      docs={[]}
+      projectId={f.fixture.project.id}
+      initialTool={f.activeSidebarTab}
+      {...(f.activeSidebarTab === 'dev' ? { dev: injected } : { deploy: injected })}
+    />,
+  )
+}
+
+/** DOM order: `a` must come before `b`. */
+const precedes = (a: Element, b: Element) =>
+  Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+describe('ACP-799 the frames name their sidebar tab', () => {
+  it('every frame is a dev/deploy frame, and its tab IS its phase', () => {
+    for (const s of DEV_DEPLOY_STATES) {
+      expect(isDevDeployState(s), s.id).toBe(true)
+      expect(s.activeSidebarTab, s.id).toBe(s.phase)
+    }
+    // 开发 frames light 开发, 部署 frames light 部署 — V1~V3 and P1~P2
+    expect(DEV_DEPLOY_STATES.map((s) => s.activeSidebarTab))
+      .toEqual(['dev', 'dev', 'dev', 'deploy', 'deploy'])
+  })
+
+  it('过程 and 历史记录 do not overlap: the current run / deployment is never also a history row', () => {
+    const v1 = byId('V1')
+    expect(v1.history.map((r) => r.id)).not.toContain(v1.fixture.devRun!.id)
+    const p2 = byId('P2')
+    expect(p2.history.map((r) => r.id)).not.toContain(DEPLOY_PAYLOADS.P2.deploymentId)
+    for (const s of DEV_DEPLOY_STATES) expect(s.history.length, s.id).toBeGreaterThan(0)
+  })
+
+  it('单实例替换 and 历史 agree on one number: v4’s deployment is the row the tab already lists', () => {
+    for (const id of ['P1', 'P2']) {
+      const replaced = DEPLOY_PAYLOADS[id].replaced!
+      expect(byId(id).history.map((r) => r.id), id).toContain(replaced.deploymentId)
+      expect(byId(id).history.find((r) => r.id === replaced.deploymentId)!.status, id).toBe('已替换')
+    }
+  })
+
+  it('③ the middle column stays a document: every frame opens the focus doc', () => {
+    for (const s of DEV_DEPLOY_STATES) {
+      expect(s.selectedDoc, s.id).toBe('产品需求设计文档.md')
+      expect(s.fixture.docs.map((d) => d.name), s.id).toContain(s.selectedDoc)
+      expect(s.buffer.length, s.id).toBeGreaterThan(0)
+    }
+  })
+
+  it('the action button follows the frame, not the fixture: it exists and is disabled because that act already ran', () => {
+    for (const s of DEV_DEPLOY_STATES) expect(s.actionDisabled, s.id).toBe(true)
+  })
+})
+
+describe('ACP-799 the real sidebar renders the frames', () => {
+  it('V1: the 开发 tab carries the four-phase panel as its 过程, the history below it, and the 开发 button on top', () => {
+    mountSidebar(byId('V1'))
+
+    // the tab-top action button is ReleaseControl's own (testid + shipped word)
+    const button = screen.getByTestId('dev-btn')
+    expect(button).toHaveTextContent(i18nT('apps.aiStudio.dev_start'))
+    expect(button).toBeDisabled()
+
+    // 过程 = the shipped four-phase panel, fed by THIS frame's run
+    expect(attr('dev-run-panel', 'data-dev-run-id')).toBe('dev-v5')
+    expect(attr('dev-phase-implement', 'data-dev-phase-status')).toBe('running')
+
+    // the uniform shape the owner asked for: action → 过程 → 历史记录
+    const action = screen.getByTestId('dev-btn')
+    const panel = screen.getByTestId('dev-run-panel')
+    const history = screen.getByText(i18nT('apps.aiStudio.history'))
+    expect(precedes(action, panel)).toBe(true)
+    expect(precedes(panel, history)).toBe(true)
+
+    // and the history rows are the frame's, not the shipped DEV_HISTORY fixture
+    for (const r of byId('V1').history) expect(screen.getByText(r.id)).toBeInTheDocument()
+    expect(screen.queryByText('dev-309')).not.toBeInTheDocument()
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('P2: the 部署 tab carries the deploy record + log as its 过程, the 部署 button on top, history below', () => {
+    mountSidebar(byId('P2'))
+
+    const button = screen.getByTestId('deploy-btn')
+    expect(button).toHaveTextContent(i18nT('apps.aiStudio.tool_deploy'))
+    expect(button).toBeDisabled()
+
+    // 过程 = the shipped deploy panel: the record, the live feature list, the log
+    expect(screen.getByTestId(`deploy-log-${DEPLOY_PAYLOADS.P2.deploymentId}`)).toBeInTheDocument()
+    expect(screen.getByTestId('deploy-online-features')).toHaveTextContent('大额采购需追加一级审批')
+    expect(screen.getByTestId('ai-studio-release-job-status-' + DEPLOY_PAYLOADS.P2.deploymentId))
+      .toHaveTextContent(i18nT('apps.aiStudio.release_job_status_success'))
+
+    const history = screen.getByText(i18nT('apps.aiStudio.history'))
+    expect(precedes(screen.getByTestId('deploy-frame-' + DEPLOY_PAYLOADS.P2.deploymentId), history)).toBe(true)
+    for (const r of byId('P2').history) expect(screen.getByText(r.id)).toBeInTheDocument()
+    expect(screen.queryByText('deploy-024')).not.toBeInTheDocument()
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('a caller that injects nothing keeps today’s fixture-backed tab (零行为变化)', () => {
+    render(<ToolSidebar onOpenTab={vi.fn()} docs={[]} projectId="demo-product" initialTool="dev" />)
+    // the shipped DEV / DEV_HISTORY fixtures, and no action button at all
+    expect(screen.queryByTestId('dev-btn')).not.toBeInTheDocument()
+    expect(screen.getByText('dev-309')).toBeInTheDocument()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
