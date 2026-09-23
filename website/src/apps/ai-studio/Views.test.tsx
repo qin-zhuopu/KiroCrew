@@ -20,11 +20,14 @@ const api = vi.hoisted(() => ({
   saveDraft: vi.fn(async () => ({ ok: true })),
   listDraftDocs: vi.fn(async () => ({ drafts: [] })),
   listDraftVersions: vi.fn(async () => ({ versions: [] })),
-  listVersions: vi.fn(async () => ({ versions: [] })),
+  listVersions: vi.fn(async () => ({ versions: [{ version: 'v1.0', commitHash: 'c1051100', time: 1 }] })),
+  listRecords: vi.fn(async () => ({ records: [] })),
+  preview: vi.fn(async () => ({ form: 'full', reason: '完整版通过验收' })),
+  trigger: vi.fn(),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
-  return { ...actual, studioApi: api }
+  return { ...actual, studioApi: api, publishApi: api }
 })
 
 import AiStudioPage from './AiStudioPage'
@@ -58,18 +61,14 @@ describe('tool sidebar -> work area views', () => {
     expect(within(c2).getByText('ui-spec.md')).toBeInTheDocument()
   })
 
-  it('releases tab: progress bar renders, history row opens a tab', async () => {
+  it('releases tab: the publish version list renders (the dev tab keeps the old ReleasesTool)', async () => {
     const user = userEvent.setup()
     renderStudio(<AiStudioPage />)
-    await openTool(user, 'Releases')
+    await user.click(await screen.findByTestId('ai-studio-publish-entry'))
     const sidebar = screen.getByTestId('tool-sidebar')
-    // progress block: done/total, the current task, and a running-row badge
-    expect(within(sidebar).getByText('4/6')).toBeInTheDocument()
-    expect(within(sidebar).getByText('生成正式设计文档')).toBeInTheDocument()
-    expect(within(sidebar).getByText('Running')).toBeInTheDocument()
-    expect(within(sidebar).getByText('v1.3')).toBeInTheDocument()
-    await user.click(within(sidebar).getByText('v1.3'))
-    expect(await screen.findByRole('tab', { name: 'Release v1.3' })).toBeInTheDocument()
+    expect(await within(sidebar).findByTestId('ai-studio-publish-version-list')).toBeInTheDocument()
+    expect(within(sidebar).getByTestId('ai-studio-publish-version-row-v1.0')).toBeInTheDocument()
+    expect(within(sidebar).getByTestId('ai-studio-publish-btn-v1.0')).toBeInTheDocument()
   })
 
   it('dev tab: history row opens a tab', async () => {

@@ -253,6 +253,56 @@ export interface StudioGeneratedFile {
   derivedFrom: string[]
 }
 
+// ---------------------------------------------------------------------------
+// publish (08-publish-app): version rows, release records, form preview and
+// the publish trigger. A separate client object (not a StudioApi member) on
+// purpose: the demo runtime implements StudioApi exactly, and the demo never
+// fakes a publish entry — these calls are real-store only.
+// ---------------------------------------------------------------------------
+
+/** One publishable version row: a version label (a bare git tag name — the
+ * same id the preview endpoint takes) with the commit hash it froze. */
+export interface StudioPublishVersion {
+  version: string
+  commitHash: string
+  time: number
+}
+
+/** One release record (B3/B4): the outward fact a SUCCESSFUL publish created.
+ * The publish view derives the per-version published states and the "latest
+ * published hash" (the newest success record's hash) from this one read. */
+export interface StudioPublishRecord {
+  deploymentId: string
+  version: string
+  commitHash: string
+  form: string
+  requirementVersion: string
+  jiraTaskIds: string[]
+  status: string
+  url: string
+  ts: number
+}
+
+/** B1's per-version form verdict. A `rejected` form is a 200 verdict body,
+ * not an error — the row renders `reason` inline. */
+export interface StudioPublishPreview {
+  form: 'full' | 'demo' | 'rejected'
+  reason: string
+}
+
+export type StudioPublishApi = {
+  /** The project's publishable versions (tag + hash), newest first. */
+  listVersions: (id: string) => Promise<{ versions: StudioPublishVersion[] }>
+  /** The project's release records, newest first (B3/B4). */
+  listRecords: (id: string) => Promise<{ records: StudioPublishRecord[] }>
+  /** B1: the form one version publishes as, from its git tag annotation. */
+  preview: (id: string, version: string) => Promise<StudioPublishPreview>
+  /** B2: fire the publish. Same-hash-while-running answers 409; an
+   * idempotent re-publish answers the existing deploymentId. */
+  trigger: (id: string, version: string, commitHash: string) =>
+    Promise<{ deploymentId: string; idempotent?: boolean }>
+}
+
 export class StudioApiError extends Error {
   readonly code: string
   readonly status: number
@@ -303,6 +353,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new StudioApiError(res.status, code, message)
   }
   return res.json() as Promise<T>
+}
+
+export const publishApi: StudioPublishApi = {
+  listVersions: (id: string) =>
+    request<{ versions: StudioPublishVersion[] }>(
+      `/publish/versions?project=${encodeURIComponent(id)}`,
+    ),
+  listRecords: (id: string) =>
+    request<{ records: StudioPublishRecord[] }>(
+      `/publish/records?project=${encodeURIComponent(id)}`,
+    ),
+  preview: (id: string, version: string) =>
+    request<StudioPublishPreview>(
+      `/publish/preview?project=${encodeURIComponent(id)}&version=${encodeURIComponent(version)}`,
+    ),
+  trigger: (id: string, version: string, commitHash: string) =>
+    request<{ deploymentId: string; idempotent?: boolean }>('/publish', {
+      method: 'POST',
+      body: JSON.stringify({ project: id, version, commitHash }),
+    }),
 }
 
 export const studioApi: StudioApi = {

@@ -273,7 +273,7 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
 
         {!hidden.right && (
           <aside style={{ width: widths.right }} className="shrink-0 min-w-[240px] max-w-[55vw] flex flex-col min-h-0 border-l border-border bg-card">
-            <ToolSidebar onOpenTab={openTab} docs={docs} />
+            <ToolSidebar onOpenTab={openTab} docs={docs} projectId={projectId} />
           </aside>
         )}
       </div>

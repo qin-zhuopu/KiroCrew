@@ -2,7 +2,8 @@
 // graph / dev / deploy); every row opens a tab in the center work area via
 // onOpenTab. The graph tab drills type → node → (tab), mirroring the demo's
 // two-level navigation. Docs are the project's real files (passed in from the
-// workspace query); the other five tabs remain fixture-backed.
+// workspace query) and the releases tab is the publish version list; the
+// other four tabs remain fixture-backed.
 import { useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { i18nT } from '../../i18n/t'
@@ -13,11 +14,10 @@ import {
   DEV,
   DEV_HISTORY,
   GRAPH_NODES,
-  RELEASE,
-  RELEASES,
   type ProgressModel,
 } from './fixtures'
 import type { StudioDoc } from './studioApi'
+import PublishVersionList from './PublishVersionList'
 import type { WorkTab } from './WorkArea'
 
 type Tool = 'docs' | 'commits' | 'releases' | 'graph' | 'dev' | 'deploy'
@@ -35,9 +35,11 @@ export interface ToolSidebarProps {
   onOpenTab: (tab: WorkTab) => void
   /** The current project's docs, straight from the store. */
   docs: StudioDoc[]
+  /** The project whose versions the publish tab lists. */
+  projectId: string
 }
 
-export default function ToolSidebar({ onOpenTab, docs }: ToolSidebarProps) {
+export default function ToolSidebar({ onOpenTab, docs, projectId }: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>('docs')
   // graph drill state: null = type list, string = inside a type
   const [graphType, setGraphType] = useState<string | null>(null)
@@ -59,6 +61,7 @@ export default function ToolSidebar({ onOpenTab, docs }: ToolSidebarProps) {
             type="button"
             role="tab"
             aria-selected={tool === t}
+            data-testid={t === 'releases' ? 'ai-studio-publish-entry' : undefined}
             onClick={() => pick(t)}
             className={`px-2.5 py-2.5 text-[12px] whitespace-nowrap cursor-pointer border-b-2 transition-colors ${
               tool === t ? 'text-accent border-accent font-semibold' : 'text-muted border-transparent hover:text-text'
@@ -71,7 +74,7 @@ export default function ToolSidebar({ onOpenTab, docs }: ToolSidebarProps) {
       <div className="flex-1 min-h-0 overflow-auto p-3">
         {tool === 'docs' && <DocsTool docs={docs} onOpenTab={onOpenTab} />}
         {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} />}
-        {tool === 'releases' && <ReleasesTool model={RELEASE} onOpenTab={onOpenTab} history={RELEASES} noun={i18nT('apps.aiStudio.release')} />}
+        {tool === 'releases' && <PublishVersionList projectId={projectId} />}
         {tool === 'graph' && <GraphTool graphType={graphType} setGraphType={setGraphType} onOpenTab={onOpenTab} />}
         {tool === 'dev' && <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />}
         {tool === 'deploy' && <DeployTool onOpenTab={onOpenTab} />}
@@ -178,7 +181,7 @@ function ProgressBar({ model }: { model: ProgressModel }) {
 
 function ReleasesTool({ model, history, noun, onOpenTab }: {
   model: ProgressModel
-  history: typeof RELEASES
+  history: Array<{ id: string; time: string; status: string }>
   noun: string
   onOpenTab: ToolSidebarProps['onOpenTab']
 }) {
