@@ -40,11 +40,30 @@ export interface ProgressModel {
   tasks: Array<[string, TaskState]>
 }
 
+/** One instance an edge lands on (ACP-802): enough to read the relation as a
+ * row — the instance's own id, its display name, and the type it belongs to. */
+export interface GraphEdgeTarget {
+  id: string
+  name: string
+  type: string
+}
+
+/** One edge of a node, READ AS ITS TARGETS (ACP-802): the same relation
+ * `edges` spells as a sentence, carried as the instances it connects.
+ * `label` is that sentence, so the two can never describe different edges. */
+export interface GraphEdgeLink {
+  label: string
+  targets: GraphEdgeTarget[]
+}
+
 export interface GraphNode {
   id: string
   name: string
   props: Record<string, string>
   edges: string[]
+  /** OPTIONAL: the instances each edge lands on. A node without it renders
+   * exactly as it always has — one plain-text card per edge. */
+  edgeLinks?: GraphEdgeLink[]
 }
 
 export interface DeployEntry {
@@ -107,6 +126,11 @@ export const RELEASES: ReleaseRun[] = [
   { id: 'v1.2', time: '2026-09-20 12:20', status: '成功' },
 ]
 
+// Every node below carries `edgeLinks` (ACP-802): each edge's own sentence
+// plus the instances it lands on. The graph is CLOSED — every target names a
+// node that really is in this table, under the type it is filed under — so the
+// drill-down 类型 → 实例 → 边 → 关联实例 walks a world that exists rather than
+// one assembled per screen.
 export const GRAPH_NODES: Record<string, GraphNode[]> = {
   页面: [
     {
@@ -114,6 +138,11 @@ export const GRAPH_NODES: Record<string, GraphNode[]> = {
       name: '商机详情页',
       props: { 编码: 'PAGE_OPPORTUNITY', 布局: '详情页布局', 状态: '有效' },
       edges: ['包含 → 阶段推进组件', '读取 → 商机实体', '写入 → 商机历史'],
+      edgeLinks: [
+        { label: '包含 → 阶段推进组件', targets: [{ id: 'comp-stage', name: '阶段推进组件', type: '组件' }] },
+        { label: '读取 → 商机实体', targets: [{ id: 'entity-opportunity', name: '商机', type: '实体' }] },
+        { label: '写入 → 商机历史', targets: [{ id: 'entity-opportunity-history', name: '商机历史', type: '实体' }] },
+      ],
     },
   ],
   实体: [
@@ -122,6 +151,30 @@ export const GRAPH_NODES: Record<string, GraphNode[]> = {
       name: '商机',
       props: { 编码: 'OPPORTUNITY', 主键: 'opportunity_id', 状态: '有效' },
       edges: ['拥有 → 商机阶段', '产生 → 商机历史', '展示于 → 商机详情页'],
+      edgeLinks: [
+        { label: '拥有 → 商机阶段', targets: [{ id: 'entity-opportunity-stage', name: '商机阶段', type: '实体' }] },
+        { label: '产生 → 商机历史', targets: [{ id: 'entity-opportunity-history', name: '商机历史', type: '实体' }] },
+        { label: '展示于 → 商机详情页', targets: [{ id: 'page-opportunity', name: '商机详情页', type: '页面' }] },
+      ],
+    },
+    {
+      id: 'entity-opportunity-stage',
+      name: '商机阶段',
+      props: { 编码: 'OPPORTUNITY_STAGE', 主键: 'opportunity_stage_id', 状态: '有效' },
+      edges: ['属于 → 商机', '受约束于 → 商机阶段流转规则'],
+      edgeLinks: [
+        { label: '属于 → 商机', targets: [{ id: 'entity-opportunity', name: '商机', type: '实体' }] },
+        { label: '受约束于 → 商机阶段流转规则', targets: [{ id: 'rule-stage', name: '商机阶段流转规则', type: '业务规则' }] },
+      ],
+    },
+    {
+      id: 'entity-opportunity-history',
+      name: '商机历史',
+      props: { 编码: 'OPPORTUNITY_HISTORY', 主键: 'opportunity_history_id', 状态: '有效' },
+      edges: ['记录 → 商机'],
+      edgeLinks: [
+        { label: '记录 → 商机', targets: [{ id: 'entity-opportunity', name: '商机', type: '实体' }] },
+      ],
     },
   ],
   业务规则: [
@@ -130,6 +183,10 @@ export const GRAPH_NODES: Record<string, GraphNode[]> = {
       name: '商机阶段流转规则',
       props: { 编码: 'RULE_STAGE_FLOW', 类型: '状态流转', 状态: '有效' },
       edges: ['约束 → 商机阶段', '影响 → 商机详情页'],
+      edgeLinks: [
+        { label: '约束 → 商机阶段', targets: [{ id: 'entity-opportunity-stage', name: '商机阶段', type: '实体' }] },
+        { label: '影响 → 商机详情页', targets: [{ id: 'page-opportunity', name: '商机详情页', type: '页面' }] },
+      ],
     },
   ],
   组件: [
@@ -138,6 +195,10 @@ export const GRAPH_NODES: Record<string, GraphNode[]> = {
       name: '阶段推进组件',
       props: { 编码: 'COMP_STAGE', 类型: '业务组件', 状态: '有效' },
       edges: ['嵌入 → 商机详情页', '操作 → 商机实体'],
+      edgeLinks: [
+        { label: '嵌入 → 商机详情页', targets: [{ id: 'page-opportunity', name: '商机详情页', type: '页面' }] },
+        { label: '操作 → 商机实体', targets: [{ id: 'entity-opportunity', name: '商机', type: '实体' }] },
+      ],
     },
   ],
 }

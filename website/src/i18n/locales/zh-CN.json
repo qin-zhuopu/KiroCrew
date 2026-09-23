@@ -341,6 +341,7 @@
       "node_type": "节点类型",
       "node_props": "节点属性",
       "node_edges": "边",
+      "node_edge_targets": "关联实例",
       "deploy_log": "部署日志",
       "deploy_log_failed": "日志流连接失败",
       "deploy_log_waiting": "等待日志输出…",

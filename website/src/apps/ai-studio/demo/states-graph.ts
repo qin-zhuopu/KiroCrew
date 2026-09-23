@@ -11,6 +11,12 @@
 //   G2 图谱生成完成                      (the run is done, the whole graph reads
 //                                        as a grouped list)
 //
+// ACP-802 adds the four frames that walk the finished graph one level deeper —
+// G3 节点类型列表 → G4 节点实例列表 → G5 实例属性详情 → G6 该实例每条边的关联
+// 实例. They are the same artifact read four ways, all derived from the one
+// fixture graph the product ships; the header of that section below states the
+// rules they are built around.
+//
 // WHERE IT IS OBSERVED (owner 口径, and the rule this file is built around):
 // **the generation process and the graph itself are observed ONLY in the tool
 // sidebar's 「需求图谱」 tab, as a LIST — never a box-and-arrow canvas in the
@@ -44,6 +50,7 @@ import type {
   StudioGraphNode,
 } from '../studioApi'
 import type { GraphEntryGroup, GraphEntryRow } from '../ToolSidebar'
+import { GRAPH_NODES } from '../fixtures'
 import { COMMIT_STATES } from './states-commit'
 import type { StateSnapshot } from './states'
 
@@ -60,6 +67,16 @@ export interface GraphStateSnapshot extends StateSnapshot {
   /** the generation run the tab shows above the list. Its status IS the
    * frame's beat: 'running' = 正在生成 (G1), 'done' = 生成完成 (G2). */
   distillation?: StudioDistillation
+  // ---- ACP-802: the drill-down's third and fourth levels. Both are the SAME
+  // kind of seam as `initialTool` / `graphEntries` — optional, and a frame
+  // that carries neither renders exactly what it rendered before.
+  /** the node TYPE the 需求图谱 tab is standing inside (G4). Absent = the tab
+   * sits on its type list, which is what every other frame does. */
+  graphType?: string
+  /** the node INSTANCE the workspace tab is open on (G5/G6). The instance's
+   * properties and its edges-with-targets are THAT node's own fixture data,
+   * so the frame names which node, never what it says. */
+  graphNode?: { type: string; nodeId: string; title: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +287,85 @@ if (!C2) throw new Error('states-graph: C2 (the commit this pair follows) is mis
 // has no G step (that gap IS this task) and a frame must not impersonate one.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ACP-802: the DRILL-DOWN — G3 类型列表 → G4 实例列表 → G5 实例属性 → G6 边的
+// 关联实例. Where G1/G2 watch the graph being BUILT (one run, two instants),
+// G3~G6 walk the graph that exists: the same 提交 stage's artifact, read one
+// level deeper each time. Every level is derived from the ONE fixture graph the
+// product already ships (`GRAPH_NODES`), so the counts on G3, the rows on G4,
+// the properties on G5 and the targets on G6 cannot disagree with each other or
+// with what the shipped tab renders from the same table.
+//
+// ONE INSTANCE THROUGHOUT: G4 is standing inside 实体, G5 and G6 are the SAME
+// instance (商机) — properties first, then the same instance's edges read as
+// what they connect. That is one screen in two beats, not two screens.
+// ---------------------------------------------------------------------------
+
+/** the header the type list sits under (G3) — frame DATA, like KIND_GROUPS:
+ * the graph's own vocabulary, not the sidebar's copy */
+const TYPE_GROUP = '节点类型'
+
+/** the type list as the tab reads it (G3): one row per type, with how many
+ * instances that type holds. Counted, never typed — a type row cannot claim a
+ * size its own instances do not have. */
+export function graphTypeRows(): GraphEntryRow[] {
+  return Object.entries(GRAPH_NODES).map(([type, nodes]) => ({
+    id: `type-${type}`,
+    label: type,
+    meta: `${nodes.length} 个实例`,
+  }))
+}
+
+/** the 实例 the drill-down walks into (G4 in the sidebar, G5/G6 in the
+ * workspace). One constant, so the level the tab stands in and the instance the
+ * tab shows are the same fact. */
+export const DRILL_TYPE = '实体'
+export const DRILL_NODE_ID = 'entity-opportunity'
+
+/** what THIS round did to the graph's instances — the only thing G4's marks may
+ * be derived from, exactly like G1/G2's marks come from their own wave. */
+export const GRAPH_DRILL_DELTA = {
+  added: ['entity-opportunity-stage'],
+  modified: [DRILL_NODE_ID],
+  removed: [] as string[],
+}
+
+/** One instance of a type, read as a line (G4): the name, then its own 编码 and
+ * 状态 from the SAME props G5 prints as the property table — one source, so a
+ * row and its detail page cannot disagree. */
+function instanceRows(type: string): GraphEntryRow[] {
+  const nodes = GRAPH_NODES[type] ?? []
+  return nodes.map((n) => ({
+    id: n.id,
+    label: n.name,
+    meta: [n.props['编码'], n.props['状态']].filter(Boolean).join(' · '),
+    mark: GRAPH_DRILL_DELTA.added.includes(n.id) ? 'added'
+      : GRAPH_DRILL_DELTA.modified.includes(n.id) ? 'modified'
+        : GRAPH_DRILL_DELTA.removed.includes(n.id) ? 'removed'
+          : undefined,
+  }))
+}
+
+/** the ONE instance the workspace is open on, as a tab (G5/G6). The renderer
+ * adds this tab when the frame carries `graphNode` — the node's properties and
+ * its edges come from the same fixture table `NodeDetail` already reads, so
+ * nothing about the node is restated in the frame. */
+export function graphNodeTab(s: GraphStateSnapshot) {
+  if (!s.graphNode) return null
+  return {
+    id: `node-${s.graphNode.nodeId}`,
+    kind: 'node' as const,
+    title: s.graphNode.title,
+    type: s.graphNode.type,
+    nodeId: s.graphNode.nodeId,
+  }
+}
+
+const DRILL_NODE = GRAPH_NODES[DRILL_TYPE]?.find((n) => n.id === DRILL_NODE_ID)
+if (!DRILL_NODE) throw new Error(`states-graph: the drill-down instance ${DRILL_NODE_ID} is missing from GRAPH_NODES`)
+
+const DRILL_TARGET = { type: DRILL_TYPE, nodeId: DRILL_NODE_ID, title: DRILL_NODE.name }
+
 export const GRAPH_STATES: GraphStateSnapshot[] = [
   {
     id: 'G1',
@@ -338,5 +434,103 @@ export const GRAPH_STATES: GraphStateSnapshot[] = [
         ...C2.fixture.recentActivity,
       ],
     },
+  },
+
+  // ---- ACP-802: the four drill-down beats. Same tab, same list seam, one
+  // level deeper each frame — the sidebar on G3/G4, the workspace on G5/G6.
+  {
+    id: 'G3',
+    outlineRef: 'G3',
+    phase: 'design',
+    label: 'G3 · 节点类型列表',
+    title: '需求图谱 · 节点类型列表',
+    caption: '「需求图谱」页签亮着，里面是节点类型列表：页面 / 实体 / 业务规则 / 组件，每行读得出该类型下有多少个实例',
+    docs: C2.docs,
+    selectedDoc: C2.selectedDoc,
+    // 中间列仍是文档编辑器：类型列表只在边栏页签里看
+    activeSurface: 'doc',
+    buffer: C2.buffer,
+    baseline: C2.baseline,
+    committedVersion: C2.committedVersion,
+    workingVersionLabel: C2.workingVersionLabel,
+    dirty: C2.dirty,
+    diffBadge: C2.diffBadge,
+    commitEnabled: C2.commitEnabled,
+    versionHistory: C2.versionHistory,
+    graphNote: `节点类型 ${Object.keys(GRAPH_NODES).length} 类 · 实例 ${Object.values(GRAPH_NODES).reduce((n, xs) => n + xs.length, 0)} 个`,
+    graphEntries: [{ label: TYPE_GROUP, rows: graphTypeRows() }],
+    fixture: C2.fixture,
+  },
+  {
+    id: 'G4',
+    outlineRef: 'G4',
+    phase: 'design',
+    label: 'G4 · 节点实例列表',
+    title: `点进「${DRILL_TYPE}」· 节点实例列表`,
+    caption: `页签已经进到「${DRILL_TYPE}」类型里：列出该类型的实例行（名称 + 编码 + 状态），本次新增 / 修改的带标记`,
+    docs: C2.docs,
+    selectedDoc: C2.selectedDoc,
+    activeSurface: 'doc',
+    buffer: C2.buffer,
+    baseline: C2.baseline,
+    committedVersion: C2.committedVersion,
+    workingVersionLabel: C2.workingVersionLabel,
+    dirty: C2.dirty,
+    diffBadge: C2.diffBadge,
+    commitEnabled: C2.commitEnabled,
+    versionHistory: C2.versionHistory,
+    graphNote: `${DRILL_TYPE}：${(GRAPH_NODES[DRILL_TYPE] ?? []).length} 个实例`,
+    graphEntries: [{ label: DRILL_TYPE, rows: instanceRows(DRILL_TYPE) }],
+    graphType: DRILL_TYPE,
+    fixture: C2.fixture,
+  },
+  {
+    id: 'G5',
+    outlineRef: 'G5',
+    phase: 'design',
+    label: 'G5 · 实例属性详情',
+    title: `点进「${DRILL_NODE.name}」· 实例属性详情`,
+    caption: '工作区页签打开该实例：上面是属性表（属性名 / 属性值，编码、主键、状态），下面是它的每条边',
+    docs: C2.docs,
+    // 实例详情占据工作区：这一帧不开文档页签（selectedDoc 为 null）
+    selectedDoc: null,
+    activeSurface: 'graph',
+    buffer: C2.buffer,
+    baseline: C2.baseline,
+    committedVersion: C2.committedVersion,
+    workingVersionLabel: C2.workingVersionLabel,
+    dirty: C2.dirty,
+    diffBadge: C2.diffBadge,
+    commitEnabled: C2.commitEnabled,
+    versionHistory: C2.versionHistory,
+    graphNote: `${DRILL_TYPE} · ${DRILL_NODE.name}`,
+    graphEntries: [{ label: DRILL_TYPE, rows: instanceRows(DRILL_TYPE) }],
+    graphType: DRILL_TYPE,
+    graphNode: DRILL_TARGET,
+    fixture: C2.fixture,
+  },
+  {
+    id: 'G6',
+    outlineRef: 'G6',
+    phase: 'design',
+    label: 'G6 · 每条边的关联实例',
+    title: `「${DRILL_NODE.name}」的每条边 · 关联实例列表`,
+    caption: '同一条实例，往下看到边：每条边一组，上面是边名，下面列出这条边连到的关联实例（实例名 + 类型）',
+    docs: C2.docs,
+    selectedDoc: null,
+    activeSurface: 'graph',
+    buffer: C2.buffer,
+    baseline: C2.baseline,
+    committedVersion: C2.committedVersion,
+    workingVersionLabel: C2.workingVersionLabel,
+    dirty: C2.dirty,
+    diffBadge: C2.diffBadge,
+    commitEnabled: C2.commitEnabled,
+    versionHistory: C2.versionHistory,
+    graphNote: `${DRILL_NODE.name}：${DRILL_NODE.edges.length} 条边 · ${(DRILL_NODE.edgeLinks ?? []).reduce((n, l) => n + l.targets.length, 0)} 个关联实例`,
+    graphEntries: [{ label: DRILL_TYPE, rows: instanceRows(DRILL_TYPE) }],
+    graphType: DRILL_TYPE,
+    graphNode: DRILL_TARGET,
+    fixture: C2.fixture,
   },
 ]

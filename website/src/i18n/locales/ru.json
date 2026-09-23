@@ -332,6 +332,7 @@
       "node_type": "Node type",
       "node_props": "Properties",
       "node_edges": "Edges",
+      "node_edge_targets": "Related instances",
       "deploy_log": "Deploy log",
       "deploy_log_failed": "The log stream could not be opened",
       "deploy_log_waiting": "Waiting for log output…",
