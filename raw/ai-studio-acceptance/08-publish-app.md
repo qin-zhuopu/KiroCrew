@@ -23,9 +23,9 @@
 | 区块 | 承载 testid | 数据来源（承接前序） |
 |---|---|---|
 | 版本列表（每版本一行） | `ai-studio-publish-version-list`；行=`ai-studio-publish-version-row-<版本号>` | **承接 02-需求文档修改与提交**：行=该项目已提交的版本，与 DocEditor `version-history-list` 同源数据（版本快照接口），不是另造的版本来源；行内含版本号与其 commit hash |
-| 行内发布状态 | `ai-studio-publish-version-state`（行内） | 已发布/未发布两态；由发布记录推导（无记录=未发布） |
+| 行内发布状态 | `ai-studio-publish-version-state`（行内） | 四态：未发布/发布中/已发布/失败；由发布记录与任务状态推导（无记录=未发布） |
 | 行内发布按钮 | `ai-studio-publish-btn-<版本号>` | 渲染与否=hash 对比规则（见 §〇）；点击即发布，无确认弹层、无表单 |
-| 行内形态判定与原因 | `ai-studio-publish-reason-<版本号>`（行内） | 承接 07 的验收记录（demo/full 通过状态）；未过验收的行在这里给出不可发的原因 |
+| 行内形态判定与原因 | `ai-studio-publish-reason-<版本号>`（行内） | 承接前序的 git tag 标注（演示版/完整版）；tag 缺失或未过验收的行在这里给出不可发的原因 |
 | 行内发布结果 | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` | 本步自身产出，发布后出现在该行内 |
 | 行内发布号链接 | `ai-studio-publish-id-<版本号>`（链接，指向发布详情页） | 点击发布后行状态=「发布中」并出现发布号；点它在新页签打开 `/release-jobs/<发布号>`（见 §〇-2） |
 
@@ -43,9 +43,9 @@
 **行内两个状态元素的分工**（都是行内，不许混）：
 - `ai-studio-publish-version-state` = 该版本的生命周期状态：未发布 / 发布中 / 已发布 / 失败；
 - `ai-studio-publish-status-<版本号>` = 本次发布动作的结果文案：发布中（进行时）/ 发布成功 / 发布失败+原因。
-两者在发布期间同步（同现「发布中」），终态由 release 决定（成功→已发布；失败→未发布+失败原因）。
+两者在发布期间同步（同现「发布中」），终态：发布成功→行状态「已发布」；发布失败→行状态「失败」+失败原因（无记录=「未发布」的推导规则见 B4）。
 
-后序文档（09 view-history）承接本步的产出：发布记录、应用地址——已在其视图内列为可跳转节点。
+后序文档（09 view-history）承接本步的产出：应用地址与 release-job 页入口（`/release-jobs/<发布号>` 链接）——已在其视图内列为可跳转节点。
 
 ## 〇-2、发布详情页（Jenkins 式发布历史 + 流式日志）
 
@@ -74,7 +74,7 @@
 | 前提 | 断言方式 |
 |---|---|
 | 目标项目存在至少一个已提交版本 | 版本列表接口返回该版本 |
-| 每个候选版本有验收记录，且记录里演示版/完整版各自带 通过/未通过 状态 | 验收记录端点（见 §三 B1） |
+| 每个候选版本有 git tag，tag 标注其形态（演示版/完整版） | git tag 列表（判定逻辑见 §三 B1） |
 | 当前存在一个"旧实例"在跑（已发布过的应用） | 旧实例探活 URL 返回 200 |
 
 ## 二、前台操作与断言（data-testid）
@@ -117,7 +117,7 @@
 
 | # | 事实 | 端点 | 断言字段 |
 |---|---|---|---|
-| B1 | 逐版本形态判定 | `GET /publish/preview?project&version` | `form: "full"|"demo"|"rejected"`；`reason` 非空；判定来源=验收记录（`acceptanceRef` 指向具体验收记录 id）。发布视图的行内 reason/按钮渲染取数于此 |
+| B1 | 逐版本形态判定 | `GET /publish/preview?project&version` | `form: "full"|"demo"|"rejected"`；`reason` 非空；**判定来源=该版本对应 git tag 的标注**（tag 注明演示版/完整版，Owner 已拍板）；无 tag 或标注缺失 → `rejected` 并说明。发布视图的行内 reason/按钮渲染取数于此 |
 | B2 | 触发发布（行按钮点击） | `POST /publish` body `{project, version, commitHash}` | 响应含 `deploymentId`；`commitHash` 与最新成功发布的 hash 相同 → 不新建部署，返回既有 `deploymentId` 与 `idempotent: true`；hash 非最新（含发布过的旧 hash）→ 正常新建部署（回滚式重发）；同 hash 发布进行中再调返回 409 |
 | B3 | 发布记录 | `GET /publish/records?project` | 最新记录含：`form`、`version`、`requirementVersion`（关联冻结的需求版本）、`jiraTaskIds` 非空、`status: "success"`、`url`（url 逐字符合域名模板） |
 | B4 | 行内两态来源 | `GET /publish/records?project` | 每个版本可由记录推导出 已发布/未发布 两态；行渲染与该数据一致（无记录=未发布）；「最新发布 hash」也由该接口推导（最新 `status:"success"` 记录的 hash） |
@@ -138,7 +138,7 @@
 - [ ] 发布视图无版本选择器、无手输框：版本列表逐行呈现，操作只发生在行内
 - [ ] 发布地址逐字匹配 `{版本号}-{应用名}-{工号}.gb10.jereh-pe.cn`
 - [ ] 每行已发/未发两态；A 场景发布后对应行从未发布翻成已发布、按钮消失，其余行不变
-- [ ] B1 的 `form` 与场景设置的验收记录一一对应（改验收记录→行内判定与按钮渲染跟着变）
+- [ ] B1 的 `form` 与版本 tag 的标注一一对应（改 tag 标注→行内判定与按钮渲染跟着变）
 - [ ] B3 发布记录可追溯到 requirementVersion 与 jiraTaskIds
 - [ ] §四 的停旧起新四条全过，且有「发布前旧实例 200」的前置证据
 - [ ] 场景 D：版本 hash 与最新发布 hash 相同 → 行内不渲染按钮，重复进入不新增发布记录；旧 hash（非最新）→ 按钮正常渲染，可回滚式重发（D3）
@@ -150,7 +150,7 @@
 
 原则：**先复用现有组件，再新建**；本文档的 testid 挂在组件渲染出的 DOM 元素上——验收只认 testid，组件重构不毁断言，但 testid 不许丢。
 
-### 复用（不新建）
+### 复用与澄清（本文不新建的部分）
 
 | 组件（`website/src/apps/ai-studio/`） | 现有 testid | 本文如何用 |
 |---|---|---|
@@ -163,7 +163,7 @@
 
 | 新组件 | 承载 testid | 理由 |
 |---|---|---|
-| 发布页签（现有 `ToolSidebar` 的 releases 页签） | `ai-studio-publish-entry` | 页签本体已存在（现无 testid），**本条只要求补挂 testid**；其内容从现有 fixture 桩换成发布版本列表（见上一行） |
+| 发布页签（现有 `ToolSidebar` 的 releases 页签） | `ai-studio-publish-entry` | 页签本体已存在（现无 testid），**本条只要求补挂 testid**；其内容从现有 fixture 桩换成发布版本列表（见「发布版本列表」行） |
 | 发布版本列表（行=版本+状态+按钮+原因） | `ai-studio-publish-version-list` / `ai-studio-publish-version-row-<版本号>` / `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>` / `ai-studio-publish-btn-<版本号>` | 现无「每行可发布」的版本列表；列表数据复用版本接口，但行内发布语义是新内容；**行内发布按钮在本组件内新建**（不复用顶栏 `ReleaseControl`，其 `release-btn` testid 不变） |
 | 行内发布结果条（状态+徽标+地址+发布号链接） | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` / `ai-studio-publish-id-<版本号>` | 现无对应物；发布记录不在行内，收进 release-job 页的 job 列表 |
 | 发布详情页 ReleaseJobPage（独立路由 `/release-jobs/<发布号>`，历史列表+流式日志） | `ai-studio-release-job-page` / `ai-studio-release-job-history-list` / `ai-studio-release-job-row-<发布号>` / `ai-studio-release-job-status-<发布号>` / `ai-studio-release-job-log-<发布号>` | Jenkins 式发布历史与流式日志，现无对应页面；日志渲染复用 `DeployLog` 形态，不另造日志组件 |
