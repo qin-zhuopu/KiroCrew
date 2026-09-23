@@ -464,8 +464,29 @@ function VersionsPopover({ open, onOpenChange, disabled, entries, onPick }: {
                 key={v.time}
                 onClick={() => onPick(v.time)}
                 className="block w-full text-left rounded-md px-2.5 py-2 text-[12px] text-text hover:bg-bg-hover cursor-pointer"
+                data-testid={`version-row-${v.version ?? v.time}`}
+                data-version-parity={v.parity}
+                data-version-source={v.source}
               >
-                {fmtDateTimeNumeric(v.time * 1000)}
+                <span className="flex items-center gap-1.5">
+                  {v.version && <span className="font-semibold">{v.version}</span>}
+                  <span>{fmtDateTimeNumeric(v.time * 1000)}</span>
+                  {/* 奇偶即来源（ACP-755 / 00 doc）：读的是行自带的 parity/source
+                      字段——后端没发的世界（两字段 undefined）一行标记都不渲染，
+                      有字段就必显示，标记永远是数据不是装饰 */}
+                  {v.source && (
+                    <span
+                      data-testid={`version-source-${v.version ?? v.time}`}
+                      className={`rounded-full px-1.5 py-px text-[10px] font-medium ${
+                        v.source === 'regen'
+                          ? 'bg-accent-subtle text-accent'
+                          : 'bg-bg-hover text-muted'
+                      }`}
+                    >
+                      {i18nT(`apps.aiStudio.version_source_${v.source}`)}
+                    </span>
+                  )}
+                </span>
               </Clickable>
             ))}
           </div>

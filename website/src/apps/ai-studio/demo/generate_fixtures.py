@@ -56,24 +56,45 @@ class Doc:
     def __init__(self, name: str) -> None:
         self.name = name
         self.committed = ""
-        self.seen: list[tuple[int, str]] = []
+        self.seen: list[tuple[int, str, str]] = []
         self._prev = ""
 
-    def seed(self, content: str, ts: int) -> None:
-        self.commit(content, ts)
+    def seed(self, content: str, ts: int, source: str = "manual") -> None:
+        self.commit(content, ts, source)
 
-    def commit(self, content: str, ts: int) -> None:
+    def commit(self, content: str, ts: int, source: str = "manual") -> None:
+        """Append a version row. `source` is the row's PROVENANCE (ACP-755):
+        `manual` = 人工提交, `regen` = 图谱反向生成. The odd/even rule (00 doc
+        核心机制) makes the two alternate — 提交出奇数版、反生出偶数版 — and
+        `check_parity` refuses a trail where they don't, so a wrong source is
+        a generation-time failure, never a badge that lies on screen."""
         if content == self._prev:
             return  # the store dedupes a same-content re-commit
+        assert source in ("manual", "regen")
         self.committed = content
-        self.seen.append((ts, content))
+        self.seen.append((ts, content, source))
         self._prev = content
 
     def rows(self) -> list[dict[str, Any]]:
+        """Version rows, newest first (the API's read order). Each row carries
+        the 00 doc's odd/even vocabulary as DATA: `version` (vN by trail
+        position — the number the parity rule speaks), `parity` (odd for odd
+        positions, even otherwise) and `source` (the provenance it was
+        committed with). check_parity is the generation-time lock that the
+        three can never contradict each other or the trail's order."""
         out = []
         prev = ""
-        for ts, content in self.seen:
-            out.append({"name": f"{ts}.md", "time": ts, "diff": unified_diff(prev, content)})
+        for idx, (ts, content, source) in enumerate(self.seen, start=1):
+            out.append(
+                {
+                    "name": f"{ts}.md",
+                    "version": f"v{idx}",
+                    "time": ts,
+                    "diff": unified_diff(prev, content),
+                    "parity": "odd" if idx % 2 == 1 else "even",
+                    "source": source,
+                }
+            )
             prev = content
         return list(reversed(out))  # newest first, as the API returns
 
@@ -106,6 +127,7 @@ class Project:
         run_preview: "dict[str, Any] | None" = None,
         history: "dict[str, Any] | None" = None,
         new_round: bool = False,
+        freeze: "dict[str, Any] | None" = None,
     ) -> dict[str, Any]:
         """One replayable state: every doc's committed content, the focused
         doc's editor buffer, and its draft records (newest first). `graph`
@@ -152,6 +174,13 @@ class Project:
             snap["history"] = history
         if new_round:
             snap["newRound"] = True
+        # the frozen baseline (ACP-755): the graph version marked immutable as
+        # this round's sole basis. ONE record per snapshot (re-freezing the
+        # same version is what the fake hard-rejects), and check_freeze proves
+        # it names a real even regen row of THIS frame and post-dates the
+        # regen it freezes.
+        if freeze is not None:
+            snap["freeze"] = freeze
         if generated_files is not None:
             snap["generatedFiles"] = generated_files
             # the audit anchor: which snapshot's graphDelta these files must
@@ -213,10 +242,16 @@ REQ_EDIT = REQ_V2.replace(
     "- 不包含：积分转赠、积分抵现\n",
 )
 
-req.seed(REQ_V1, T0 - 2 * 86400)   # v1 committed two days ago
-req.commit(REQ_V2, T0 - 86400)     # v1.5 committed yesterday
+req.seed(REQ_V1, T0 - 2 * 86400)          # v1（奇 · 人工提交）两天前
+req.commit(REQ_V2, T0 - 86400, "regen")   # v2（偶 · 上一轮图谱反向生成）昨天
+# 奇偶规则（00 doc 核心机制）：v2 必须偶数且来源=图谱反生——它是上一轮的
+# 偶数版（验收前置条件「已存在…一个已冻结的旧基线」说的就是这条链），
+# 本轮从奇数版 v3（main-8 的人工提交）重新起算。REQ_V2 的正文在演示世界里
+# 就是上一轮反生的产物；本轮的反生行（v4）带 设计事实 段落，v2 没有——
+# 两代的形状不同，但 parity↔source 的锁（check_parity）对两代同样成立。
 # then: user edits REQ_V2 -> REQ_EDIT (the main line replays this), autosaves,
-# and finally commits REQ_EDIT (v3). The step models mutate a live Doc below.
+# and finally commits REQ_EDIT (v3, odd/manual). The step models mutate a live
+# Doc below.
 
 # ---- the requirement graph the commits feed (ACP-729) -----------------------
 # Shaped exactly like StudioGraph in studioApi.ts. GRAPH_BEFORE is the state
@@ -447,6 +482,23 @@ REGEN: dict[str, Any] = {
     "content": REQ_REGEN,
 }
 
+# ---- the freeze that locks this round's baseline (ACP-755 / T-B) -------------
+# 00 doc 需求冻结：把某版需求图谱标记为不可变基线，作为本轮任务拆解与开发的
+# 唯一依据；重复冻结同一版本被拒绝（409）。冻结的对象是反向生成收敛后的偶数
+# 版 v4（奇偶核对一致后锁定），所以 freeze 记录必须指向那条 even·regen 行——
+# check_freeze 逐帧校验它命名的确实是本快照里那条偶数反生版本，绝不指向一条
+# 人工奇数版。冻结发生在成组 Diff 核对之后、开发之前（00 doc：freeze-
+# requirement 紧跟 regen-even），此后的开发帧都带着这条不可变基线。
+FREEZE_TS = REGEN_TS + 600
+
+FREEZE: dict[str, Any] = {
+    "version": REGEN["version"],  # v4 —— 本轮反向生成的偶数版
+    "docName": REGEN["docName"],
+    "generatedFrom": REGEN["generatedFrom"],  # graph@distill-v3 —— 冻结的图谱来源
+    "time": FREEZE_TS,
+    "notes": "锁定 v4（图谱反向生成 · graph@distill-v3）为本轮唯一基线",
+}
+
 # ---- the development run opened on the frozen design (ACP-735 / T13) --------
 # 验收文档步骤 12-15：「开始开发」不是一句口号——先立开发记录（标注所用
 # 设计/图谱版本，追溯起点），再走 任务生成→实现→测试→构建 四阶段，每阶段
@@ -545,18 +597,26 @@ HISTORY: dict[str, Any] = {
             "links": ["he-release"],
         },
         {
+            "id": "he-freeze",
+            "kind": "freeze",
+            "at": FREEZE_TS,
+            "ref": "main-015",
+            "summary": "冻结 v4（偶数版 · graph@distill-v3）为本轮不可变基线",
+            "links": ["he-distill"],
+        },
+        {
             "id": "he-dev",
             "kind": "dev",
-            "at": REGEN_TS + 600,
-            "ref": "main-017",
+            "at": REGEN_TS + 1200,
+            "ref": "main-018",
             "summary": "按 v4 · graph@distill-v3 开发：四阶段全过，产物三件套就绪",
-            "links": ["he-distill"],
+            "links": ["he-freeze"],
         },
         {
             "id": "he-run",
             "kind": "run",
-            "at": REGEN_TS + 1200,
-            "ref": "main-018",
+            "at": REGEN_TS + 1800,
+            "ref": "main-019",
             "summary": "可运行版本 0.4.0 上线体验，功能清单等于图谱需求节点",
             "links": ["he-dev"],
         },
@@ -800,7 +860,7 @@ add(
 # segment pairing data, built by slicing the two version rows' own diffs by
 # business point — check_regen re-slices them from the emitted rows, so the
 # pairing view cannot show a line the snapshots do not hold.
-req.commit(REQ_REGEN, REGEN_TS)
+req.commit(REQ_REGEN, REGEN_TS, "regen")  # v4（偶 · 图谱反生）——parity↔source 的偶数锚
 add(
     "main-014",
     main.snapshot(
@@ -818,16 +878,42 @@ add(
         ),
     ),
 )
+# main-015: the freeze frame (T-B / ACP-755, 00 doc freeze-requirement). The
+# user has checked the odd/even pair and presses 需求冻结: the even regen
+# version v4 becomes this round's immutable baseline. The doc world stands
+# still — what lands is the FREEZE RECORD (check_freeze: it must name this
+# frame's own even regen row, never a human odd version). 重复冻结在 fake 层
+# 硬拒（409 语义），剧本里落位后的按钮置灰。
+add(
+    "main-015",
+    main.snapshot(
+        "requirements.md",
+        REQ_REGEN,
+        [],
+        graph=GRAPH_DISTILLED,
+        release=RELEASE_V3,
+        generated_files=GENERATED_FILES,
+        generated_from="main-009",
+        distillation=DISTILL_APPLIED,
+        regeneration=REGEN,
+        diff_groups=build_diff_groups(
+            unified_diff(REQ_V2, REQ_EDIT), unified_diff(REQ_EDIT, REQ_REGEN)
+        ),
+        freeze=FREEZE,
+    ),
+)
 
-# main-015..018: the development run opened on the frozen v4 design (T13,
+# main-016..019: the development run opened on the frozen v4 design (T13,
 # 验收文档步骤 12-15). The doc world stands still (v4 is the newest row,
 # the graph holds its absorbed shape); what moves is the RUN: opened with
-# its designVersion anchor (main-015), mid-flight (main-016), landed with
-# artifacts + runnableVersion (main-017), and the frame whose experience
-# page is open (main-018 — identical derived state to main-017 plus the
+# its designVersion anchor (main-016), mid-flight (main-017), landed with
+# artifacts + runnableVersion (main-018), and the frame whose experience
+# page is open (main-019 — identical derived state to main-018 plus the
 # preview payload, so the chain before(k)≡after(k-1) holds across the
 # 打开可运行版本 click). check_devrun proves the phase machine is a legal
 # monotonic walk and the runnable entry only exists with its product.
+# 每一帧都带着 main-015 落下的冻结基线（freeze 在 _DEV_BASE 里）——开发依据
+# 是这份不可变基线，不是口头需求。
 _DEV_BASE = {
     "graph": GRAPH_DISTILLED,
     "release": RELEASE_V3,
@@ -838,35 +924,37 @@ _DEV_BASE = {
     "diff_groups": build_diff_groups(
         unified_diff(REQ_V2, REQ_EDIT), unified_diff(REQ_EDIT, REQ_REGEN)
     ),
+    "freeze": FREEZE,
 }
-add("main-015", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_TASKS, **_DEV_BASE))
-add("main-016", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_TEST, **_DEV_BASE))
-add("main-017", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_DONE, **_DEV_BASE))
+add("main-016", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_TASKS, **_DEV_BASE))
+add("main-017", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_TEST, **_DEV_BASE))
+add("main-018", main.snapshot("requirements.md", REQ_REGEN, [], dev_run=DEV_DONE, **_DEV_BASE))
 add(
-    "main-018",
+    "main-019",
     main.snapshot(
         "requirements.md", REQ_REGEN, [], dev_run=DEV_DONE, run_preview=RUN_PREVIEW, **_DEV_BASE
     ),
 )
 
-# main-019/020: the closing beats (T14, 验收文档步骤 16-17). main-019 is the
+# main-020/021: the closing beats (T14, 验收文档步骤 16-17). main-020 is the
 # round's world seen AFTER the experience — the experience overlay is closed
 # (no runPreview), and for the first time the snapshot carries `history`: the
-# six-event chain that ties this whole round together, its links walking back
-# from 运行 to the first edit. main-020 is 继续设计: the SAME round data minus
-# the runPreview the round's own frame already showed, plus newRound — the
-# editor stands clean on v4 (the round's final design IS the new baseline)
-# while the history stays readable, so the loop closes with 上一轮不丢. The
-# round's facts are never rewritten here: same 4 versions, same graph, same
-# devRun — 新一轮的起点就是上一轮的终点，这一句在快照里是数据。
+# seven-event chain that ties this whole round together, its links walking
+# back from 运行 to the first edit. main-021 is 继续设计: the SAME round data
+# minus the runPreview the round's own frame already showed, plus newRound —
+# the editor stands clean on v4 (the round's final design IS the new
+# baseline) while the history stays readable, so the loop closes with
+# 上一轮不丢. The round's facts are never rewritten here: same 4 versions,
+# same graph, same devRun, same frozen baseline — 新一轮的起点就是上一轮的
+# 终点，这一句在快照里是数据。
 add(
-    "main-019",
+    "main-020",
     main.snapshot(
         "requirements.md", REQ_REGEN, [], dev_run=DEV_DONE, history=HISTORY, **_DEV_BASE
     ),
 )
 add(
-    "main-020",
+    "main-021",
     main.snapshot(
         "requirements.md",
         REQ_REGEN,
@@ -929,11 +1017,15 @@ ACTIVITY_VERSION_ROWS = 2  # 展示层规则：只取最近两次提交，活在
 
 
 def derive_activity(snap: dict[str, Any]) -> list[dict[str, Any]]:
-    """The snapshot's own recent-activity feed, newest first."""
+    """The snapshot's own recent-activity feed, newest first. Since ACP-755
+    the version-row entries speak the row's own provenance: a manual row is
+    提交, a regen row is 反向生成 — the feed cannot name a 提交 the row does
+    not carry, because the label is derived from the row's source field."""
     items: list[dict[str, Any]] = []
     focus = snap["focusDoc"]
     for row in snap["versions"].get(focus, [])[:ACTIVITY_VERSION_ROWS]:
-        items.append({"time": row["time"], "label": f"提交 {row['name']}"})
+        verb = "反向生成" if row["source"] == "regen" else "提交"
+        items.append({"time": row["time"], "label": f"{verb} {row['name']}"})
     drafts = snap["draftVersions"]
     if drafts:
         items.append({"time": drafts[0]["time"], "label": f"未提交草稿 ×{len(drafts)}"})
@@ -945,6 +1037,11 @@ def derive_activity(snap: dict[str, Any]) -> list[dict[str, Any]]:
         items.append(
             {"time": dist["appliedAt"], "label": f"沉淀候选 ×{len(dist['candidates'])}"}
         )
+    # the freeze is a frame fact too (ACP-755): a frozen frame shows the
+    # locking in its feed, labelled with the baseline record's own version
+    frz = snap.get("freeze")
+    if frz is not None:
+        items.append({"time": frz["time"], "label": f"冻结基线 {frz['version']}"})
     items.sort(key=lambda it: (-it["time"], it["label"]))
     return items
 
@@ -1021,6 +1118,11 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
         # final design.
         state["historyEvents"] = len(snap.get("history", {}).get("events", []))
         state["newRound"] = bool(snap.get("newRound"))
+        # the freeze vocabulary (T-B / ACP-755) rides the same gate: whether
+        # this round's baseline is locked (frozen) and which version it locks.
+        # 0/none until the freeze lands; a frozen frame names the even regen
+        # version it froze (check_freeze proves that provenance).
+        state["frozen"] = snap.get("freeze") is not None
     return state
 
 
@@ -1053,6 +1155,7 @@ TARGET_VIEW: dict[str, str] = {
     "run_preview": "可运行版本体验页",
     "history_timeline": "项目全过程历史时间线",
     "toolbar_trio": "工具栏三图标",
+    "freeze_record": "冻结基线信息",
 }
 OBS_LABELS: dict[str, str] = {
     "dirty": "编辑器脏态（有未提交修改）",
@@ -1077,6 +1180,7 @@ OBS_LABELS: dict[str, str] = {
     "runOpen": "可运行体验页已打开",
     "historyEvents": "全过程历史事件数",
     "newRound": "新一轮设计已开启",
+    "frozen": "本轮需求基线已冻结",
 }
 # the observable reading of a declared state — exactly the keys the script
 # test's readState() mirrors, so a criterion is always checkable on the DOM
@@ -1111,6 +1215,7 @@ def observables(state: dict[str, Any]) -> dict[str, Any]:
         out["devPhasesDone"] = state["devPhasesDone"]
         out["devRunnable"] = state["devRunnable"]
         out["runOpen"] = state["runOpen"]
+        out["frozen"] = state["frozen"]
     return out
 
 
@@ -1474,66 +1579,87 @@ SCRIPTS: dict[str, dict[str, Any]] = {
             ),
             step(
                 "main-18",
-                "点「开始开发」：开发记录立起，锚定所用设计版本",
+                "奇偶核对：v3 奇=人工提交，v4 偶=图谱反向生成",
                 "main-014",
-                "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中",
-                "dev_record",
-                "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。",
-                ["dev_btn"],
+                "再开「版本历史」——每一行都带版本号与来源标记：v1/v3 是奇数版（人工提交），v2/v4 是偶数版（图谱反向生成）",
+                "version_history_list",
+                "当前：四行版本一眼可辨——版本号按 00 doc 的奇偶规则编号，奇数版来源=人工提交、偶数版来源=图谱反向生成（parity↔source 的一致性由生成器预检逐行锁死，不是标签贴纸）。核对完奇偶与成组 Diff，下一步锁定本轮基线。",
+                ["versions_btn"],
+                prev="main-014",
+            ),
+            step(
+                "main-19",
+                "点「需求冻结」：v4 成为本轮不可变基线，重复冻结被硬拒",
+                "main-014",
+                "点顶栏「需求冻结」，在确认框里核对版本号 v4 并确认——图谱版本被标记为不可变基线，冻结记录落库；对同一版本再次冻结会被拒绝（409）",
+                "freeze_record",
+                "当前：v4（偶数版 · graph@distill-v3）已冻结为本轮唯一基线——面板出现「已冻结」标识与冻结记录，顶栏按钮变为不可用：对同一版本的重复冻结在数据层硬拒（409 语义），界面不给第二次机会。此后的拆解与开发只认这份基线。",
+                ["freeze_btn", "freeze_confirm"],
                 prev="main-014",
                 after_fix="main-015",
             ),
             step(
-                "main-19",
+                "main-20",
+                "点「开始开发」：开发记录立起，锚定所用设计版本",
+                "main-015",
+                "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中",
+                "dev_record",
+                "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计基线，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。",
+                ["dev_btn"],
+                prev="main-015",
+                after_fix="main-016",
+            ),
+            step(
+                "main-21",
                 "看开发过程：四阶段步进，已完成阶段各带一句事实摘要",
-                "main-016",
+                "main-017",
                 "开发进行中——任务生成、实现两步已完成（各带摘要），测试进行中，构建待启动",
                 "dev_process",
                 "当前：四阶段走到「测试」进行中——已完成的两段各有一句事实摘要（拆了 5 个任务、实现 4 个模块）。摘要活在快照里：自动播放逐帧走到这里和手动步进走到这里，画面逐字段相同；阶段状态不是业务组件里的假计时器。",
                 None,
-                prev="main-015",
+                prev="main-016",
             ),
             step(
-                "main-20",
+                "main-22",
                 "看开发结果：4/4 阶段完成，测试报告/构建产物/可运行入口就位",
-                "main-017",
+                "main-018",
                 "开发完成——四阶段全部完成，产物清单出现：测试报告、构建包、运行时入口",
                 "dev_result",
                 "当前：4/4 阶段完成——测试摘要给出 23 项全过，产物三条就位（test/build/runtime），可运行版本 0.4.0 就绪。结果页的每个数字与路径都活在快照里，且「体验」入口只在构建产物存在后才出现：没有产品的入口不放。",
                 None,
-                prev="main-016",
-            ),
-            step(
-                "main-21",
-                "点「打开可运行版本」：内置体验页展示结构化设计承诺的功能",
-                "main-017",
-                "点结果页的「打开可运行版本」——演示内部路由切到内置快照组件（不起任何服务器/容器），可运行版本 0.4.0 跑起来",
-                "run_preview",
-                "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→开发→体验 在这里走完。",
-                ["run_open_btn"],
                 prev="main-017",
-                after_fix="main-018",
-            ),
-            step(
-                "main-22",
-                "看全过程历史：修改/提交/发版/沉淀/开发/运行是六个可追溯的事实",
-                "main-019",
-                "回到工作台打开项目历史——本轮从最初那次修改到可运行版本的每一类事实，按时间与关联串成一条链",
-                "history_timeline",
-                "当前：时间线六个节点六类图标——编辑、提交、发版、沉淀、开发、运行各是一类事实，不可混淆。每个节点标注它产出的事实并回指前因（链是快照里的数据，生成器校验每条链接必须回指）；点任一节点跳回它当时的画面=加载它命名的快照，不反向计算。从运行节点沿链走回最初修改，验收文档步骤 16 的追溯在数据里成立。",
-                None,
-                prev="main-018",
             ),
             step(
                 "main-23",
-                "点「继续设计」：上一轮终点即新起点，历史仍在手边",
-                "main-019",
-                "点时间线底部的「继续设计」——编辑器落在 v4 干净态开始新一轮，时间线保留上一轮全部六类事件",
-                "doc_editor",
-                "当前：编辑器已落在上一轮的最终设计 v4 上，干净、可直接开始下一轮修改；版本历史、图谱、开发记录、六事件时间线一件不少——闭环不是重开一局，是在成果上续写。点下一步/重开可再看一遍整条链。",
-                ["continue_design"],
+                "点「打开可运行版本」：内置体验页展示结构化设计承诺的功能",
+                "main-018",
+                "点结果页的「打开可运行版本」——演示内部路由切到内置快照组件（不起任何服务器/容器），可运行版本 0.4.0 跑起来",
+                "run_preview",
+                "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→冻结→开发→体验 在这里走完。",
+                ["run_open_btn"],
+                prev="main-018",
+                after_fix="main-019",
+            ),
+            step(
+                "main-24",
+                "看全过程历史：修改/提交/发版/沉淀/冻结/开发/运行是七个可追溯的事实",
+                "main-020",
+                "回到工作台打开项目历史——本轮从最初那次修改到可运行版本的每一类事实，按时间与关联串成一条链",
+                "history_timeline",
+                "当前：时间线七个节点七类图标——编辑、提交、发版、沉淀、冻结、开发、运行各是一类事实，不可混淆。每个节点标注它产出的事实并回指前因（链是快照里的数据，生成器校验每条链接必须回指）；点任一节点跳回它当时的画面=加载它命名的快照，不反向计算。从运行节点沿链走回最初修改，验收文档步骤 16 的追溯在数据里成立。",
+                None,
                 prev="main-019",
-                after_fix="main-020",
+            ),
+            step(
+                "main-25",
+                "点「继续设计」：上一轮终点即新起点，历史仍在手边",
+                "main-020",
+                "点时间线底部的「继续设计」——编辑器落在 v4 干净态开始新一轮，时间线保留上一轮全部七类事件",
+                "doc_editor",
+                "当前：编辑器已落在上一轮的最终设计 v4 上（冻结基线仍被记录着），干净、可直接开始下一轮修改；版本历史、图谱、开发记录、七事件时间线一件不少——闭环不是重开一局，是在成果上续写。点下一步/重开可再看一遍整条链。",
+                ["continue_design"],
+                prev="main-020",
+                after_fix="main-021",
             ),
         ],
     },
@@ -1950,7 +2076,7 @@ def check_history(key: str, snap: dict[str, Any], jumpable: "set[str]") -> None:
     at_of: dict[str, int] = {}
     kinds = set()
     for e in events:
-        assert e["kind"] in ("edit", "commit", "release", "distill", "dev", "run"), (
+        assert e["kind"] in ("edit", "commit", "release", "distill", "freeze", "dev", "run"), (
             f"{key}: history event {e['id']} kind {e['kind']!r} outside the closed union "
             "(no AI-source variants — every doc edit is modelled human-made)"
         )
@@ -1971,8 +2097,11 @@ def check_history(key: str, snap: dict[str, Any], jumpable: "set[str]") -> None:
             assert at_of[link] <= e["at"], (
                 f"{key}: event {e['id']} links forward to {link!r} — 追溯沿因果往回走"
             )
-    missing = {"edit", "commit", "release", "distill", "dev"} - kinds
-    assert not missing, f"{key}: history misses the five facts {sorted(missing)} — 五类事实必须齐全"
+    # ACP-755 adds 冻结 to the required fact classes: the freeze is the sixth
+    # link (edit→commit→release→distill→freeze→dev→run), the baseline every
+    # later fact cites.
+    missing = {"edit", "commit", "release", "distill", "freeze", "dev"} - kinds
+    assert not missing, f"{key}: history misses the six facts {sorted(missing)} — 六类事实必须齐全"
 
 
 def check_activity(key: str, snap: dict[str, Any]) -> None:
@@ -1994,12 +2123,84 @@ def check_activity(key: str, snap: dict[str, Any]) -> None:
     assert times == sorted(times, reverse=True), f"{key}: recentActivity not newest-first"
     # label↔source consistency, spelled out so a future writer of a wrong
     # label is named, not silently displayed
-    rows = {r["name"] for r in snap["versions"].get(snap["focusDoc"], [])}
+    rows = {r["name"]: r["source"] for r in snap["versions"].get(snap["focusDoc"], [])}
     for it in carried:
-        if it["label"].startswith("提交 "):
-            assert it["label"][len("提交 "):] in rows, (
-                f"{key}: activity {it['label']!r} names no version row"
+        # ACP-755: the verb IS the provenance — a 提交 entry must name a
+        # manual row and a 反向生成 entry an regen row, never either-any.
+        for verb, want in (("提交 ", "manual"), ("反向生成 ", "regen")):
+            if it["label"].startswith(verb):
+                name = it["label"][len(verb):]
+                assert name in rows, f"{key}: activity {it['label']!r} names no version row"
+                assert rows[name] == want, (
+                    f"{key}: activity {it['label']!r} calls a {rows[name]} row a {verb.strip()}"
+                )
+
+
+def check_parity(key: str, snap: dict[str, Any]) -> None:
+    """ACP-755 — the odd/even version rule as DATA, checked at generation
+    (工单预检：parity 与 source 一致性 odd↔人工提交 / even↔图谱反生):
+    - every row carries version/parity/source; the vN number, its parity and
+      its trail position agree (row idx 1 = v1 = odd, …);
+    - parity ↔ source: odd rows are 人工提交(manual), even rows are
+      图谱反向生成(regen) — the trail must ALTERNATE, which is what makes
+      「任何时刻能从版本号奇偶判断文档的来源性质」 true of the data itself,
+      not of a badge a UI could get wrong;
+    - a regen row in THIS round (one the frame's regeneration payload names)
+      is content-proven: its text equals the committed doc and the regen's
+      generatedFrom matches the applied distillation (check_regen proves the
+      content side; this proves the row identity side)."""
+    for doc, rows in snap["versions"].items():
+        n = len(rows)
+        for i, r in enumerate(rows):
+            # rows are newest-first: trail position idx = n - i
+            idx = n - i
+            assert r.get("version") == f"v{idx}", (
+                f"{key}: {doc} row {r['name']} carries version {r.get('version')!r}, not v{idx}"
             )
+            assert r.get("parity") == ("odd" if idx % 2 == 1 else "even"), (
+                f"{key}: {doc} {r.get('version')} parity {r.get('parity')!r} ≠ position {idx}"
+            )
+            assert r.get("source") in ("manual", "regen"), (
+                f"{key}: {doc} {r.get('version')} source {r.get('source')!r} outside manual/regen"
+            )
+            want = "manual" if r["parity"] == "odd" else "regen"
+            assert r["source"] == want, (
+                f"{key}: {doc} {r['version']} is {r['parity']} but sourced {r['source']} — "
+                "奇数版必须人工提交、偶数版必须图谱反生（00 doc 核心机制）"
+            )
+
+
+def check_freeze(key: str, snap: dict[str, Any]) -> None:
+    """ACP-755 — the freeze as DATA, checked at generation: the record names
+    a version row of the focused doc that IS this frame's newest row, that
+    row is even + regen (a baseline is locked only after the odd/even pair
+    converged — freezing a human odd version would freeze the pre-regen
+    world), the freeze post-dates that row, and a frame may carry AT MOST one
+    baseline (re-freezing the same version is the 409 the fake hard-rejects,
+    so a second record here would model a state the product refuses)."""
+    frz = snap.get("freeze")
+    if frz is None:
+        return
+    rows = snap["versions"].get(frz["docName"]) or []
+    assert rows, f"{key}: freeze names doc {frz['docName']!r} with no version rows"
+    row = next((r for r in rows if r["version"] == frz["version"]), None)
+    assert row is not None, (
+        f"{key}: freeze names {frz['version']!r}, no such version row of {frz['docName']}"
+    )
+    assert row is rows[0], (
+        f"{key}: freeze locks {frz['version']} but {rows[0]['version']} is this frame's newest — "
+        "基线必须是当前版本"
+    )
+    assert row["parity"] == "even" and row["source"] == "regen", (
+        f"{key}: freeze locks a {row['parity']}/{row['source']} version — "
+        "冻结的对象是反向生成收敛后的偶数版（00 doc：核对完奇偶版本一致再冻结）"
+    )
+    assert frz["time"] > row["time"], f"{key}: freeze predates the version it freezes"
+    regen = snap.get("regeneration")
+    assert regen is not None and regen["version"] == frz["version"], (
+        f"{key}: freeze without this frame's regeneration of the same version"
+    )
+    assert frz["notes"].strip(), f"{key}: freeze record has no notes"
 
 
 def dump(path: Path, data: Any) -> None:
@@ -2024,6 +2225,8 @@ def main_run() -> None:
         check_devrun(key, snap)
         check_history(key, snap, jumpable)
         check_activity(key, snap)
+        check_parity(key, snap)
+        check_freeze(key, snap)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)

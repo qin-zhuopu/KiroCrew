@@ -17,6 +17,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -44,6 +45,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -105,6 +107,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -132,6 +135,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -196,6 +200,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -223,6 +228,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -287,6 +293,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -314,6 +321,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -388,6 +396,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -415,6 +424,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -480,6 +490,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -507,6 +518,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -572,6 +584,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -599,6 +612,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -663,6 +677,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -691,6 +706,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 1,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -772,6 +788,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 2,
         "graphModifiedNodes": 0,
@@ -799,6 +816,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -855,6 +873,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -883,6 +902,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 0,
         "graphAddedNodes": 2,
         "graphModifiedNodes": 0,
@@ -956,6 +976,7 @@
         "distillStatus": "running",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -984,6 +1005,7 @@
         "distillStatus": "none",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1037,6 +1059,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1064,6 +1087,7 @@
         "distillStatus": "running",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1120,6 +1144,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 1,
         "graphModifiedNodes": 1,
@@ -1147,6 +1172,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1213,6 +1239,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1240,6 +1267,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 1,
         "graphModifiedNodes": 1,
@@ -1319,6 +1347,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1346,6 +1375,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1407,6 +1437,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1434,6 +1465,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1495,6 +1527,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1522,6 +1555,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1570,10 +1604,10 @@
     },
     {
       "action": {
-        "event": "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中"
+        "event": "再开「版本历史」——每一行都带版本号与来源标记：v1/v3 是奇数版（人工提交），v2/v4 是偶数版（图谱反向生成）"
       },
       "after": {
-        "devActive": true,
+        "devActive": false,
         "devPhasesDone": 0,
         "devRunnable": false,
         "diffGroups": 3,
@@ -1583,6 +1617,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1598,8 +1633,7 @@
         "versions": 4,
         "versionsIcon": "list"
       },
-      "afterFix": "main-015",
-      "backendFact": "后台（快照 main-015）：开发任务已开启 否→是",
+      "backendFact": "后台（快照 main-014）：状态层无变化，仅展示层落位",
       "before": {
         "devActive": false,
         "devPhasesDone": 0,
@@ -1611,6 +1645,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1628,60 +1663,43 @@
       },
       "branch": null,
       "fixture": "main-014",
-      "goesTo": "开发记录面板",
+      "goesTo": "版本历史面板",
       "highlight": {
-        "hint": "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。",
+        "hint": "当前：四行版本一眼可辨——版本号按 00 doc 的奇偶规则编号，奇数版来源=人工提交、偶数版来源=图谱反向生成（parity↔source 的一致性由生成器预检逐行锁死，不是标签贴纸）。核对完奇偶与成组 Diff，下一步锁定本轮基线。",
         "open": [
-          "dev_btn"
+          "versions_btn"
         ],
-        "target": "dev_record"
+        "target": "version_history_list"
       },
       "id": "main-18",
       "passCriteria": [
         {
-          "eq": true,
-          "field": "devActive",
-          "note": "开发任务已开启"
+          "eq": false,
+          "field": "dirty",
+          "note": "编辑器脏态（有未提交修改）"
+        },
+        {
+          "eq": 0,
+          "field": "draftRecords",
+          "note": "草稿记录数"
+        },
+        {
+          "eq": 4,
+          "field": "versions",
+          "note": "已提交版本数"
         }
       ],
       "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
-      "title": "点「开始开发」：开发记录立起，锚定所用设计版本",
-      "userAction": "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中",
-      "userSees": "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。"
+      "title": "奇偶核对：v3 奇=人工提交，v4 偶=图谱反向生成",
+      "userAction": "再开「版本历史」——每一行都带版本号与来源标记：v1/v3 是奇数版（人工提交），v2/v4 是偶数版（图谱反向生成）",
+      "userSees": "当前：四行版本一眼可辨——版本号按 00 doc 的奇偶规则编号，奇数版来源=人工提交、偶数版来源=图谱反向生成（parity↔source 的一致性由生成器预检逐行锁死，不是标签贴纸）。核对完奇偶与成组 Diff，下一步锁定本轮基线。"
     },
     {
       "action": {
-        "event": "开发进行中——任务生成、实现两步已完成（各带摘要），测试进行中，构建待启动"
+        "event": "点顶栏「需求冻结」，在确认框里核对版本号 v4 并确认——图谱版本被标记为不可变基线，冻结记录落库；对同一版本再次冻结会被拒绝（409）"
       },
       "after": {
-        "devActive": true,
-        "devPhasesDone": 2,
-        "devRunnable": false,
-        "diffGroups": 3,
-        "diffIcon": "gray",
-        "dirty": false,
-        "distillCandidates": 3,
-        "distillStatus": "done",
-        "doc": "requirements.md",
-        "draftRecords": 0,
-        "generatedFiles": 4,
-        "graphAddedNodes": 0,
-        "graphModifiedNodes": 0,
-        "graphNodes": 8,
-        "graphRemovedNodes": 0,
-        "historyEvents": 0,
-        "historyIcon": "gray",
-        "newRound": false,
-        "recentActivityItems": 4,
-        "regenVersion": true,
-        "released": true,
-        "runOpen": false,
-        "versions": 4,
-        "versionsIcon": "list"
-      },
-      "backendFact": "后台（快照 main-016）：开发已完成阶段数 0→2",
-      "before": {
-        "devActive": true,
+        "devActive": false,
         "devPhasesDone": 0,
         "devRunnable": false,
         "diffGroups": 3,
@@ -1691,6 +1709,36 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyEvents": 0,
+        "historyIcon": "gray",
+        "newRound": false,
+        "recentActivityItems": 5,
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "afterFix": "main-015",
+      "backendFact": "后台（快照 main-015）：最近活动条数 4→5；本轮需求基线已冻结 否→是",
+      "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "frozen": false,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1707,14 +1755,185 @@
         "versionsIcon": "list"
       },
       "branch": null,
-      "fixture": "main-016",
+      "fixture": "main-014",
+      "goesTo": "冻结基线信息",
+      "highlight": {
+        "hint": "当前：v4（偶数版 · graph@distill-v3）已冻结为本轮唯一基线——面板出现「已冻结」标识与冻结记录，顶栏按钮变为不可用：对同一版本的重复冻结在数据层硬拒（409 语义），界面不给第二次机会。此后的拆解与开发只认这份基线。",
+        "open": [
+          "freeze_btn",
+          "freeze_confirm"
+        ],
+        "target": "freeze_record"
+      },
+      "id": "main-19",
+      "passCriteria": [
+        {
+          "eq": 5,
+          "field": "recentActivityItems",
+          "note": "最近活动条数"
+        },
+        {
+          "eq": true,
+          "field": "frozen",
+          "note": "本轮需求基线已冻结"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "点「需求冻结」：v4 成为本轮不可变基线，重复冻结被硬拒",
+      "userAction": "点顶栏「需求冻结」，在确认框里核对版本号 v4 并确认——图谱版本被标记为不可变基线，冻结记录落库；对同一版本再次冻结会被拒绝（409）",
+      "userSees": "当前：v4（偶数版 · graph@distill-v3）已冻结为本轮唯一基线——面板出现「已冻结」标识与冻结记录，顶栏按钮变为不可用：对同一版本的重复冻结在数据层硬拒（409 语义），界面不给第二次机会。此后的拆解与开发只认这份基线。"
+    },
+    {
+      "action": {
+        "event": "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中"
+      },
+      "after": {
+        "devActive": true,
+        "devPhasesDone": 0,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "frozen": true,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyEvents": 0,
+        "historyIcon": "gray",
+        "newRound": false,
+        "recentActivityItems": 5,
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "afterFix": "main-016",
+      "backendFact": "后台（快照 main-016）：开发任务已开启 否→是",
+      "before": {
+        "devActive": false,
+        "devPhasesDone": 0,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "frozen": true,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyEvents": 0,
+        "historyIcon": "gray",
+        "newRound": false,
+        "recentActivityItems": 5,
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-015",
+      "goesTo": "开发记录面板",
+      "highlight": {
+        "hint": "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计基线，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。",
+        "open": [
+          "dev_btn"
+        ],
+        "target": "dev_record"
+      },
+      "id": "main-20",
+      "passCriteria": [
+        {
+          "eq": true,
+          "field": "devActive",
+          "note": "开发任务已开启"
+        }
+      ],
+      "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
+      "title": "点「开始开发」：开发记录立起，锚定所用设计版本",
+      "userAction": "点顶栏「开始开发」——开发记录建立，标注它实现的是哪个冻结设计与图谱版本；「任务生成」阶段进行中",
+      "userSees": "当前：开发记录已真实落任务（同一个顶栏按钮、快照 fake 落记录）——记录头注明设计版本 v4 · graph@distill-v3：开发的追溯起点是冻结的结构化设计基线，不是口头需求。四阶段（任务生成→实现→测试→构建）的第一项进行中；过程的推进在下一步的快照帧里，不是计时器假装。"
+    },
+    {
+      "action": {
+        "event": "开发进行中——任务生成、实现两步已完成（各带摘要），测试进行中，构建待启动"
+      },
+      "after": {
+        "devActive": true,
+        "devPhasesDone": 2,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "frozen": true,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyEvents": 0,
+        "historyIcon": "gray",
+        "newRound": false,
+        "recentActivityItems": 5,
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "backendFact": "后台（快照 main-017）：开发已完成阶段数 0→2",
+      "before": {
+        "devActive": true,
+        "devPhasesDone": 0,
+        "devRunnable": false,
+        "diffGroups": 3,
+        "diffIcon": "gray",
+        "dirty": false,
+        "distillCandidates": 3,
+        "distillStatus": "done",
+        "doc": "requirements.md",
+        "draftRecords": 0,
+        "frozen": true,
+        "generatedFiles": 4,
+        "graphAddedNodes": 0,
+        "graphModifiedNodes": 0,
+        "graphNodes": 8,
+        "graphRemovedNodes": 0,
+        "historyEvents": 0,
+        "historyIcon": "gray",
+        "newRound": false,
+        "recentActivityItems": 5,
+        "regenVersion": true,
+        "released": true,
+        "runOpen": false,
+        "versions": 4,
+        "versionsIcon": "list"
+      },
+      "branch": null,
+      "fixture": "main-017",
       "goesTo": "开发过程四阶段面板",
       "highlight": {
         "hint": "当前：四阶段走到「测试」进行中——已完成的两段各有一句事实摘要（拆了 5 个任务、实现 4 个模块）。摘要活在快照里：自动播放逐帧走到这里和手动步进走到这里，画面逐字段相同；阶段状态不是业务组件里的假计时器。",
         "open": [],
         "target": "dev_process"
       },
-      "id": "main-19",
+      "id": "main-21",
       "passCriteria": [
         {
           "eq": 2,
@@ -1742,6 +1961,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1750,14 +1970,14 @@
         "historyEvents": 0,
         "historyIcon": "gray",
         "newRound": false,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
-      "backendFact": "后台（快照 main-017）：开发已完成阶段数 2→4；已有可运行版本 否→是",
+      "backendFact": "后台（快照 main-018）：开发已完成阶段数 2→4；已有可运行版本 否→是",
       "before": {
         "devActive": true,
         "devPhasesDone": 2,
@@ -1769,6 +1989,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1777,7 +1998,7 @@
         "historyEvents": 0,
         "historyIcon": "gray",
         "newRound": false,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": false,
@@ -1785,14 +2006,14 @@
         "versionsIcon": "list"
       },
       "branch": null,
-      "fixture": "main-017",
+      "fixture": "main-018",
       "goesTo": "开发结果与体验入口",
       "highlight": {
         "hint": "当前：4/4 阶段完成——测试摘要给出 23 项全过，产物三条就位（test/build/runtime），可运行版本 0.4.0 就绪。结果页的每个数字与路径都活在快照里，且「体验」入口只在构建产物存在后才出现：没有产品的入口不放。",
         "open": [],
         "target": "dev_result"
       },
-      "id": "main-20",
+      "id": "main-22",
       "passCriteria": [
         {
           "eq": 4,
@@ -1825,6 +2046,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1833,15 +2055,15 @@
         "historyEvents": 0,
         "historyIcon": "gray",
         "newRound": false,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": true,
         "versions": 4,
         "versionsIcon": "list"
       },
-      "afterFix": "main-018",
-      "backendFact": "后台（快照 main-018）：可运行体验页已打开 否→是",
+      "afterFix": "main-019",
+      "backendFact": "后台（快照 main-019）：可运行体验页已打开 否→是",
       "before": {
         "devActive": true,
         "devPhasesDone": 4,
@@ -1853,6 +2075,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1861,7 +2084,7 @@
         "historyEvents": 0,
         "historyIcon": "gray",
         "newRound": false,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": false,
@@ -1869,16 +2092,16 @@
         "versionsIcon": "list"
       },
       "branch": null,
-      "fixture": "main-017",
+      "fixture": "main-018",
       "goesTo": "可运行版本体验页",
       "highlight": {
-        "hint": "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→开发→体验 在这里走完。",
+        "hint": "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→冻结→开发→体验 在这里走完。",
         "open": [
           "run_open_btn"
         ],
         "target": "run_preview"
       },
-      "id": "main-21",
+      "id": "main-23",
       "passCriteria": [
         {
           "eq": true,
@@ -1889,7 +2112,7 @@
       "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
       "title": "点「打开可运行版本」：内置体验页展示结构化设计承诺的功能",
       "userAction": "点结果页的「打开可运行版本」——演示内部路由切到内置快照组件（不起任何服务器/容器），可运行版本 0.4.0 跑起来",
-      "userSees": "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→开发→体验 在这里走完。"
+      "userSees": "当前：体验页打开——这就是从需求一路走到现在的可运行版本 0.4.0。页面列出的功能清单逐字等于图谱里的需求节点标签（生成器机器校验）：体验页只敢展示结构化设计承诺过的东西，全旅程 需求→图谱→代码→沉淀→重生成→冻结→开发→体验 在这里走完。"
     },
     {
       "action": {
@@ -1906,22 +2129,23 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
         "graphNodes": 8,
         "graphRemovedNodes": 0,
-        "historyEvents": 6,
+        "historyEvents": 7,
         "historyIcon": "gray",
         "newRound": false,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
-      "backendFact": "后台（快照 main-019）：可运行体验页已打开 是→否",
+      "backendFact": "后台（快照 main-020）：可运行体验页已打开 是→否",
       "before": {
         "devActive": true,
         "devPhasesDone": 4,
@@ -1933,6 +2157,7 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
@@ -1941,7 +2166,7 @@
         "historyEvents": 0,
         "historyIcon": "gray",
         "newRound": false,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": true,
@@ -1949,14 +2174,14 @@
         "versionsIcon": "list"
       },
       "branch": null,
-      "fixture": "main-019",
+      "fixture": "main-020",
       "goesTo": "项目全过程历史时间线",
       "highlight": {
-        "hint": "当前：时间线六个节点六类图标——编辑、提交、发版、沉淀、开发、运行各是一类事实，不可混淆。每个节点标注它产出的事实并回指前因（链是快照里的数据，生成器校验每条链接必须回指）；点任一节点跳回它当时的画面=加载它命名的快照，不反向计算。从运行节点沿链走回最初修改，验收文档步骤 16 的追溯在数据里成立。",
+        "hint": "当前：时间线七个节点七类图标——编辑、提交、发版、沉淀、冻结、开发、运行各是一类事实，不可混淆。每个节点标注它产出的事实并回指前因（链是快照里的数据，生成器校验每条链接必须回指）；点任一节点跳回它当时的画面=加载它命名的快照，不反向计算。从运行节点沿链走回最初修改，验收文档步骤 16 的追溯在数据里成立。",
         "open": [],
         "target": "history_timeline"
       },
-      "id": "main-22",
+      "id": "main-24",
       "passCriteria": [
         {
           "eq": false,
@@ -1965,13 +2190,13 @@
         }
       ],
       "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
-      "title": "看全过程历史：修改/提交/发版/沉淀/开发/运行是六个可追溯的事实",
+      "title": "看全过程历史：修改/提交/发版/沉淀/冻结/开发/运行是七个可追溯的事实",
       "userAction": "回到工作台打开项目历史——本轮从最初那次修改到可运行版本的每一类事实，按时间与关联串成一条链",
-      "userSees": "当前：时间线六个节点六类图标——编辑、提交、发版、沉淀、开发、运行各是一类事实，不可混淆。每个节点标注它产出的事实并回指前因（链是快照里的数据，生成器校验每条链接必须回指）；点任一节点跳回它当时的画面=加载它命名的快照，不反向计算。从运行节点沿链走回最初修改，验收文档步骤 16 的追溯在数据里成立。"
+      "userSees": "当前：时间线七个节点七类图标——编辑、提交、发版、沉淀、冻结、开发、运行各是一类事实，不可混淆。每个节点标注它产出的事实并回指前因（链是快照里的数据，生成器校验每条链接必须回指）；点任一节点跳回它当时的画面=加载它命名的快照，不反向计算。从运行节点沿链走回最初修改，验收文档步骤 16 的追溯在数据里成立。"
     },
     {
       "action": {
-        "event": "点时间线底部的「继续设计」——编辑器落在 v4 干净态开始新一轮，时间线保留上一轮全部六类事件"
+        "event": "点时间线底部的「继续设计」——编辑器落在 v4 干净态开始新一轮，时间线保留上一轮全部七类事件"
       },
       "after": {
         "devActive": true,
@@ -1984,23 +2209,24 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
         "graphNodes": 8,
         "graphRemovedNodes": 0,
-        "historyEvents": 6,
+        "historyEvents": 7,
         "historyIcon": "gray",
         "newRound": true,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": false,
         "versions": 4,
         "versionsIcon": "list"
       },
-      "afterFix": "main-020",
-      "backendFact": "后台（快照 main-020）：状态层无变化，仅展示层落位",
+      "afterFix": "main-021",
+      "backendFact": "后台（快照 main-021）：状态层无变化，仅展示层落位",
       "before": {
         "devActive": true,
         "devPhasesDone": 4,
@@ -2012,15 +2238,16 @@
         "distillStatus": "done",
         "doc": "requirements.md",
         "draftRecords": 0,
+        "frozen": true,
         "generatedFiles": 4,
         "graphAddedNodes": 0,
         "graphModifiedNodes": 0,
         "graphNodes": 8,
         "graphRemovedNodes": 0,
-        "historyEvents": 6,
+        "historyEvents": 7,
         "historyIcon": "gray",
         "newRound": false,
-        "recentActivityItems": 4,
+        "recentActivityItems": 5,
         "regenVersion": true,
         "released": true,
         "runOpen": false,
@@ -2028,16 +2255,16 @@
         "versionsIcon": "list"
       },
       "branch": null,
-      "fixture": "main-019",
+      "fixture": "main-020",
       "goesTo": "文档编辑器",
       "highlight": {
-        "hint": "当前：编辑器已落在上一轮的最终设计 v4 上，干净、可直接开始下一轮修改；版本历史、图谱、开发记录、六事件时间线一件不少——闭环不是重开一局，是在成果上续写。点下一步/重开可再看一遍整条链。",
+        "hint": "当前：编辑器已落在上一轮的最终设计 v4 上（冻结基线仍被记录着），干净、可直接开始下一轮修改；版本历史、图谱、开发记录、七事件时间线一件不少——闭环不是重开一局，是在成果上续写。点下一步/重开可再看一遍整条链。",
         "open": [
           "continue_design"
         ],
         "target": "doc_editor"
       },
-      "id": "main-23",
+      "id": "main-25",
       "passCriteria": [
         {
           "eq": false,
@@ -2057,8 +2284,8 @@
       ],
       "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 4 版、图谱 8 节点、已发版（生成 4 文件）、沉淀已完成（候选 3 条）、文档已重生成（成组 Diff 3 组）",
       "title": "点「继续设计」：上一轮终点即新起点，历史仍在手边",
-      "userAction": "点时间线底部的「继续设计」——编辑器落在 v4 干净态开始新一轮，时间线保留上一轮全部六类事件",
-      "userSees": "当前：编辑器已落在上一轮的最终设计 v4 上，干净、可直接开始下一轮修改；版本历史、图谱、开发记录、六事件时间线一件不少——闭环不是重开一局，是在成果上续写。点下一步/重开可再看一遍整条链。"
+      "userAction": "点时间线底部的「继续设计」——编辑器落在 v4 干净态开始新一轮，时间线保留上一轮全部七类事件",
+      "userSees": "当前：编辑器已落在上一轮的最终设计 v4 上（冻结基线仍被记录着），干净、可直接开始下一轮修改；版本历史、图谱、开发记录、七事件时间线一件不少——闭环不是重开一局，是在成果上续写。点下一步/重开可再看一遍整条链。"
     }
   ],
   "title": "会员积分系统：编辑 → 自动保存 → 提交闭环"
