@@ -11,7 +11,9 @@
 ```
 路由（两套 URL，互不掺和）：
   /ai-studio                  → ProjectsListPage（项目列表+新建，独立路由页）
-  /ai-studio/projects/<id>    → AiStudioPage（单个项目的工作台）
+  /projects/<id>/ai-studio    → AiStudioPage（单个项目的工作台）
+  /releases/<发布号>           → ReleasePage（发布详情页，08 细节文档新增；Jenkins 式
+                                发布历史+流式日志，独立路由页，不经工作台）
 
 ProjectsListPage.tsx                    项目列表页（独立路由 /ai-studio）
 └─  testid: ai-studio-projects
