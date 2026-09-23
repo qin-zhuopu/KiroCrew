@@ -197,6 +197,30 @@ async def _handle_publish_preview(request: web.Request) -> web.StreamResponse:
     return web.json_response(verdict)
 
 
+async def _handle_publish_trigger(request: web.Request) -> web.StreamResponse:
+    # B2: one POST per publish-button click. Idempotent on the latest
+    # success hash (no new record, ``idempotent: true``), 409 on the same
+    # hash already publishing, otherwise a new release-job. The operator
+    # segment of the publish URL takes its dev default here — T3 replaces
+    # this with the JWT ``sub`` read (breakdown T3, owner 2026-09-23).
+    body = await _body(request)
+    project_id = body.get("project")
+    version = body.get("version")
+    commit_hash = body.get("commitHash")
+    if not isinstance(project_id, str) or not isinstance(version, str):
+        return _error("project, version and commitHash are required", "invalid_publish", 400)
+    operator = body.get("operator")
+    if not isinstance(operator, str) or not operator:
+        operator = publish.DEFAULT_OPERATOR
+    try:
+        result = await asyncio.to_thread(
+            publish.trigger_publish, project_id, version, commit_hash, operator=operator
+        )
+    except publish.PublishError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(result, status=200 if result.get("idempotent") else 201)
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -224,5 +248,6 @@ def register_routes(app: web.Application) -> None:
         f"{_BASE}/projects/{{project_id}}/docs/{{doc_name}}/versions",
         _require_enabled(_handle_doc_versions),
     )
+    app.router.add_post(f"{_BASE}/publish", _require_enabled(_handle_publish_trigger))
     app.router.add_get(f"{_BASE}/publish/records", _require_enabled(_handle_publish_records))
     app.router.add_get(f"{_BASE}/publish/preview", _require_enabled(_handle_publish_preview))

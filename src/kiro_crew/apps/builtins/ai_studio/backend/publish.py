@@ -187,8 +187,20 @@ def latest_release(project_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def record_job(project_id: str, *, version: str, form: str, status: str = "running") -> dict[str, Any]:
-    """Create one release-job (one execution of the publish button)."""
+def record_job(
+    project_id: str,
+    *,
+    version: str,
+    form: str,
+    status: str = "running",
+    commit_hash: str | None = None,
+) -> dict[str, Any]:
+    """Create one release-job (one execution of the publish button).
+
+    ``commit_hash`` rides on the job since the publish trigger (B2): the
+    same-hash-in-progress 409 keys on it, so the concurrency check never has
+    to guess which running job a repeat trigger belongs to.
+    """
     project_dir = _project_dir(project_id)
     now = time.time()
     # The stamp alone is only second+ms wide, and the release-job id IS the
@@ -208,6 +220,8 @@ def record_job(project_id: str, *, version: str, form: str, status: str = "runni
         "status": status,
         "ts": now,
     }
+    if commit_hash is not None:
+        job["commitHash"] = commit_hash
     try:
         _write_json(path, job)
     except OSError as exc:
@@ -318,3 +332,158 @@ def preview_version(project_id: str, version: str) -> dict[str, Any]:
     if annotation is None:
         return {"form": "rejected", "reason": f"验收未通过：版本 {name} 无 git tag 标注"}
     return {"form": "rejected", "reason": f"验收未通过：版本 {name} 的 tag 标注无法识别（未注明完整版或演示版）"}
+
+
+# ---------------------------------------------------------------------------
+# publish trigger (B2): idempotent on the latest success hash, 409 on a
+# same-hash job already running, otherwise a new release-job
+# ---------------------------------------------------------------------------
+
+#: The publish domain template (08 §〇). The operator segment is supplied per
+#: trigger — T3 takes it from the JWT ``sub``; until then the route passes its
+#: dev default.
+URL_TEMPLATE = "{version}-{app}-{operator}.gb10.jereh-pe.cn"
+
+#: The operator segment the route uses until T3 owns the JWT ``sub`` read.
+DEFAULT_OPERATOR = "dev"
+
+#: Task md files bind their FILE NAME to the Jira issue: the DAG拆解 agent
+#: writes ``tasks/<TASK-ID>.md`` and writes the issue key back into it, so
+#: the stem IS the id in both directions (owner 拍板, breakdown T2).
+TASKS_DIRNAME = "tasks"
+
+#: The frozen requirements version a release traces to is the project's
+#: newest committed ``requirements.md`` snapshot stamp — the requirements
+#: commit the project currently sits at (B3 ``requirementVersion``).
+_REQUIREMENTS_DOC = "requirements.md"
+
+
+def publish_url(project_id: str, version: str, operator: str = DEFAULT_OPERATOR) -> str:
+    """The URL a successful release of ``version`` serves at (08 §〇 模板)."""
+    project = projects.get_project(project_id)
+    app = projects.slug(project["name"]) if project else "app"
+    return URL_TEMPLATE.format(version=version, app=app or "app", operator=operator or "dev")
+
+
+def _jira_task_ids(project_dir: Path) -> list[str]:
+    """The task ids bound to the project: the stems of ``tasks/*.md``.
+
+    A file that fails to stat is skipped, not raised — the record's
+    traceability must not hinge on one damaged file.
+    """
+    tasks_dir = project_dir / TASKS_DIRNAME
+    if not tasks_dir.is_dir():
+        return []
+    out = []
+    for path in sorted(tasks_dir.iterdir()):
+        if path.is_file() and path.suffix == ".md" and path.stem:
+            out.append(path.stem)
+    return out
+
+
+def _requirement_version(project_dir: Path) -> str:
+    """The newest committed ``requirements.md`` snapshot stamp, or ''."""
+    snap_dir = project_dir / "versions" / _REQUIREMENTS_DOC
+    if not snap_dir.is_dir():
+        return ""
+    stamps = sorted(p.stem for p in snap_dir.iterdir() if p.is_file() and p.suffix == ".md")
+    return stamps[-1] if stamps else ""
+
+
+def trigger_publish(
+    project_id: str,
+    version: str,
+    commit_hash: str,
+    *,
+    operator: str = DEFAULT_OPERATOR,
+) -> dict[str, Any]:
+    """B2: the publish button's backend.
+
+    - ``commitHash`` equals the newest **success** record's hash → nothing
+      new is created: the existing ``deploymentId`` comes back with
+      ``idempotent: true`` (D2 — re-publishing the latest hash produces no
+      new instance and no new record).
+    - any other hash, including one published before but no longer latest →
+      a normal new release (D3's rollback-style re-publish).
+    - the same hash already publishing → 409 ``publish_in_progress``.
+
+    The job this returns runs through :func:`_execute_job`, whose current
+    body is the MINIMAL executor (record success in place). **T3 takeover
+    point**: only that function changes — real build, stop-old-start-new and
+    the live domain all land there; the idempotency, 409 and record-field
+    semantics above are already final.
+    """
+    project_dir = _project_dir(project_id)
+    name = (version or "").strip()
+    if not _VERSION_SAFE.match(name) or len(name) > 80:
+        raise PublishError("version must be a bare tag name", "invalid_version", 400)
+    if not isinstance(commit_hash, str) or not commit_hash.strip() or len(commit_hash) > 80:
+        raise PublishError("commitHash is required", "invalid_commit_hash", 400)
+    commit_hash = commit_hash.strip()
+
+    verdict = preview_version(project_id, name)
+    if verdict["form"] == "rejected":
+        # A rejected row never renders a button (08 §二 C1); a direct POST
+        # for one is refused for the same reason the row is inert.
+        raise PublishError(verdict["reason"], "form_rejected", 400)
+    form = verdict["form"]
+
+    latest = latest_release(project_id)
+    if latest is not None and latest.get("commitHash") == commit_hash:
+        return {
+            "deploymentId": latest.get("deploymentId"),
+            "version": name,
+            "commitHash": commit_hash,
+            "status": latest.get("status", "success"),
+            "idempotent": True,
+        }
+
+    running = [
+        j
+        for j in list_jobs(project_id)
+        if j.get("status") == "running"
+        and j.get("version") == name
+        and j.get("commitHash") == commit_hash
+    ]
+    if running:
+        raise PublishError(
+            "this hash is already publishing", "publish_in_progress", 409
+        )
+
+    job = record_job(project_id, version=name, form=form, commit_hash=commit_hash)
+    return _execute_job(project_dir, job, operator=operator)
+
+
+def _execute_job(project_dir: Path, job: dict[str, Any], *, operator: str) -> dict[str, Any]:
+    """Drive one release-job to its terminal state and, on success, write the
+    release record.
+
+    **T3 takeover point** (see :func:`trigger_publish`): this minimal body
+    publishes in place — real build, instance replacement and the domain
+    binding replace everything below this line, keeping the signature.
+    """
+    project_id = project_dir.name
+    version = job["version"]
+    try:
+        record = record_release(
+            project_id,
+            version=version,
+            commit_hash=job.get("commitHash", ""),
+            form=job["form"],
+            requirement_version=_requirement_version(project_dir),
+            jira_task_ids=_jira_task_ids(project_dir),
+            url=publish_url(project_id, version, operator),
+            deployment_id=job["id"],
+        )
+    except PublishError:
+        update_job_status(project_id, job["id"], "failed")
+        raise
+    update_job_status(project_id, job["id"], "success")
+    return {
+        "deploymentId": record["deploymentId"],
+        "version": version,
+        "commitHash": record["commitHash"],
+        "status": "success",
+        "idempotent": False,
+        "job": {**job, "status": "success"},
+    }

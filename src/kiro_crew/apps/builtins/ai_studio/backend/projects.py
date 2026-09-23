@@ -78,6 +78,12 @@ def projects_root() -> Path:
     return config_dir() / "ai-studio" / "projects"
 
 
+def slug(name: str) -> str:
+    """Public read of :func:`_slug` for callers outside this module that need
+    the same filesystem-safe fragment (the publish URL's app segment)."""
+    return _slug(name)
+
+
 def _slug(name: str) -> str:
     """Filesystem-safe id fragment from a display name.
 
