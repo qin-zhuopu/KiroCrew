@@ -6,6 +6,15 @@
 // different control). No version picker, no free-text input, no confirm
 // dialog: the user sees the list and fires a row.
 //
+// ACP-798 adds a SECOND list to the same tab, ABOVE the version rows: 本版
+// 修改过的文件 — one list row per file, its 新增/修改/删除 and its 图谱拆解
+// 状态 (已 / 正在 / 尚未拆解成图谱). The order is owner's sidebar layout rule:
+// a tab with both a process and a history shows the process on top and the
+// history below, the way ReleasesTool/DeployTool already read (当前进度 →
+// 历史). It takes no read of its own: the rows are the `releaseFiles` prop,
+// and an ordinary workbench passes none, so the tab renders exactly what it
+// rendered before.
+//
 // Data: versions from the publish versions read; the per-version published
 // states and the "latest published hash" (the newest success record's hash)
 // from GET /publish/records (B4); the form reason from GET /publish/preview
@@ -24,12 +33,15 @@ import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { i18nT } from '../../i18n/t'
 import ErrorNotice from '../../components/ErrorNotice'
 import { Btn } from '../../components/ui'
+import ReleaseControl from './ReleaseControl'
 import {
   publishApi,
   StudioApiError,
   type StudioPublishApi,
   type StudioPublishRecord,
   type StudioPublishVersion,
+  type StudioReleaseFile,
+  type StudioReleaseFiles,
 } from './studioApi'
 
 const SHORT_HASH = 7
@@ -50,11 +62,31 @@ type RunState = {
   reason?: string
 }
 
-export default function PublishVersionList({ projectId, api = publishApi }: {
+export default function PublishVersionList({
+  projectId,
+  api = publishApi,
+  releaseFiles,
+  releaseAction,
+}: {
   projectId: string
   /** the data source, injectable for the demo's snapshot fake; the ordinary
    * path uses the real client and never passes this */
   api?: StudioPublishApi
+  /** 本版修改过的文件 (ACP-798), injectable for the demo's frames the same way
+   * `api` is. Omitted — every ordinary workbench — renders exactly what this
+   * tab rendered before: no such list, no extra read, no extra request. The
+   * rows are a LIST, one per file, drawn from the value's own data. */
+  releaseFiles?: StudioReleaseFiles
+  /** The tab's OWN 发版 button (ACP-798, owner's rule: 动作按钮跟着页签走 —
+   * the act belongs to the tab it acts on, so it sits at the TOP of the 发版
+   * tab). Omitted — every ordinary workbench, where the real path has no
+   * release endpoint yet — renders no button at all. When given, the button
+   * IS ReleaseControl, the same component (and the same `release-btn`
+   * contract) the demo's top bar uses, and it fires the very act a row's 发布
+   * button fires: `publish()` below, for `version` — one code path, so the
+   * tab button and the row button cannot drift. `phaseKeys` are i18n KEYS,
+   * resolved here at render time: the payload holds no literal label. */
+  releaseAction?: { version: string; phaseKeys?: string[] }
 }) {
   const qc = useQueryClient()
   // Per-version knowledge of this visit's publish runs (see RunState).
@@ -157,6 +189,18 @@ export default function PublishVersionList({ projectId, api = publishApi }: {
     }
   }
 
+  // The tab's own 发版 act (ACP-798): aimed at the version the frame names,
+  // fired through the SAME publish() a row's button fires. It carries the
+  // row's own §〇 hash rule, so the two controls can never disagree — the
+  // button retires exactly when that version's row would lose its own.
+  const actionVersion = releaseAction
+    ? versions.find((v) => v.version === releaseAction.version)
+    : undefined
+  const actionDisabled =
+    !actionVersion ||
+    actionVersion.commitHash === latestHash ||
+    formOf(releaseAction?.version ?? '') === 'rejected'
+
   if (versionsQuery.isError || recordsQuery.isError) {
     return (
       <div>
@@ -171,6 +215,86 @@ export default function PublishVersionList({ projectId, api = publishApi }: {
 
   return (
     <div>
+      {/* 发版 — the tab's own action, at the very top of the tab (ACP-798,
+          owner's rule 动作按钮跟着页签走). ReleaseControl, not a look-alike:
+          same component as the top bar's act, same release-btn contract, and
+          its onRelease runs publish(), the row button's own act. */}
+      {releaseAction && (
+        <div className="flex justify-end mb-2" data-testid="ai-studio-publish-action-row">
+          <ReleaseControl
+            act="release"
+            onRelease={async () => {
+              // only reachable while the button is enabled, i.e. the list
+              // carries this version; the guard keeps the type honest
+              if (actionVersion) await publish(actionVersion)
+            }}
+            phases={releaseAction.phaseKeys?.map((k) => i18nT(k))}
+            disabled={actionDisabled}
+          />
+        </div>
+      )}
+      {/* 本版修改过的文件 (ACP-798): the PROCESS half of this tab — what this
+          version changed and how far each file is through 拆解成图谱. It sits
+          ABOVE the version list, which is the HISTORY half: owner's sidebar
+          layout rule (2026-09-23) is that a tab carrying both shows 过程 on
+          top (当前清单 + 每个任务的状态) and 历史记录 below, the same order
+          ReleasesTool/DeployTool already use (当前进度 → 历史). One row per
+          file, a LIST — never a box-and-arrow diagram. Purely a render of the
+          bytes it is handed: the demo's frame owns the data, and with the prop
+          omitted the whole block is absent, which is every ordinary workbench. */}
+      {releaseFiles && releaseFiles.files.length > 0 && (
+        <div data-testid="ai-studio-publish-files">
+          <Section>{i18nT('apps.aiStudio.publish_files_title')}</Section>
+          {releaseFiles.files.map((f) => (
+            <div
+              key={f.name}
+              data-testid={`release-file-${f.name}`}
+              className="rounded-lg border border-border bg-card px-3 py-2.5 mb-2"
+            >
+              <div className="flex items-center gap-2">
+                {/* the same status dot the 当前进度 rows use: done = filled,
+                    running = pulsing, todo = hollow */}
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    f.distill === 'done'
+                      ? 'bg-accent'
+                      : f.distill === 'running'
+                        ? 'bg-accent animate-pulse'
+                        : 'bg-border-strong'
+                  }`}
+                />
+                <span className="text-[12px] text-text truncate" title={f.name}>
+                  {f.name}
+                </span>
+                {/* 新增 / 修改 / 删除 — the version's own change to this file */}
+                <span
+                  data-testid={`release-file-change-${f.name}`}
+                  className="ml-auto shrink-0 rounded-full bg-bg-hover text-muted px-1.5 py-0.5 text-[10px]"
+                >
+                  {i18nT(CHANGE_LABEL_KEY[f.change])}
+                </span>
+              </div>
+              {/* the distillation state, its own element with the state ALSO
+                  on the DOM as data-distill-state, so a reader (and the
+                  acceptance script) can assert the state itself rather than
+                  parsing a translated sentence */}
+              <span
+                data-testid={`release-file-distill-${f.name}`}
+                data-distill-state={f.distill}
+                className={`mt-1.5 ml-4 inline-block rounded-full px-1.5 py-0.5 text-[10px] ${
+                  f.distill === 'done'
+                    ? 'bg-accent-subtle text-accent'
+                    : f.distill === 'running'
+                      ? 'bg-bg-hover text-accent'
+                      : 'bg-bg-hover text-muted'
+                }`}
+              >
+                {i18nT(DISTILL_LABEL_KEY[f.distill])}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <Section>{i18nT('apps.aiStudio.publish_versions_title')}</Section>
       {versionsQuery.isPending || recordsQuery.isPending ? (
         <div className="text-[12px] text-muted px-1 py-2">{i18nT('apps.aiStudio.publish_versions_loading')}</div>
@@ -331,8 +455,20 @@ export default function PublishVersionList({ projectId, api = publishApi }: {
           )}
         </div>
       )}
-    </div>
+      </div>
   )
+}
+
+const CHANGE_LABEL_KEY: Record<StudioReleaseFile['change'], string> = {
+  added: 'apps.aiStudio.publish_file_change_added',
+  modified: 'apps.aiStudio.publish_file_change_modified',
+  deleted: 'apps.aiStudio.publish_file_change_deleted',
+}
+
+const DISTILL_LABEL_KEY: Record<StudioReleaseFile['distill'], string> = {
+  done: 'apps.aiStudio.publish_file_distill_done',
+  running: 'apps.aiStudio.publish_file_distill_running',
+  pending: 'apps.aiStudio.publish_file_distill_pending',
 }
 
 /** The release's form as the badge the acceptance reads (A5: the git-tag

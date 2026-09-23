@@ -334,6 +334,24 @@ export interface StudioPublishJob {
   commitHash?: string
 }
 
+/** One file a version changed (ACP-798): its name, HOW this version changed
+ * it, and where the file stands in the distillation that turns a changed
+ * design document into requirement-graph nodes. The three distill states are
+ * the owner's 口径 read as data: 已/正在/尚未拆解成图谱 — the release tab
+ * renders one ROW per file (a list, never a graph diagram). */
+export interface StudioReleaseFile {
+  name: string
+  change: 'added' | 'modified' | 'deleted'
+  distill: 'done' | 'running' | 'pending'
+}
+
+/** The files ONE version changed, as the release tab reads them: the version
+ * they belong to plus its list. */
+export interface StudioReleaseFiles {
+  version: string
+  files: StudioReleaseFile[]
+}
+
 export type StudioPublishApi = {
   /** The project's publishable versions (tag + hash), newest first. */
   listVersions: (id: string) => Promise<{ versions: StudioPublishVersion[] }>

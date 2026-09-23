@@ -18,7 +18,7 @@ import {
   type CommitEntry,
   type ProgressModel,
 } from './fixtures'
-import type { StudioDoc, StudioPublishApi } from './studioApi'
+import type { StudioDoc, StudioPublishApi, StudioReleaseFiles } from './studioApi'
 import PublishVersionList from './PublishVersionList'
 import type { WorkTab } from './WorkArea'
 
@@ -57,10 +57,20 @@ export interface ToolSidebarProps {
   // Omitted (every ordinary workbench) => PublishVersionList's own default.
   /** the releases tab's publish read source */
   publishApi?: StudioPublishApi
+  // ACP-798 adds a fourth of the same kind: 本版修改过的文件 for the releases
+  // tab. Omitted — every ordinary workbench — the list is simply absent.
+  /** the releases tab's 本版修改过的文件 list (a demo frame's own data) */
+  releaseFiles?: StudioReleaseFiles
+  // ACP-798 (owner 追加) adds the fifth: the 发版 tab's OWN 发版 button, at the
+  // top of that tab — 动作按钮跟着页签走. Omitted (every ordinary workbench)
+  // the tab renders no button, exactly as it did before.
+  /** the releases tab's own 发版 action (which version it fires, walk labels) */
+  releaseAction?: { version: string; phaseKeys?: string[] }
 }
 
 export default function ToolSidebar({
-  onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
+  onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi, releaseFiles,
+  releaseAction,
 }: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>(initialTool)
   // graph drill state: null = type list, string = inside a type
@@ -96,7 +106,14 @@ export default function ToolSidebar({
       <div className="flex-1 min-h-0 overflow-auto p-3">
         {tool === 'docs' && <DocsTool docs={docs} onOpenTab={onOpenTab} />}
         {tool === 'commits' && <CommitsTool onOpenTab={onOpenTab} changed={changed} commits={commits} />}
-        {tool === 'releases' && <PublishVersionList projectId={projectId} api={publishApi} />}
+        {tool === 'releases' && (
+          <PublishVersionList
+            projectId={projectId}
+            api={publishApi}
+            releaseFiles={releaseFiles}
+            releaseAction={releaseAction}
+          />
+        )}
         {tool === 'graph' && <GraphTool graphType={graphType} setGraphType={setGraphType} onOpenTab={onOpenTab} />}
         {tool === 'dev' && <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />}
         {tool === 'deploy' && <DeployTool onOpenTab={onOpenTab} />}

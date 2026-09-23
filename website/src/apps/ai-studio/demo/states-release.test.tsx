@@ -45,6 +45,7 @@ import {
 // the base type stays where the ticket says it lives (read-only import)
 import type { StateSnapshot } from './states'
 import AiStudioPage from '../AiStudioPage'
+import PublishVersionList from '../PublishVersionList'
 import ReleaseJobPage from '../ReleaseJobPage'
 import { RunPreviewScreen } from '../DevRunView'
 import { renderStudio } from '../testUtils'
@@ -217,6 +218,38 @@ describe('states-release: data contract', () => {
     expect(latestOf(state('R4').publish)).toBe(v5Hash) // R4 on: v5's button retires
   })
 
+  // ACP-798: ① 历史版本 (above) ② 本版修改过的文件 ③ 每个文件的图谱拆解状态三态.
+  it('every frame carries 本版修改过的文件, and R4 is the frame where all three 拆解 states are on screen at once', () => {
+    for (const s of RELEASE_STATES) {
+      const files = s.publish.files
+      expect(files, `${s.id} carries no file list`).toBeTruthy()
+      expect(files!.version).toBe('v5') // the list is THIS version's changes
+      expect(files!.files.length).toBeGreaterThan(0)
+      for (const f of files!.files) {
+        expect(f.name).toMatch(/\.md$/)
+        expect(['added', 'modified', 'deleted']).toContain(f.change)
+        expect(['done', 'running', 'pending']).toContain(f.distill)
+      }
+    }
+    // 尚未: nothing is distilled yet right after the release lands
+    expect(state('R1').publish.files!.files.map((f) => f.distill)).toEqual([
+      'pending',
+      'pending',
+      'pending',
+    ])
+    // R4 is the frame the outline needs: 已 / 正在 / 尚未 each appear at least
+    // once, so one frame reads the whole three-state vocabulary
+    const settling = state('R4').publish.files!.files.map((f) => f.distill)
+    expect(settling).toEqual(['done', 'running', 'pending'])
+    // and it only moves forward: R5 has 正在 left, R6 is all 已
+    expect(state('R5').publish.files!.files.map((f) => f.distill)).toEqual(['done', 'done', 'running'])
+    expect(state('R6').publish.files!.files.map((f) => f.distill)).toEqual(['done', 'done', 'done'])
+    // a real mix of change kinds, so the 新增/修改/删除 labels are all readable
+    expect(new Set(state('R1').publish.files!.files.map((f) => f.change))).toEqual(
+      new Set(['added', 'modified', 'deleted']),
+    )
+  })
+
   it('R3→R4→R5 carry ONE job: the in-flight run is the record is the selected job', () => {
     expect(state('R3').publish.inFlight?.deploymentId).toBe('job-v5')
     expect(state('R4').publish.records[0].deploymentId).toBe('job-v5')
@@ -348,6 +381,158 @@ describe('R4 · 发版成功·结果条（真实工作台直出：成功记录�
     // re-publish case — proof the strip is data, not a decoration)
     const v4 = screen.getByTestId('ai-studio-publish-version-row-v4')
     expect(within(v4).getByTestId('ai-studio-publish-btn-v4')).toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C. ACP-798: 发版页签 = ① 历史版本 ② 本版修改过的文件 ③ 每个文件的图谱拆解
+// 状态三态. Two 口径 the ticket states as hard lines: 演示的中间列只放文档编辑器
+// (发版的东西都在「发版」页签里看), and the file list is a LIST — never a
+// box-and-arrow diagram. Both are asserted below on the real components.
+// ---------------------------------------------------------------------------
+
+/** Enter the demo the way the owner does (StatesWorkspace.test.tsx): from a
+ * workbench whose project has ALREADY loaded, through the entry button, then
+ * pick the frame on the dock. This is the channel ACP-798's wiring must work
+ * on — the frame's own payload, no mocked publish client in the path. */
+async function openDemoFrame(id: string) {
+  renderWorkbench()
+  fireEvent.click(await screen.findByTestId('demo-entry-btn'))
+  await screen.findByTestId('demo-states-dock')
+  fireEvent.click(screen.getByTestId(`demo-states-select-${id}`))
+  await waitFor(() =>
+    expect(screen.getByTestId('demo-states-dock')).toHaveAttribute('data-demo-state', id),
+  )
+  await openPublishList()
+}
+
+describe('ACP-798 · 发版页签·本版修改过的文件与三态拆解（真实工作台 + 真实 PublishVersionList）', () => {
+  it('R1: 历史版本 readable, 本版修改的文件 listed above it — 过程在上, 历史在下', async () => {
+    await openDemoFrame('R1')
+    const sidebar = screen.getByTestId('tool-sidebar')
+    // ② the changed-file list of this version — and it lives in the 发版 tab,
+    // i.e. inside the right sidebar, not in the center column (口径)
+    const files = screen.getByTestId('ai-studio-publish-files')
+    expect(sidebar.contains(files)).toBe(true)
+    expect(files).toHaveTextContent('Files changed in this version')
+    // ③ one row per file, each with its own 名称 / 变更 / 拆解状态 testids
+    for (const f of state('R1').publish.files!.files) {
+      const row = screen.getByTestId(`release-file-${f.name}`)
+      expect(row).toHaveTextContent(f.name)
+      const change = screen.getByTestId(`release-file-change-${f.name}`)
+      expect(change).toHaveTextContent(
+        { added: 'Added', modified: 'Modified', deleted: 'Deleted' }[f.change],
+      )
+      const distill = screen.getByTestId(`release-file-distill-${f.name}`)
+      expect(distill).toHaveAttribute('data-distill-state', f.distill)
+      expect(distill).toHaveTextContent('Not distilled into the graph yet')
+    }
+    // ① 历史版本 is still there, read off the same tab
+    expect(screen.getByTestId('ai-studio-publish-version-list')).toBeInTheDocument()
+    // owner's sidebar layout rule: 过程 (the current task list + each task's
+    // state) sits ABOVE 历史记录 — the file block precedes the version list
+    const versions = screen.getByTestId('ai-studio-publish-version-list')
+    expect(files.compareDocumentPosition(versions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 口径: 演示状态下中间列只放文档编辑器 — the center shows the frame's doc,
+    // the release rows stay in the sidebar, and nothing here is a 方框箭头图
+    // (every file is a row in a list, so no svg overlay exists in the tab)
+    expect(await screen.findByTestId('doc-产品需求设计文档.md')).toBeInTheDocument()
+    expect(files.querySelector('svg')).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('R4: one frame reads all three 拆解 states — 已 / 正在 / 尚未 each readable by testid', async () => {
+    await openDemoFrame('R4')
+    const seen: string[] = []
+    for (const f of state('R4').publish.files!.files) {
+      const distill = screen.getByTestId(`release-file-distill-${f.name}`)
+      const s = distill.getAttribute('data-distill-state')!
+      seen.push(s)
+      expect(distill).toHaveTextContent(
+        {
+          done: 'Distilled into the graph',
+          running: 'Distilling into the graph…',
+          pending: 'Not distilled into the graph yet',
+        }[s as 'done' | 'running' | 'pending'],
+      )
+    }
+    // 三态都要有独立 testid, 帧里各出现至少一次 — R4 is that frame
+    expect(seen).toEqual(['done', 'running', 'pending'])
+    // the release itself is unaffected by where its files are in the 拆解:
+    // v5 is published, and the version list still reads it (① keeps working)
+    expect(
+      within(screen.getByTestId('ai-studio-publish-version-row-v5')).getByTestId(
+        'ai-studio-publish-version-state',
+      ),
+    ).toHaveTextContent('Published')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  // ---- ACP-798 (owner 追加): 「发版」页签顶部要有「发版」按钮 ----------------
+
+  it('R1: the 发版 tab opens with its OWN 发版 button at the very top, above the file list and the versions', async () => {
+    await openDemoFrame('R1')
+    const btn = screen.getByTestId('release-btn') // ReleaseControl's own contract
+    expect(btn).toBeEnabled()
+    // 动作按钮跟着页签走: the button is the FIRST thing in the 发版 tab — it
+    // precedes both halves of the tab, and it lives in the sidebar, never in
+    // the center column (which stays the doc editor)
+    const files = screen.getByTestId('ai-studio-publish-files')
+    const versions = screen.getByTestId('ai-studio-publish-version-list')
+    expect(within(screen.getByTestId('tool-sidebar')).getByTestId('release-btn')).toBeInTheDocument()
+    expect(btn.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(btn.compareDocumentPosition(versions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // it is ReleaseControl itself — the same control the top bar's act uses,
+    // so it carries that component's hint title
+    expect(btn).toHaveAttribute(
+      'title',
+      'Cut a release and generate code from the requirement graph',
+    )
+    expect(await screen.findByTestId('doc-产品需求设计文档.md')).toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('R1: clicking it fires the SAME act a row button fires — the version goes 发布中', async () => {
+    await openDemoFrame('R1')
+    fireEvent.click(screen.getByTestId('release-btn'))
+    const v5 = screen.getByTestId('ai-studio-publish-version-row-v5')
+    // the publish ran through PublishVersionList's own publish(): the status
+    // testid reads 发布中 and the record never lands (R1's world has no v5
+    // success record), so the frame rests honestly on the running state
+    expect(within(v5).getByTestId('ai-studio-publish-status-v5')).toHaveTextContent('Publishing…')
+    expect(within(v5).getByTestId('ai-studio-publish-btn-v5')).toBeDisabled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('R4: the button is present but retired by the hash rule — v5 is already the published version', async () => {
+    await openDemoFrame('R4')
+    // present (owner: 页签顶部要有发版按钮) …
+    const btn = screen.getByTestId('release-btn')
+    // … and disabled for the SAME reason that row's own 发布 button vanished:
+    // the row lost its button, so the tab control mirrors it, not a second rule
+    expect(within(screen.getByTestId('ai-studio-publish-version-row-v5')).queryByTestId('ai-studio-publish-btn-v5')).not.toBeInTheDocument()
+    expect(btn).toBeDisabled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('an ordinary workbench passes no releaseFiles and renders exactly what the tab rendered before', async () => {
+    // the default path: PublishVersionList mounted the way the app mounts it
+    // — no prop, real (mocked-client) reads, versions on screen, NO file list
+    pub.listVersions.mockResolvedValue({ versions: state('R1').publish.versions })
+    pub.listRecords.mockResolvedValue({ records: [] })
+    pub.preview.mockResolvedValue({ form: 'demo', reason: '' })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <PublishVersionList projectId="p1" />
+      </QueryClientProvider>,
+    )
+    await screen.findByTestId('ai-studio-publish-version-list')
+    expect(screen.getByTestId('ai-studio-publish-version-row-v5')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-studio-publish-files')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('release-btn')).not.toBeInTheDocument() // no tab action either
+    expect(document.querySelector('[data-distill-state]')).toBeNull()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
