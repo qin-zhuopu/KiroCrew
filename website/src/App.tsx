@@ -203,6 +203,12 @@ const UpdatePill = lazy(() => import('./components/UpdatePill'))
 // chunk -- each rides its own on-demand chunk fetched on first navigation.
 const DiscoverPage = lazy(() => import('./pages/apps/DiscoverPage'))
 const LibraryPage = lazy(() => import('./pages/apps/LibraryPage'))
+// The AI Studio release-job detail page (08 §〇-2). NOT in the builtin
+// registry: that seam resolves one plain path segment and its ui.pages parity
+// test would put a detail route in the nav rail. This is the same dispatch the
+// registry's own doc names for a sub-path page — a static <Route> above the
+// /:builtinApp/* catch-all.
+const ReleaseJobPage = lazy(() => import('./apps/ai-studio/ReleaseJobPage'))
 
 const MAX_KIRO_BONUS_GRANT_NAME_CHARS = 100
 const MAX_KIRO_BONUS_CREDITS = 1_000_000
@@ -4831,6 +4837,14 @@ export default function App() {
             <Route path="/artifacts/remote/:provider/:externalId" element={<ErrorBoundary><RemoteArtifactDetailPage /></ErrorBoundary>} />
             <Route path="/artifacts/:slug" element={<ArtifactDetailPage />} />
             <Route path="/deploy" element={<ArtifactDeployPage />} />
+            {/* AI Studio release-job detail page (08 §〇-2): opened in a new
+                tab by the publish result row's 发布号 link. Static segment —
+                v6 ranks it above the /:builtinApp/* catch-all below, which
+                has no /release-jobs registry entry (and must not get one:
+                the ui.pages parity test would put a detail route in the nav
+                rail, and its job id is a second path segment the registry's
+                one-seam can't resolve anyway). */}
+            <Route path="/release-jobs/:jobId" element={<ErrorBoundary><Suspense fallback={null}><ReleaseJobPage /></Suspense></ErrorBoundary>} />
             {/* Builtin app routes — auto-discovered from registry. React Router v6
                 ranks static paths higher than parameterized ones, so /settings, /agents
                 etc. still match first. Unrecognized paths fall through to /chat.

@@ -125,7 +125,7 @@ describe('workbench shell', () => {
 
 describe('recent activity (ACP-754)', () => {
   it('the workbench feed exists and shows its empty state when nothing is drafted', async () => {
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/projects/p1/ai-studio')
     await screen.findByTestId('ai-studio')
     const feed = await screen.findByTestId('recent-activity')
     expect(feed).toHaveAttribute('data-activity-count', '0')
@@ -139,7 +139,7 @@ describe('recent activity (ACP-754)', () => {
         { name: 'workflow.md', content: '# 流程草稿', changed: true },
       ],
     })
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/projects/p1/ai-studio')
     const feed = await screen.findByTestId('recent-activity')
     await waitFor(() => expect(feed).toHaveAttribute('data-activity-count', '2'))
     expect(within(feed).getByTestId('recent-activity-item-0')).toHaveTextContent(/requirements\.md/)
