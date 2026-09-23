@@ -109,7 +109,7 @@
 |---|---|---|
 | D1 | 看一个版本行，其 commit hash 与最新一次成功发布的 hash 相同 | `ai-studio-publish-btn-<版本号>` **不存在于 DOM**（不是禁用，是不渲染）；`ai-studio-publish-url-<版本号>` 仍可见可点（指向已有发布地址） |
 | D2 | — | 该行 `ai-studio-publish-version-state`=「已发布」；重复进入发布视图，不产生第二条发布记录（B3 记录数不变） |
-| D3 | 看一个 hash 发布过但**非最新**的旧版本行（发新版后回看旧版） | `ai-studio-publish-btn-<版本号>` 正常渲染（回滚式重发允许）；点击后走 A3~A8；成功后最新发布 hash 指向旧 hash，原最新版本行的按钮恢复渲染（其 hash 不再是最新发布 hash）。**（语义待 owner 确认）** |
+| D3 | 看一个 hash 发布过但**非最新**的旧版本行（发新版后回看旧版） | `ai-studio-publish-btn-<版本号>` 正常渲染（回滚式重发允许）；点击后走 A3~A8；成功后最新发布 hash 指向旧 hash，原最新版本行的按钮恢复渲染（其 hash 不再是最新发布 hash）。|
 
 ## 三、后台断言（端点）
 
