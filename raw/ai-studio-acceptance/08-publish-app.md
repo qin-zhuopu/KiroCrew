@@ -154,17 +154,17 @@
 
 | 组件（`website/src/apps/ai-studio/`） | 现有 testid | 本文如何用 |
 |---|---|---|
-| `ReleaseControl.tsx` | `release-btn` / `distill-btn` / `dev-btn` | **行内发布按钮复用它**，即 `ai-studio-publish-btn-<版本号>` = `release-btn` 所在实例（每版本行一份）；不另造发布按钮 |
 | `DeployLog.tsx` | `deploy-log-{id}` | 发布过程日志直接用它渲染，`deploymentId` 对接 §三 B2 |
 | `CommitView.tsx` / 版本列表相关 | `version-history-list` 等 | 版本列表数据来源（前序产生），发布视图的版本列表从这里取数，不重复实现版本来源 |
 | `ToolSidebar.tsx` | `tool-sidebar` | 发布页签挂在它内，不新建侧栏壳 |
+| `ReleaseControl.tsx` | `release-btn` / `distill-btn` / `dev-btn` | **不复用、不改动**：它是顶栏三态一表的控制条，testid 固定为 `release-btn`，与按版本的 `ai-studio-publish-btn-<版本号>` 不是一个东西；行内发布按钮由下面的发布版本列表组件自建（本次修订明确，此前「复用 ReleaseControl」的说法作废） |
 
 ### 新建（仅此四件，超出需先改本文档）
 
 | 新组件 | 承载 testid | 理由 |
 |---|---|---|
 | 发布页签（现有 `ToolSidebar` 的 releases 页签） | `ai-studio-publish-entry` | 页签本体已存在（现无 testid），**本条只要求补挂 testid**；其内容从现有 fixture 桩换成发布版本列表（见上一行） |
-| 发布版本列表（行=版本+状态+按钮+原因） | `ai-studio-publish-version-list` / `ai-studio-publish-version-row-<版本号>` / `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>` | 现无「每行可发布」的版本列表；列表数据复用版本接口，但行内发布语义是新内容 |
+| 发布版本列表（行=版本+状态+按钮+原因） | `ai-studio-publish-version-list` / `ai-studio-publish-version-row-<版本号>` / `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>` / `ai-studio-publish-btn-<版本号>` | 现无「每行可发布」的版本列表；列表数据复用版本接口，但行内发布语义是新内容；**行内发布按钮在本组件内新建**（不复用顶栏 `ReleaseControl`，其 `release-btn` testid 不变） |
 | 行内发布结果条（状态+徽标+地址+发布号链接） | `ai-studio-publish-status-<版本号>` / `ai-studio-publish-form-badge-<版本号>` / `ai-studio-publish-url-<版本号>` / `ai-studio-publish-id-<版本号>` | 现无对应物；发布记录不在行内，收进 release-job 页的 job 列表 |
 | 发布详情页 ReleaseJobPage（独立路由 `/release-jobs/<发布号>`，历史列表+流式日志） | `ai-studio-release-job-page` / `ai-studio-release-job-history-list` / `ai-studio-release-job-row-<发布号>` / `ai-studio-release-job-status-<发布号>` / `ai-studio-release-job-log-<发布号>` | Jenkins 式发布历史与流式日志，现无对应页面；日志渲染复用 `DeployLog` 形态，不另造日志组件 |
 
