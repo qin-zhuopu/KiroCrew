@@ -27,13 +27,14 @@
 // prefix-extension growth of the log lines, the URL template, and the 单实例
 // replacement facts. A later renderer branch consumes exactly these fields.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { i18nT } from '../../../i18n/t'
 import DevRunPanel, { RunPreviewScreen } from '../DevRunView'
 import ReleaseControl from '../ReleaseControl'
 import ToolSidebar from '../ToolSidebar'
 import DeployFramePanel from './DeployFramePanel'
+import { COMMIT_STATES } from './states-commit'
 import {
   DEPLOY_PAYLOADS,
   DEV_DEPLOY_STATES,
@@ -63,7 +64,9 @@ describe('dev-deploy snapshots: shape and world', () => {
     expect(DEV_DEPLOY_STATES.map((s) => s.id)).toEqual(['V1', 'V2', 'V3', 'P1', 'P2'])
     expect(DEV_DEPLOY_STATES.map((s) => s.outlineRef)).toEqual(['V1', 'V2', 'V3', 'P1', 'P2'])
     expect(DEV_DEPLOY_STATES.map((s) => s.phase)).toEqual(['dev', 'dev', 'dev', 'deploy', 'deploy'])
-    expect(DEV_DEPLOY_STATES.map((s) => s.activeSurface)).toEqual(['dev', 'dev', 'dev', 'deploy', 'deploy'])
+    // ACP-803 finished the move: the subject is observed in the tab, so the
+    // CENTER of every frame is the open document — 'doc', like every other slice
+    expect(DEV_DEPLOY_STATES.map((s) => s.activeSurface)).toEqual(['doc', 'doc', 'doc', 'doc', 'doc'])
   })
 
   it('every frame sits in the post-commit world: clean editor, commit disabled, four docs', () => {
@@ -226,13 +229,14 @@ describe('the snapshots feed the REAL business components', () => {
 // ReleaseControl's own, and the layout is ToolSidebar's.
 // ---------------------------------------------------------------------------
 
-/** what the renderer hands `ToolSidebar` for one frame (the contract's snippet) */
-function injectFor(f: DevDeploySnapshot) {
+/** what the renderer hands `ToolSidebar` for one frame (the contract's snippet;
+ * `onRelease` defaults to a no-op — cases that watch the press pass their own) */
+function injectFor(f: DevDeploySnapshot, onRelease?: () => Promise<void>) {
   const action = (
     <ReleaseControl
       act={f.activeSidebarTab}
       disabled={f.actionDisabled}
-      onRelease={async () => {}}
+      onRelease={onRelease ?? (async () => {})}
     />
   )
   return f.activeSidebarTab === 'dev'
@@ -263,6 +267,10 @@ describe('ACP-799 the frames name their sidebar tab', () => {
       expect(isDevDeployState(s), s.id).toBe(true)
       expect(s.activeSidebarTab, s.id).toBe(s.phase)
     }
+    // the commit pair declares the SAME field name for its own tab, so the
+    // guard keys on the VALUE: C1/C2 are not ours, or the 提交 frames would
+    // light 开发/部署 and lose their tab (ACP-803)
+    expect(COMMIT_STATES.every((s) => !isDevDeployState(s))).toBe(true)
     // 开发 frames light 开发, 部署 frames light 部署 — V1~V3 and P1~P2
     expect(DEV_DEPLOY_STATES.map((s) => s.activeSidebarTab))
       .toEqual(['dev', 'dev', 'dev', 'deploy', 'deploy'])
@@ -292,8 +300,14 @@ describe('ACP-799 the frames name their sidebar tab', () => {
     }
   })
 
-  it('the action button follows the frame, not the fixture: it exists and is disabled because that act already ran', () => {
-    for (const s of DEV_DEPLOY_STATES) expect(s.actionDisabled, s.id).toBe(true)
+  it('the action button follows the frame honestly (ACP-803): each group\'s FIRST frame is live, the rest are done', () => {
+    // V1 / P1: the act has not landed yet, so its button is live — pressing it
+    // is what the caller wires to "land the next frame". Not a live no-op.
+    expect(byId('V1').actionDisabled).toBe(false)
+    expect(byId('P1').actionDisabled).toBe(false)
+    // V2 / V3 / P2: the act already ran (开发 完成 / 已上线), so the button is
+    // disabled — a frozen design is developed once, a version deployed once.
+    for (const id of ['V2', 'V3', 'P2']) expect(byId(id).actionDisabled, id).toBe(true)
   })
 })
 
@@ -301,10 +315,12 @@ describe('ACP-799 the real sidebar renders the frames', () => {
   it('V1: the 开发 tab carries the four-phase panel as its 过程, the history below it, and the 开发 button on top', () => {
     mountSidebar(byId('V1'))
 
-    // the tab-top action button is ReleaseControl's own (testid + shipped word)
+// the tab-top action button is ReleaseControl's own (testid + shipped word).
+    // V1 is the group's first frame — its act has not landed, so the button is
+    // LIVE (ACP-803: pressing it lands the next frame, see the case below).
     const button = screen.getByTestId('dev-btn')
     expect(button).toHaveTextContent(i18nT('apps.aiStudio.dev_start'))
-    expect(button).toBeDisabled()
+    expect(button).toBeEnabled()
 
     // 过程 = the shipped four-phase panel, fed by THIS frame's run
     expect(attr('dev-run-panel', 'data-dev-run-id')).toBe('dev-v5')
@@ -321,6 +337,42 @@ describe('ACP-799 the real sidebar renders the frames', () => {
     for (const r of byId('V1').history) expect(screen.getByText(r.id)).toBeInTheDocument()
     expect(screen.queryByText('dev-309')).not.toBeInTheDocument()
 
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('V1 的「开发」按钮按下去真的会发生：onRelease 被调用（落到下一帧由接线做）', async () => {
+    const onRelease = vi.fn(async () => {})
+    const f = byId('V1')
+    const injected = injectFor(f, onRelease)
+    render(
+      <ToolSidebar
+        onOpenTab={vi.fn()}
+        docs={[]}
+        projectId={f.fixture.project.id}
+        initialTool="dev"
+        dev={injected}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('dev-btn'))
+    await waitFor(() => expect(onRelease).toHaveBeenCalledTimes(1))
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('P1 的「部署」按钮同样可点，按下即落下一帧（发布完成）', async () => {
+    const onRelease = vi.fn(async () => {})
+    const f = byId('P1')
+    const injected = injectFor(f, onRelease)
+    render(
+      <ToolSidebar
+        onOpenTab={vi.fn()}
+        docs={[]}
+        projectId={f.fixture.project.id}
+        initialTool="deploy"
+        deploy={injected}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('deploy-btn'))
+    await waitFor(() => expect(onRelease).toHaveBeenCalledTimes(1))
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
