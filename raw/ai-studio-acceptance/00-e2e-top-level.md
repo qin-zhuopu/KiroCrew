@@ -7,7 +7,7 @@ owner: qinshuguo
 maintainer: sid-req-design
 updated: 2026-09-23
 children:
-  - 01（待编写）
+  - 01-project-entry.md（试点，已真机跑通）
   - 02-requirement-edit-commit.md（待编写）
   - 03（待编写）
   - 04（待编写）
@@ -237,7 +237,7 @@ children:
 
 | 编号 | 文档 | 展开自 | 状态 |
 |---|---|---|---|
-| 01 | 项目进入与当前状态 | open-project | [01-项目进入与当前状态.md](01-项目进入与当前状态.md)（试点，已真机跑通 21/21） |
+| 01 | 项目进入与当前状态 | open-project | [01-project-entry.md](01-project-entry.md)（试点，已真机跑通 21/21） |
 | 02 | 需求文档修改与提交（奇数版） | edit-requirement、commit-odd | 待编写 |
 | 03 | 图谱反向生成与成组 Diff（偶数版） | regen-even | 待编写 |
 | 04 | 需求冻结 | freeze-requirement | 待编写 |

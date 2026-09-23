@@ -32,6 +32,9 @@
 - [20260923-122306-t7-frontend-gate-baseline-drift.md](20260923-122306-t7-frontend-gate-baseline-drift.md) —
   证明红灯前端门禁（ai-studio vitest、i18n parity/deadKeys）是继承来的不是自己引入的：
   共享 stash 安全的基线对照法，以及 happy-dom 缺 EventSource。
+- [20260923-135214-apparmor-userns-multi-instance-launcher.md](20260923-135214-apparmor-userns-multi-instance-launcher.md) —
+  源码多实例沙箱 EPERM 两个坑：路径附着档案要求直接 exec 启动脚本（`python 脚本` 起法白装）、
+  `install-profile` 只写一个文件会互相覆盖（多实例各起独立命名档案）；判据看 `/proc/pid/attr/current`。
 - [20260923-144042-dev-origin-sw-turns-a-dropped-module-into-a-hard-failure.md](20260923-144042-dev-origin-sw-turns-a-dropped-module-into-a-hard-failure.md) —
   dev 域名上「代码没送到」：`index.html` 在 dev 也注册了 `sw.js`，而 `sw.js` 只给
   `/assets/`、`/vendor/` 重试、`/src/*` 落到 `caches.match(request) || Response.error()`
