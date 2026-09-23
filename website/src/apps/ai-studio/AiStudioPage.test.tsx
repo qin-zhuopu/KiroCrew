@@ -1,5 +1,5 @@
 // Tests for the app's route surface and the workbench shell: /ai-studio lands
-// on the project list (empty state + new-project dialog), /ai-studio/projects
+// on the project list (empty state + new-project dialog), /projects/<id>/ai-studio
 // /<id> lands on the three-column workbench whose header names the project,
 // its Docs tool lists the project's real files, and opening one lands a
 // closable tab. ChatEmbed is stubbed (it opens a WebSocket the test
@@ -72,8 +72,8 @@ describe('route dispatch', () => {
     expect(screen.queryByTestId('ai-studio')).not.toBeInTheDocument()
   })
 
-  it('/ai-studio/projects/<id> renders the workbench and names the project', async () => {
-    renderAt('/ai-studio/projects/p1')
+  it('/projects/<id>/ai-studio renders the workbench and names the project', async () => {
+    renderAt('/projects/p1/ai-studio')
     expect(await screen.findByTestId('ai-studio')).toBeInTheDocument()
     // the header shows the fetched project's name, not a hardcoded demo
     expect(screen.getByText(/测试项目/)).toBeInTheDocument()
@@ -84,7 +84,7 @@ describe('route dispatch', () => {
   it('an unknown project id offers a way back to the list', async () => {
     const { StudioApiError } = await import('./studioApi')
     api.getProject.mockRejectedValue(new StudioApiError(404, 'project_not_found', 'project not found'))
-    renderAt('/ai-studio/projects/gone')
+    renderAt('/projects/gone/ai-studio')
     expect(await screen.findByTestId('ai-studio-load-error')).toBeInTheDocument()
     expect(screen.getByText('Project no longer exists')).toBeInTheDocument()
   })
@@ -92,7 +92,7 @@ describe('route dispatch', () => {
 
 describe('workbench shell', () => {
   it('renders the three columns with the embedded chat', async () => {
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/projects/p1/ai-studio')
     expect(await screen.findByTestId('chat-embed-stub')).toBeInTheDocument()
     expect(screen.getByTestId('tool-sidebar')).toBeInTheDocument()
     expect(screen.getByTestId('resizer-left')).toBeInTheDocument()
@@ -101,7 +101,7 @@ describe('workbench shell', () => {
 
   it('opens a real project doc from the sidebar into a closable center tab', async () => {
     const user = userEvent.setup()
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/projects/p1/ai-studio')
     await user.click(await screen.findByText('requirements.md'))
     const tab = await screen.findByRole('tab', { name: /requirements\.md/ })
     expect(document.querySelector('[data-testid="doc-requirements.md"]')).toBeInTheDocument()
@@ -111,7 +111,7 @@ describe('workbench shell', () => {
 
   it('refuses to hide the last visible pane', async () => {
     const user = userEvent.setup()
-    renderAt('/ai-studio/projects/p1')
+    renderAt('/projects/p1/ai-studio')
     // the shell renders only once the project query resolves; the toggles do
     // not exist during the skeleton
     await screen.findByTestId('ai-studio')

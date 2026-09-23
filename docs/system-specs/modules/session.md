@@ -18,6 +18,16 @@ silently reloading a fallback. The current request is delivered once and is not
 replayed as historical input. This includes cron, recovery and user-replay
 injections; queue drain supplies the exact appended row to the runner.
 
+`running` gates turn admission and destructive history edits; `turn_running`
+reports execution. `test_pending_boundary_consumer_semantics.py::test_running_and_turn_running_slot_readers_are_enumerated`
+walks every dashboard symbol and pins each direct or shared-helper reader by
+`(module, symbol)` to the predicate it uses; the same census enumerates every
+non-null `slot.task` publisher so a new unguarded admission site fails the test.
+`stage_boundary_for` treats a missing writable boundary on a real `_ChatSlot` as
+an error. Until #12042 removes the compatibility fallback, a non-slot object
+receives an ephemeral boundary and that swallowed assignment failure emits one
+unconditional WARNING naming the object's type.
+
 ## Dashboard app launch intents
 
 The App SDK's `slotKey` selects an existing dashboard slot through ordinary
@@ -511,6 +521,64 @@ send time.
   tool-count gate (that gate protects un-landing, and there is nothing here to
   un-land) and no stage-execution gate (a notice changes no turn result the stage
   loop reads).
+- **False current-tool-blocker recovery** (dashboard chat runner, depth-0 turns
+  only): a normal turn that successfully completed only host-owned read/search/fetch
+  preparation tools and then claims that *this turn* exhausted its tool budget or
+  can no longer execute tools is not allowed to land as completed work. Kiro Crew
+  receives real tool failures through refusal/error/result frames; a call
+  lacking a terminal `status=completed` result has no final completion proof
+  and remains ineligible. With no such failure and exact completion evidence, that
+  self-referential blocker is model-authored rather than a runtime verdict. The
+  turn uses the existing promise-only one-shot continuation and non-landing
+  accounting, so the next turn tries the pending action instead of asking the user
+  to type "continue." One provider-canonical identity and call id are retained per
+  dispatch; the id set must exactly equal the final `status=completed` result set.
+  Only the fixed non-MCP builtin allow-list is eligible. Its five shared
+  read/search/fetch identities come from the host approval gate's proven
+  read-only registry; `introspect` and `tool_search` are explicit replay-only
+  discovery extensions and do not widen that auto-approval registry. This replay gate
+  deliberately does not inherit the separate approval path's `tool_kind`
+  classifier: replay can repeat an already completed turn, so it requires a
+  positive Kiro-backend capability (declared fail-closed on the provider ABC),
+  `tool_identity_trusted=true` minted from an adapter-authored canonical
+  tool-name marker (`_meta.kiro.toolName` on the eligible Kiro backend),
+  stable canonical identity, host ownership, and final-result proof.
+  A familiar non-empty `tool_name` is not provenance. The
+  allow-list is specific to Kiro's canonical builtin identities; KAS and other
+  selectable backends remain manual until they expose equivalent identities and
+  round-trip tests. Agent-influenced ACP `tool_kind`, MCP tools, unknown identity,
+  duplicate/missing ids, and every count/status mismatch fail closed. The blocker
+  must be a full match of one of the two captured incident statements; other
+  wording, appended instructions, or announced actions is ineligible, including
+  prose copied from a fetched document. Blocker-adjacent wording that misses the
+  exact grammar remains ineligible but emits a text-free WARNING after otherwise
+  proven read-only preparation, making recurrence drift observable without
+  granting replay authority.
+  Recovery is limited to authenticated-human turns and replays that exact
+  original user message, captured at runner entry before cancelled-turn,
+  subagent-failure, or silent app-context enrichment. Its provenance is
+  preserved; model-authored blocker, action text, and injected context never
+  become the next prompt or mirrored user speech. This remains safe with static
+  `allowedTools`, MCP `autoApprove`, and hook grants: those mechanisms may skip a
+  tool approval, but the retried authority is still the user's own request. The
+  queued replay preserves the triggering row's validated attachment lists so
+  `[attached_file N]` and `[attached_dir N]` markers still resolve losslessly,
+  including paths containing whitespace. It carries a distinct structural kind so
+  a Stop, follow-up, or steer arriving after enqueue purges it before dispatch and
+  resets the one-shot budget. Rebinding the slot to another session while the replay
+  waits also purges it and resets that budget. If the single replay ends in the same
+  blocker, the spent-budget arm emits a give-up notice and never queues a second replay. No
+  host-authored fresh, resumed, or compacted-session context tells the model that
+  tools became unavailable or assigns a per-turn tool budget; provider failures
+  continue to use their control frames. This remains an interim mitigation for an
+  unsupported model self-report, not a diagnosis of a resume-path provider
+  failure. Phrasings beyond the two captured full statements deliberately remain
+  manual; a new recurrence must be diagnosed before the grammar expands. Any
+  identity or completion shape outside the proven allow-list falls through to the
+  landed-turn behavior, preventing a completed mutation from being replayed. The
+  normal Stop, user-follow-up, pending-steer, stage-execution, approval/refusal,
+  and one-shot gates remain unchanged; trusted or global auto-approve sessions
+  retain the existing notice-only downgrade.
 - **Context compaction**: at ≥ configured threshold (`session.autocompact_pct`, default 70%, valid 5–90), compacts **in place** on a member of
   `ACP_BACKENDS_COMPACT` — kiro-cli, claude, codex and opencode. They divide by WHERE
   the
@@ -932,7 +1000,7 @@ send time.
 | `cancel_current(key, *, wait_ack_timeout=0.0)` | Cancel in-flight operation without destroying session. Returns `CancelOutcome`. Default `wait_ack_timeout=0.0` preserves fire-and-forget behavior for internal callers (taskrunner, subagent, llm_helpers). |
 | `stop_turn(key, *, force=False, on_soft=None, on_hard=None)` | Cooperative stop with kill fallback. Returns `StopOutcome` (`"soft"`, `"hard"`, or `"idle"`). Clears queue unconditionally, then sends `session/cancel` and waits up to `agent.soft_stop_budget_secs`; falls back to `reset()` + eager respawn on timeout or error. `force=True` skips cancel and goes straight to hard kill. `on_soft`/`on_hard` callbacks fire before return. |
 | `reset(key, *, expect_session=None, skip_if_busy=False, clear_conversation=False)` | Kill session; returns `bool` (True iff a session was actually torn down). Does NOT delete session map entry (kiro-cli file persists for future resume). Optional guards evaluated atomically under the lock with the pop, used by the RSS-recycle watchdog: `expect_session` only resets if that exact session object still occupies the key (guards against recycling a reset+recreated session on a stale off-lock RSS reading); `skip_if_busy` skips when the current session's semaphore is held so a live stream is never cut mid-turn. `clear_conversation=True` additionally clears the native resume sid in the SAME event-loop tick as the pop (entry + channel bindings survive, as in `_recycle_held`) — used by the still-critical post-compaction escalation so the overflowed conversation is not reloaded, without a delayed clear ever erasing a racing successor's sid. |
-| `discard_conversation(key)` | Kill session AND clear only the resume sid (`SessionMap.clear_sid`) — the map ENTRY survives, preserving Slack thread/channel linkage and the reverse thread→session index. The cleared sid is stashed as `discarded_sid` in the entry, so the discard is diagnosable and manually reversible (the native conversation persists on disk; only the pointer is dropped). The next turn cold-starts a fresh native conversation instead of `session/load`-ing the old one. Used by the poisoned-conversation escalation in `chat_runner` (canary-verified backend rejection of a specific persisted conversation) and by the Slack / Discord / Telegram `/compact` failure recovery: the conversation is unusable but the session's channel identity must persist. This is the shape every HOUSEKEEPING teardown takes — `SessionMap.prune` refuses to delete an entry carrying a channel binding, and `_recycle_held` clears the sid for the same reason. Only an explicit user action (`destroy`) may remove a channel identity. Sits between `reset` (sid kept, resume expected) and `remove` (entry deleted, no resume). |
+| `discard_conversation(key)` | Kill session AND clear only the resume sid (`SessionMap.clear_sid`) — the map ENTRY survives, preserving Slack thread/channel linkage and the reverse thread→session index. The cleared sid is stashed as `discarded_sid` in the entry, so the discard is diagnosable and manually reversible (the native conversation persists on disk; only the pointer is dropped). Every path that empties `sid` in place records what it dropped, through one shared `_stash_and_clear_sid` — this discard, the provider switch, the startup prune and the per-read stale repair — because a history reader answers from that field and cannot tell which path wrote it, so a field written by only some of them holds a genuine id that is not the latest one. The next turn cold-starts a fresh native conversation instead of `session/load`-ing the old one. Used by the poisoned-conversation escalation in `chat_runner` (canary-verified backend rejection of a specific persisted conversation) and by the Slack / Discord / Telegram `/compact` failure recovery: the conversation is unusable but the session's channel identity must persist. This is the shape every HOUSEKEEPING teardown takes — `SessionMap.prune` refuses to delete an entry carrying a channel binding, and `_recycle_held` clears the sid for the same reason. Only an explicit user action (`destroy`) may remove a channel identity. Sits between `reset` (sid kept, resume expected) and `remove` (entry deleted, no resume). |
 | `remove(key)` | Shut down a session but PRESERVE the session map entry — the kiro-cli session files remain on disk, so a future `get_or_create` restores the conversation losslessly via `session/load`. For revivable teardown (tab close, agent switch, idle kill). Permanent deletion is `destroy(key)`. |
 | `destroy(key)` | Permanently remove the live provider, compaction override, and session-map entry. The map entry is deleted in the yield-free registry-pop span before the awaited end metric, so a dashboard slot cannot adopt the predecessor binding during that metric write. |
 | `destroy_if(key, expected_generation, should_destroy, *, preserve_autocompact_override=False)` | Conditional permanent removal for the monotonic canonical-key generation captured by `session_generation(key)`. Under the manager lock it requires no current allocation/claim reservation, requires the generation to remain equal, requires the current session semaphore to be idle, then evaluates the synchronous slot-owner predicate immediately before the registry pop and yield-free session-map delete. Any reservation, generation mismatch (including absent→successor→absent ABA), busy session, false predicate, or predicate exception leaves provider, override, and map untouched. History deletion passes `preserve_autocompact_override=True` because another process can claim the same logical transcript; ordinary conditional and unconditional destroy keep clearing the old override. Returns whether destruction occurred. |

@@ -57,9 +57,17 @@ from kiro_crew.decisions.types import Answer, Answers, Question, is_model_id
 logger = logging.getLogger(__name__)
 
 #: Decision points this build ships; an absent name is refused. Lives with the
-#: seam, not in ``config.sections``: nothing in the config is keyed by point name,
-#: and keeping it here keeps the config loader off a hot path's import graph.
-DECISION_POINT_NAMES = ("skills.select", "tool.risk", "message.steer")
+#: seam, not in ``config.sections``: nothing in the config is keyed by point name
+#: -- ``decisions.model_route`` is keyed by TIER, not by point -- and keeping the
+#: tuple here keeps the config loader off a hot path's import graph.
+DECISION_POINT_NAMES = (
+    "skills.select",
+    "tool.risk",
+    "message.steer",
+    "model.route",
+    "compaction.keep",
+    "memory.recall",
+)
 
 #: Points whose request carries TOOL-CALL ARGUMENTS, and which therefore need the
 #: keystone's ``tool_args`` scope on top of consent itself
@@ -70,6 +78,25 @@ DECISION_POINT_NAMES = ("skills.select", "tool.risk", "message.steer")
 #: outright, which is what makes an already-consented install inert for it rather
 #: than retroactively signed up.
 POINTS_NEEDING_TOOL_ARGS = frozenset({"tool.risk"})
+
+#: Points whose request carries a WHOLE SLOT TRANSCRIPT -- the conversation text and
+#: every tool input in it -- and which therefore need the keystone's ``compaction``
+#: scope (``consent.consented_compaction``). A THIRD set rather than a wider reading
+#: of the one above, because the two categories were reviewed as different things:
+#: ``tool_args`` is the arguments of the call about to run, this is everything the
+#: session has run, in a request one to two orders of magnitude larger. An install
+#: that granted only the narrower scope is inert here.
+POINTS_NEEDING_COMPACTION = frozenset({"compaction.keep"})
+
+#: Points whose request carries the TEXT OF RECALLED MEMORIES, and which therefore
+#: need the keystone's ``memory_text`` scope (``consent.consented_memory_text``). A
+#: set of its own rather than a wider reading of either above it, because the
+#: category is genuinely different: a message excerpt is text the owner just typed
+#: and a skill description is text this build shipped, while a recalled memory is
+#: text the AGENT wrote down turns or days ago about work the owner was not
+#: reviewing when they consented. An install that granted either other scope is
+#: inert here.
+POINTS_NEEDING_MEMORY_TEXT = frozenset({"memory.recall"})
 
 #: The model id sent when the config leaves ``provider.model`` empty -- the same
 #: fallback ``impl_jev`` applies, so the id the scrub clears is the id sent.
@@ -242,8 +269,9 @@ def _consented_for(
     an auditor needs recorded.
 
     *point* names the caller's decision point, so a point in
-    :data:`POINTS_NEEDING_TOOL_ARGS` can be refused on a keystone that consents to
-    sending but not to sending TOOL ARGUMENTS. Checked here rather than in
+    :data:`POINTS_NEEDING_TOOL_ARGS`, :data:`POINTS_NEEDING_COMPACTION` or
+    :data:`POINTS_NEEDING_MEMORY_TEXT` can be refused on a keystone that consents
+    to sending but not to sending THAT category. Checked here rather than in
     :func:`_sampled` because the state this needs is the one read this function
     already did -- ``_sampled`` is deliberately IO-free -- so the scope costs no
     second keystone read, and because this is the documented chokepoint every
@@ -253,7 +281,7 @@ def _consented_for(
     state = _consent.load_state()
     endpoint = configured_endpoint(config)
     if _consent.permits(endpoint, state):
-        if not _tool_args_scoped(point, state):
+        if not _scope_consented(point, state):
             return False
         return not _capability_denied(session_key)
     if _consent.is_enabled(state) and endpoint not in _unconsented_warned:
@@ -270,34 +298,77 @@ def _consented_for(
 _unscoped_warned: set[str] = set()
 
 
-def _tool_args_scoped(point: str | None, state: dict) -> bool:
-    """Whether *point*'s tool-argument egress is consented to. Never raises.
+#: Which KEYSTONE FIELD each scoped point's consent is recorded in, as
+#: ``point -> state key``. Built from the same three sets the enforcement table below
+#: is, so the sets stay the single source: a point added to either one is both
+#: enforced and listed with the right switch, and neither side can learn about a
+#: scope the other does not.
+#:
+#: It exists because the dashboard needs the FIELD NAME -- the card's per-point panel
+#: writes that exact key back through ``PUT /api/decisions/consent`` -- while the
+#: table below needs a reader and a category to refuse and to warn with. Same
+#: membership, different projections of it. ``test_decisions_gate.py`` pins the two
+#: against each other, so a further scope set cannot be added to one alone.
+POINT_SCOPE_KEYS: dict[str, str] = {
+    **{p: _consent.STATE_KEY_TOOL_ARGS for p in POINTS_NEEDING_TOOL_ARGS},
+    **{p: _consent.STATE_KEY_COMPACTION for p in POINTS_NEEDING_COMPACTION},
+    **{p: _consent.STATE_KEY_MEMORY_TEXT for p in POINTS_NEEDING_MEMORY_TEXT},
+}
 
-    ``True`` for every point that does not send tool arguments, so
-    ``skills.select`` is untouched by this and pays nothing for it.
+
+#: What each scoped point needs, as ``point -> (keystone reader, the switch's own
+#: words)``. ONE table rather than a predicate per scope: every entry is the same
+#: three facts, and a second copy of the walk is a second place to forget a scope --
+#: which for a gate whose open state sends conversation text means sending a
+#: category nobody consented to.
+_POINT_SCOPES: dict[str, tuple[str, str]] = {
+    **{p: ("consented_tool_args", "tool-call arguments") for p in POINTS_NEEDING_TOOL_ARGS},
+    **{
+        p: ("consented_compaction", "the conversation and its tool-call inputs")
+        for p in POINTS_NEEDING_COMPACTION
+    },
+    **{
+        p: ("consented_memory_text", "the text of recalled memories")
+        for p in POINTS_NEEDING_MEMORY_TEXT
+    },
+}
+
+
+def _scope_consented(point: str | None, state: dict) -> bool:
+    """Whether *point*'s EXTRA egress category is consented to. Never raises.
+
+    ``True`` for every point that sends nothing beyond what the main switch
+    records, so ``skills.select`` is untouched by this and pays nothing for it.
 
     A missing scope is said out loud ONCE per point, at WARNING, for the reason the
     endpoint mismatch beside it is: an owner who consented before this scope existed
     sees the feature do nothing, and "you consented to sending, but not to sending
     this" is the one fact that tells that apart from a broken build.
     """
-    if point is None or point not in POINTS_NEEDING_TOOL_ARGS:
+    # Bound to a local ``str`` so the warning set below is keyed by a name rather
+    # than by an optional: ``""`` is not a member of the table, so a caller with no
+    # point of its own takes the first return.
+    name = point or ""
+    scope = _POINT_SCOPES.get(name)
+    if scope is None:
         return True
+    reader_name, category = scope
     try:
-        if _consent.consented_tool_args(state):
+        if bool(getattr(_consent, reader_name)(state)):
             return True
     except Exception:
         # An unreadable scope is an unconsented scope: this decides whether a new
         # category of conversation content leaves the machine.
-        logger.debug("decisions: tool-argument scope unreadable; refusing %s", point)
+        logger.debug("decisions: %s scope unreadable; refusing %s", category, name)
         return False
-    if point not in _unscoped_warned:
-        _unscoped_warned.add(point)
+    if name not in _unscoped_warned:
+        _unscoped_warned.add(name)
         logger.warning(
-            "decisions: %s needs consent to send tool-call arguments, which this "
-            "machine has not given; turn on the tool-argument switch in Settings to "
-            "enable it. Nothing is sent for this point until then",
-            point,
+            "decisions: %s needs consent to send %s, which this machine has not "
+            "given; turn on that switch in Settings to enable it. Nothing is sent "
+            "for this point until then",
+            name,
+            category,
         )
     return False
 
@@ -375,6 +446,35 @@ def history_budget_chars(config: Any | None = None) -> int:
         logger.debug("decisions: history ceiling unreadable; sending no prior turns")
         return 0
     return min(asked, ceiling)
+
+
+def model_route_map(config: Any | None = None) -> dict[str, str]:
+    """``decisions.model_route`` as a ``{tier: model_id}`` mapping. Never raises.
+
+    Read here for the same reason :func:`timeout_secs` and
+    :func:`history_budget_chars` are: the snapshot read and its fallbacks live
+    with the gate, so a point never imports the config loader onto its own hot
+    path.
+
+    ``""`` is KEPT for a tier, because it is the shipped value and it means
+    "inherit -- leave this turn's model alone", which the log and the strip report
+    rather than treat as absence. Only a non-string is dropped.
+
+    Returns ``{}`` for an absent or unreadable section. Every tier then reads as
+    unpinned, which applies nothing -- the fail-closed direction for a value that
+    decides what a turn costs.
+    """
+    try:
+        raw = getattr(_decisions_config(config), "model_route", None)
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        tier: model.strip()
+        for tier, model in raw.items()
+        if isinstance(tier, str) and isinstance(model, str)
+    }
 
 
 def _budget(name: str, default: int, config: Any | None = None) -> int:

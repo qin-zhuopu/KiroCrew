@@ -169,6 +169,15 @@ class LLMProvider(ABC):
         return False
 
     @property
+    def is_kiro_backend(self) -> bool:
+        """True only when the provider positively identifies as kiro-cli.
+
+        The safe default is False: adapters added later cannot accidentally earn
+        Kiro-only behavior merely by omitting this capability.
+        """
+        return False
+
+    @property
     def is_claude_backend(self) -> bool:
         """True when this provider drives claude-agent-acp."""
         return False
@@ -571,6 +580,12 @@ class LLMProvider(ABC):
         False when effort is unsupported. Default False."""
         return False
 
-    async def clear_effort(self) -> bool:
-        """Clear the slot's reasoning-effort override for the current model. Default False."""
+    async def clear_effort(self) -> bool | None:
+        """Clear the slot's reasoning-effort override for the current model.
+
+        True applied a default LIVE, False needs a session reset to reach it, and
+        None means NOTHING changed -- neither the workspace overlay nor the
+        provider's own map -- so the caller must commit no new slot value and
+        reset nothing. Default False.
+        """
         return False

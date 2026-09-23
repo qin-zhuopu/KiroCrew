@@ -529,8 +529,33 @@ interface ChatInputProps {
    * backend's served default), not a pin. The chip then carries the same
    * ` · default` marker and explanatory tooltip the agent chip uses for its
    * inherited case, so a served model does not read as something the user
-   * chose. A pinned chip has nothing to explain. */
+   * chose. A pinned chip has nothing to explain. Yields to
+   * `modelIsJevRouted` below, which describes the same unpinned slot more
+   * specifically. */
   modelIsInheritedDefault?: boolean
+  /**
+   * True when THIS turn's model is Jev's to pick: the slot names no model
+   * (`auto`, or the empty string a freshly dispatched slot carries) and the Jev
+   * preview is on, so `model.route` puts the turn in a tier and runs it on that
+   * tier's model.
+   *
+   * The chip then names the POLICY (`Auto (Jev)`) in place of `modelName`, rather
+   * than an id with a marker beside it. A routed session's model changes from turn
+   * to turn, so naming one makes a chip that reads like a pin and is stale by the
+   * next reply; the model a given turn actually ran on is on that turn's routing
+   * receipt, which is per-turn and cannot go stale. It is also the exact label the
+   * picker highlights for this slot (`jevRouteShownModel`), so the chip and the
+   * open menu say the same word for the same choice.
+   *
+   * Hosts compute it from the SAME `jevRouteOffered()` the picker's row is drawn
+   * from (`lib/jevRoute.ts`) against the slot's raw `model`, which is what the
+   * routing gate reads. One condition, so the chip cannot say Auto for a turn that
+   * routed, nor Auto (Jev) for one that did not.
+   *
+   * Wins over `modelIsInheritedDefault`: both describe a slot that pinned nothing,
+   * and this one names WHO picks instead, which is the more specific fact and the
+   * one that costs money. */
+  modelIsJevRouted?: boolean
   /**
    * Picker openers (agent, model, project, and `onSessionControlClick` below).
    * Each hands the host the chip's click-time rect AND the chip element itself:
@@ -922,6 +947,7 @@ function ChatInput({
   agentLabel,
   agentIsInheritedDefault,
   modelIsInheritedDefault,
+  modelIsJevRouted,
   agentSource,
   modelName,
   onAgentClick,
@@ -4002,6 +4028,18 @@ function ChatInput({
         animate={{ opacity: 1, height: 'auto' }}
         exit={{ opacity: 0, height: 0 }}
         transition={{ type: 'spring', damping: 26, stiffness: 280, mass: 0.7 }}
+        // The halo lives on THIS element, not on the bordered wrapper inside it:
+        // this element clips its content for the height:0 exit, and a child's
+        // box-shadow is content, so a halo drawn one level down is cut at the
+        // edge. An element's own shadow is outside its overflow clip. Radius
+        // mirrors the wrapper's so the halo hugs the same corners. With an
+        // approval box attached above, the wrapper has no top radius and the
+        // approval glow already lights the pair, so the halo stands down.
+        // Incognito and temporary modes paint the wrapper's border warn / aim
+        // at all times; the focus halo takes the same color there so the one
+        // control lights up in one color instead of an accent ring around a
+        // warn or aim edge.
+        className={hasApproval ? undefined : `composer-halo rounded-2xl${memoryMode === 'temporary' ? ' composer-halo-aim' : memoryMode === 'incognito' ? ' composer-halo-warn' : ''}`}
         style={{ overflow: 'hidden' }}
       >{/* File drag-and-drop target. Drag-drop is inherently pointer-only; the
            keyboard-accessible path is the "Attach files" button that opens the
@@ -4067,7 +4105,7 @@ function ChatInput({
           />
         )}
 
-        {optimizing && <span className="absolute inset-0 flex items-start px-4 pt-3 text-sm text-white font-medium pointer-events-none z-10 bg-black/60 rounded-2xl"><Sparkles size={14} className="inline mr-1 text-yellow-400" /> {i18nT('components.chatInput.optimizing_prompt')}</span>}
+        {optimizing && <span className="optimize-overlay absolute inset-0 flex items-center justify-center backdrop-blur-md pointer-events-none z-10 rounded-2xl"><span className="optimize-overlay-pill inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-text"><Sparkles size={15} className="text-accent animate-pulse shrink-0" /> {i18nT('components.chatInput.optimizing_prompt')}</span></span>}
         {/* The textarea fallback is seamless for typing (draft intact), but the
             failure itself must be user-visible, not only a console line: the
             person who opted into the editor should know they are no longer in
@@ -5078,22 +5116,29 @@ function ChatInput({
               // reads exactly like a pin. A pinned chip keeps the plain hint.
               title={isRunning
                 ? i18nT('components.chatInput.stop_the_current_response_to_switch_model')
-                : modelIsInheritedDefault
-                  ? i18nT('components.chatInput.model_inherited_default', { name: modelName })
-                  : i18nT('components.chatInput.model_2', { name: modelName })}
+                : modelIsJevRouted
+                  ? i18nT('pages.chatPage.model_auto_jev_description')
+                  : modelIsInheritedDefault
+                    ? i18nT('components.chatInput.model_inherited_default', { name: modelName })
+                    : i18nT('components.chatInput.model_2', { name: modelName })}
               aria-label={isRunning
                 ? i18nT('components.chatInput.stop_the_current_response_to_switch_model')
-                : modelIsInheritedDefault
-                  ? i18nT('components.chatInput.model_inherited_default', { name: modelName })
-                  : i18nT('components.chatInput.model_2', { name: modelName })}
+                : modelIsJevRouted
+                  ? i18nT('pages.chatPage.model_auto_jev_description')
+                  : modelIsInheritedDefault
+                    ? i18nT('components.chatInput.model_inherited_default', { name: modelName })
+                    : i18nT('components.chatInput.model_2', { name: modelName })}
             >
               <span className="truncate max-w-[180px]">
-                {modelName}
+                {modelIsJevRouted ? i18nT('components.modelDropdownList.auto_jev') : modelName}
               </span>
-              {modelIsInheritedDefault && (
-                // Outside the truncating span: a long provider-prefixed id must
-                // ellipsize its own tail, never the marker that tells a served
-                // default apart from a pin.
+              {/* Outside the truncating span: a long provider-prefixed id must
+                  ellipsize its own tail, never the marker beside it. A routed chip
+                  takes NO marker -- its label is already the policy, and a second
+                  word next to it would be a marker on a name that is not a model.
+                  So the two unpinned states differ by KIND (a policy vs an id with
+                  a marker), not by two adjectives a reader has to tell apart. */}
+              {!modelIsJevRouted && modelIsInheritedDefault && (
                 <>
                   <span className="opacity-30 select-none shrink-0" aria-hidden="true">·</span>
                   <span className="opacity-60 shrink-0">{i18nT('components.agentSelector.default')}</span>

@@ -140,16 +140,17 @@ seconds.
 
 - **Admission is by whole block, never by slicing the joined prompt.** Protected
   blocks (rules, preferences, identity, steering, pinned skill bodies) go first and
-  are never truncated; the rest spend what is left, and an omitted block is named
-  in a `[Context budget: omitted …]` line.
+  are never truncated below the model-safe ceiling; the rest spend what is left, and
+  an omitted block is named in a `[Context budget: omitted …]` line.
 - **Thread history has its own window-scaled allowance**, and keeps its framing
   plus the newest tail rather than vanishing.
 - **The model-safe ceiling** on protected content is
   `max(3 × the base, window_tokens × 4.0 × 0.125)` (`_PROTECTED_CONTEXT_FLOOR` is
   the base tripled; `_PROTECTED_CONTEXT_CHARS_PER_TOKEN` and
   `_PROTECTED_CONTEXT_WINDOW_FRACTION` are the two factors). Over it, lessons
-  re-render smaller first; preferences are kept from their head with an in-prompt
-  notice naming the file.
+  fall back to the ordinary lessons budget (`caps.lessons`, still bounded by the
+  ceiling) and re-render smaller, highest-ranked complete entries first;
+  preferences are kept from their head with an in-prompt notice naming the file.
 - **A bigger model window does not buy more background.** `_resolve_caps` scales
   only thread/replay limits; an unknown or `auto` window resolves to the 1M
   reference (`_effective_window`).
@@ -480,7 +481,7 @@ until it does.
 | Per-member working memory (briefing) | **Implemented** | `members.py` → `member_briefing_path`, `read_member_briefing`, `member_briefing_supported`; injected as layer 4 by `context.py` → `_build_member_section`. Agent-writable by design, with no dashboard endpoint — the member edits it with its own file tools. Capped at `MEMBER_BRIEFING_MAX_CHARS` on read. |
 | Per-member permanent rules | **Implemented** | `members.py` → `member_rules_path`, `read_member_rules`, `write_member_rules`; stored under `trust/member-rules/` so the member's file tools cannot rewrite its own boundary. `MEMBER_RULES_MAX_CHARS` cap enforced on write (a human dashboard action), never truncated on read. |
 | Private per-member memory | **Implemented for explicitly created members** | Memory V2: one SQLite database per immutable `member_id`, resolved by `config/loader.py` → `resolve_agent_bindings` and `execution_context.py` → `member_config_for_id`; bounded essentials from `member_essential_context.py`, recall through `memory_recall`. **Gap:** legacy and auto-discovered members remain on Global V1 and are not migrated, and a member cannot choose or rebind a shared store. |
-| Per-member activity log | **Implemented** | `members.py` → `record_activity`, `read_activity`; append-only `activity.jsonl`, rotated at `_ACTIVITY_LOG_MAX_BYTES` keeping one generation, with a per-record cap that aborts the read rather than skipping an over-cap line. |
+| Per-member activity log | **Implemented** | `members.py` → `record_activity`, `read_activity`, now backed by the per-member event log rather than `activity.jsonl`; each record is one `activity/record` event under the caps `eventlog/log.py` applies per append. There is NO rotation: rotation renamed the file out from under readers and dropped its oldest rows, which a sequence-ordered reader cannot survive, so the log is bounded per row and per value and accumulates over a member's lifetime. The legacy file is folded in once and then retired to `activity.jsonl.migrated`. |
 | Per-member permission control | **Partial** | Real and enforced, but keyed on the **template**, not the member: `agent_capabilities.py` resolves owner-reviewed intent over `agent_state.CAPABILITY_SECTIONS` (`mcpServers`, `tools`, `allowedTools`, `autoApprove`, `skills`, `prompt`, `model`, `resources`). A member gets its own permissions only through a **private copy** of its template (`private_to` lineage; `dashboard/handlers/agents.py` → `_foreign_private_copy_owner`, `_prune_private_copy_of_deleted_crew`), which is refused to a second crew. **Gaps:** two members sharing one template share its permissions; `[PERMANENT RULES]` is prompt-level guidance, not an enforced gate; and `agent.member_dispatch` is one global ceiling rather than a per-member one. |
 | Per-member DM binding | **Implemented** | `members.py` → `dm_binding_path`, `read_dm_binding`, `write_dm_binding`; under `trust/member-bindings/`, because the binding is the thread's identity authority. |
 

@@ -1,5 +1,5 @@
 // Shared test scaffolding for the ai-studio page tests: the workbench renders
-// through the /ai-studio/projects/<id> route (AiStudioPage dispatches on the
+// through the /projects/<id>/ai-studio route (AiStudioPage dispatches on the
 // pathname), so the router wrapper has to match. Backend reads are mocked per
 // test file (vi.mock does not hoist across modules — each file mocks
 // ./studioApi and ../../app-sdk/ChatEmbed itself); this holds only the
@@ -9,7 +9,7 @@ import { render } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 
-export function renderStudio(ui: ReactElement, initialEntry = '/ai-studio/projects/p1') {
+export function renderStudio(ui: ReactElement, initialEntry = '/projects/p1/ai-studio') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
