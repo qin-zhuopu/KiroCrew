@@ -31,8 +31,14 @@ AiStudioPage.tsx                        工作台页壳（路由 /ai-studio/proj
 │   └─  testid: ai-studio-publish-version-list
 │            ai-studio-publish-version-row-<版本号> · ai-studio-publish-version-state
 │            ai-studio-publish-reason-<版本号> · ai-studio-publish-btn-<版本号>
-│        行内按钮渲染=行 hash vs 最新成功发布 hash（相同不渲染、行标已发布）；
-│        发布结果条与发布详情页由 T6/T8 另行登记。
+│        行内按钮渲染=行 hash vs 最新成功发布 hash（相同不渲染、行标已发布）。
+│   └─  行内发布结果条（T6，本组件内渲染）
+│        testid: ai-studio-publish-status-<版本号> · ai-studio-publish-form-badge-<版本号>
+│                 ai-studio-publish-url-<版本号>（<a href>=发布记录 url，新页签）
+│                 ai-studio-publish-id-<版本号>（<a href>=/release-jobs/<发布号>，新页签）
+│        点击即发（无弹层）；发布中轮询 GET /publish/records，成功记录落位即
+│        终态（行标已发布、按钮消失）；失败原因只来自触发应答；409 保持单个发布中。
+│        发布详情页由 T8 另行登记。
 ├─ ChatPane.tsx                         需求对话区
 │   └─  testid: ai-studio-chat
 ├─ ProjectCommitBar.tsx                 项目提交条
