@@ -12,6 +12,7 @@
         "doc": "requirements.md",
         "draftRecords": 0,
         "historyIcon": "gray",
+        "recentActivityItems": 1,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -22,6 +23,7 @@
         "doc": "requirements.md",
         "draftRecords": 0,
         "historyIcon": "gray",
+        "recentActivityItems": 1,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -66,16 +68,18 @@
         "doc": "requirements.md",
         "draftRecords": 1,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
-      "backendFact": "后台（快照 alt1-002）：编辑器脏态（有未提交修改） 否→是；草稿记录数 0→1；diff 图标置灰 是→否；修改历史图标置灰 是→否",
+      "backendFact": "后台（快照 alt1-002）：编辑器脏态（有未提交修改） 否→是；草稿记录数 0→1；diff 图标置灰 是→否；修改历史图标置灰 是→否；最近活动条数 1→2",
       "before": {
         "diffIcon": "gray",
         "dirty": false,
         "doc": "requirements.md",
         "draftRecords": 0,
         "historyIcon": "gray",
+        "recentActivityItems": 1,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -111,6 +115,11 @@
           "eq": false,
           "field": "historyDisabled",
           "note": "修改历史图标置灰"
+        },
+        {
+          "eq": 2,
+          "field": "recentActivityItems",
+          "note": "最近活动条数"
         }
       ],
       "startFrom": "requirements.md：干净、草稿记录 0 条、已提交 1 版",
@@ -128,6 +137,7 @@
         "doc": "requirements.md",
         "draftRecords": 1,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -138,6 +148,7 @@
         "doc": "requirements.md",
         "draftRecords": 1,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -186,6 +197,7 @@
         "doc": "requirements.md",
         "draftRecords": 2,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -196,6 +208,7 @@
         "doc": "requirements.md",
         "draftRecords": 1,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -233,6 +246,7 @@
         "doc": "requirements.md",
         "draftRecords": 2,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -243,6 +257,7 @@
         "doc": "requirements.md",
         "draftRecords": 2,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -291,6 +306,7 @@
         "doc": "requirements.md",
         "draftRecords": 2,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -301,6 +317,7 @@
         "doc": "requirements.md",
         "draftRecords": 2,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -351,6 +368,7 @@
         "doc": "requirements.md",
         "draftRecords": 3,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },
@@ -361,6 +379,7 @@
         "doc": "requirements.md",
         "draftRecords": 2,
         "historyIcon": "list",
+        "recentActivityItems": 2,
         "versions": 1,
         "versionsIcon": "list"
       },

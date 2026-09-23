@@ -123,6 +123,30 @@ describe('workbench shell', () => {
   })
 })
 
+describe('recent activity (ACP-754)', () => {
+  it('the workbench feed exists and shows its empty state when nothing is drafted', async () => {
+    renderAt('/ai-studio/projects/p1')
+    await screen.findByTestId('ai-studio')
+    const feed = await screen.findByTestId('recent-activity')
+    expect(feed).toHaveAttribute('data-activity-count', '0')
+    expect(within(feed).getByTestId('recent-activity-empty')).toHaveTextContent('No activity yet')
+  })
+
+  it('the feed lists exactly the drafted docs the store reports', async () => {
+    api.listDraftDocs.mockResolvedValue({
+      drafts: [
+        { name: 'requirements.md', content: '# 草稿', changed: true },
+        { name: 'workflow.md', content: '# 流程草稿', changed: true },
+      ],
+    })
+    renderAt('/ai-studio/projects/p1')
+    const feed = await screen.findByTestId('recent-activity')
+    await waitFor(() => expect(feed).toHaveAttribute('data-activity-count', '2'))
+    expect(within(feed).getByTestId('recent-activity-item-0')).toHaveTextContent(/requirements\.md/)
+    expect(within(feed).getByTestId('recent-activity-item-1')).toHaveTextContent(/workflow\.md/)
+  })
+})
+
 describe('project-level commit', () => {
   it('lists drafted docs in the header and commits every one of them', async () => {
     const user = userEvent.setup()

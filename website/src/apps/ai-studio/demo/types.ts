@@ -31,6 +31,9 @@ export interface DemoState {
   historyIcon: 'gray' | 'list'
   versions: number
   versionsIcon: 'gray' | 'list'
+  /** recent-activity feed size (ACP-754): how many entries the snapshot's
+   * 「最近活动」 list carries (0 = the empty state, which is data too) */
+  recentActivityItems: number
   /** graph vocabulary (ACP-729), present only for worlds whose snapshots
    * carry a graph: the node total, and how many THIS step's story added */
   graphNodes?: number
@@ -134,6 +137,13 @@ export interface DemoFixture {
   docs: { name: string; content: string }[]
   draftVersions: { name: string; time: number; content: string }[]
   versions: Record<string, { name: string; time: number; diff: string }[]>
+  /** the workbench's 「最近活动」 feed (ACP-754), newest first. The list is
+   * carried per snapshot but EVERY entry is derived from that same
+   * snapshot's own payloads (version rows, draft records, the release, the
+   * applied distillation) — check_activity re-derives and re-verifies, so a
+   * frame can never show an activity it does not hold. Every snapshot
+   * carries the field, empty included: 空态也是数据. */
+  recentActivity: { time: number; label: string }[]
   /** the requirement graph the commits feed (ACP-729), as the snapshot froze
    * it. Absent = this world has no graph story, and no graph panel renders. */
   graph?: StudioGraph

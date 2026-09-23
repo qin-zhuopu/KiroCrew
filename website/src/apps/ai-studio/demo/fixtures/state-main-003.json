@@ -86,6 +86,16 @@
     "id": "demo-membership-points",
     "name": "会员积分系统"
   },
+  "recentActivity": [
+    {
+      "label": "提交 1758513600.md",
+      "time": 1758513600
+    },
+    {
+      "label": "提交 1758427200.md",
+      "time": 1758427200
+    }
+  ],
   "versions": {
     "requirements.md": [
       {

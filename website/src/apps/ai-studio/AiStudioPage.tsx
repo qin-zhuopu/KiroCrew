@@ -24,6 +24,7 @@ import { i18nT } from '../../i18n/t'
 import ChatPane from './ChatPane'
 import ProjectCommitBar from './ProjectCommitBar'
 import ProjectsListPage from './ProjectsListPage'
+import RecentActivityFeed from './RecentActivityFeed'
 import ToolSidebar from './ToolSidebar'
 import WorkArea, { type WorkTab } from './WorkArea'
 import { DESIGN_VERSION, RUN_VERSION } from './fixtures'
@@ -108,6 +109,20 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
     queryFn: () => studioApi.getProject(projectId),
   })
   const docs: StudioDoc[] = projectQuery.data?.docs ?? []
+
+  // the recent-activity feed (ACP-754): in the ordinary workbench the honest
+  // feed is what the store itself reports — the project's drafted docs. The
+  // commit bar already runs that drafts read, so it reports the names up
+  // (onDraftsSeen) rather than this view opening a SECOND query — one read,
+  // one network call, no second observer to perturb the fetch count. Nothing
+  // drafted → the feed shows its empty state; no new endpoint, no invented
+  // activity.
+  const [draftedNames, setDraftedNames] = useState<string[]>([])
+  const activity = useMemo(
+    () => draftedNames.map((name) => ({ label: `${i18nT('apps.aiStudio.drafts_pending')}: ${name}` })),
+    [draftedNames],
+  )
+  const onDraftsSeen = useCallback((names: string[]) => setDraftedNames(names), [])
 
   // The commit itself lives in ProjectCommitBar (shared with the demo
   // workbench); this side owns what a landing commit does to the tabs:
@@ -223,7 +238,7 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
         {/* Project-level commit (ACP-727): the shared bar owns the badge,
             the button and the commit run; this header just places it. */}
         <div className="relative flex items-center gap-2">
-          <ProjectCommitBar projectId={projectId} onCommitted={onDocCommitted} />
+          <ProjectCommitBar projectId={projectId} onCommitted={onDocCommitted} onDraftsSeen={onDraftsSeen} />
         </div>
         <span className="rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-muted">
           {i18nT('apps.aiStudio.design_version')}: {DESIGN_VERSION}
@@ -232,6 +247,10 @@ export function StudioWorkspace({ projectId }: { projectId: string }) {
           {i18nT('apps.aiStudio.run_version')}: {RUN_VERSION}
         </span>
       </header>
+      {/* the recent-activity feed, the same component the demo workbench
+       * mounts (ACP-754) — the hook exists on both surfaces, fed by data
+       * each surface honestly holds */}
+      <RecentActivityFeed items={activity} />
 
       <div className="flex flex-1 min-h-0">
         {!hidden.left && (

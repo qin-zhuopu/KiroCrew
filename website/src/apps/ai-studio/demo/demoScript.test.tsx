@@ -49,6 +49,12 @@ function readState(): Record<string, boolean | number | string> {
     versions: Number(doc!.dataset.versionCount),
     diffDisabled: (document.querySelector('[data-testid="diff-btn"]') as HTMLButtonElement).disabled,
     historyDisabled: (document.querySelector('[data-testid="draft-history-btn"]') as HTMLButtonElement).disabled,
+    // the recent-activity read-back (ACP-754) rides the feed itself, mounted
+    // in every world (empty included) — the count the frame's snapshot
+    // carries, read off the panel the presenter sees
+    recentActivityItems: Number(
+      (document.querySelector('[data-testid="recent-activity"]') as HTMLElement).dataset.activityCount,
+    ),
   }
   // the graph read-backs exist exactly for worlds that carry one: the
   // snapshot's graphNodes / graphAddedNodes land as SVG node counts (ACP-729)
@@ -95,6 +101,7 @@ function declared(s: DemoState): Record<string, boolean | number | string> {
     versions: s.versions,
     diffDisabled: s.diffIcon === 'gray',
     historyDisabled: s.historyIcon === 'gray',
+    recentActivityItems: s.recentActivityItems,
   }
   if (s.graphNodes !== undefined) {
     out.graphNodes = s.graphNodes

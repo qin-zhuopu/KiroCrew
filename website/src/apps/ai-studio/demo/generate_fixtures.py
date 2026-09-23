@@ -916,6 +916,44 @@ add("alt2-003", empty.snapshot("requirements.md", empty.docs["requirements.md"].
 
 
 # ---------------------------------------------------------------------------
+# Recent activity (ACP-754 / 验收文档 01 的 recent-activity 挂点)
+# ---------------------------------------------------------------------------
+# The workbench's 「最近活动」 feed. The snapshot CARRIES the list, but every
+# item is derived here from that same snapshot's own payloads — the version
+# rows, the draft records, the release, the applied distillation — so the
+# panel can never show an activity the frame does not hold (same doctrine as
+# graphDelta: declared as data, cross-checked against its sources).
+# 每份快照都带这个字段，哪怕列表为空——空态也是数据（alt2 的从未提交）。
+
+ACTIVITY_VERSION_ROWS = 2  # 展示层规则：只取最近两次提交，活在数据里而非组件里
+
+
+def derive_activity(snap: dict[str, Any]) -> list[dict[str, Any]]:
+    """The snapshot's own recent-activity feed, newest first."""
+    items: list[dict[str, Any]] = []
+    focus = snap["focusDoc"]
+    for row in snap["versions"].get(focus, [])[:ACTIVITY_VERSION_ROWS]:
+        items.append({"time": row["time"], "label": f"提交 {row['name']}"})
+    drafts = snap["draftVersions"]
+    if drafts:
+        items.append({"time": drafts[0]["time"], "label": f"未提交草稿 ×{len(drafts)}"})
+    rel = snap.get("release")
+    if rel is not None:
+        items.append({"time": rel["time"], "label": f"发版 {rel['version']}"})
+    dist = snap.get("distillation")
+    if dist is not None and dist["status"] == "done" and dist.get("appliedAt") is not None:
+        items.append(
+            {"time": dist["appliedAt"], "label": f"沉淀候选 ×{len(dist['candidates'])}"}
+        )
+    items.sort(key=lambda it: (-it["time"], it["label"]))
+    return items
+
+
+for _snap in SNAPS.values():
+    _snap["recentActivity"] = derive_activity(_snap)
+
+
+# ---------------------------------------------------------------------------
 # Step scripts. before/after are DERIVED from the snapshots, so a script can
 # never claim a state its fixture does not carry (the assertion list the
 # Playwright spec checks is literally this derivation).
@@ -936,6 +974,9 @@ def derive(snap: dict[str, Any]) -> dict[str, Any]:
         "historyIcon": "list" if drafts else "gray",
         "versions": versions,
         "versionsIcon": "list" if versions else "gray",
+        # the recent-activity feed (ACP-754) exists in EVERY world, empty
+        # included — 空态也是数据，所以它不进图谱门控，走核心词表
+        "recentActivityItems": len(snap.get("recentActivity", [])),
     }
     # the graph vocabulary (ACP-729) only exists for worlds that carry a
     # graph: a snapshot without one keeps speaking the seven fields above.
@@ -1019,6 +1060,7 @@ OBS_LABELS: dict[str, str] = {
     "versions": "已提交版本数",
     "diffDisabled": "diff 图标置灰",
     "historyDisabled": "修改历史图标置灰",
+    "recentActivityItems": "最近活动条数",
     "graphNodes": "图谱节点总数",
     "graphAddedNodes": "本次新增图谱节点数",
     "graphModifiedNodes": "本次修改图谱节点数",
@@ -1052,6 +1094,7 @@ def observables(state: dict[str, Any]) -> dict[str, Any]:
         "versions": state["versions"],
         "diffDisabled": state["diffIcon"] == "gray",
         "historyDisabled": state["historyIcon"] == "gray",
+        "recentActivityItems": state["recentActivityItems"],
     }
     if "graphNodes" in state:
         out["graphNodes"] = state["graphNodes"]
@@ -1932,6 +1975,33 @@ def check_history(key: str, snap: dict[str, Any], jumpable: "set[str]") -> None:
     assert not missing, f"{key}: history misses the five facts {sorted(missing)} — 五类事实必须齐全"
 
 
+def check_activity(key: str, snap: dict[str, Any]) -> None:
+    """ACP-754 — the recent-activity feed as DATA, checked at generation (the
+    ticket's 预检校验跟随): the carried list must equal exactly what this
+    snapshot's own payloads derive — every 提交 entry names a real version
+    row, the draft entry counts the real records, the 发版 entry names the
+    real release, the 沉淀 entry counts the applied run's real candidates —
+    and it must be newest-first. An activity the frame does not hold cannot
+    reach the panel, because it cannot survive this function."""
+    carried = snap.get("recentActivity")
+    assert carried is not None, f"{key}: snapshot carries no recentActivity — 空态也是数据"
+    expected = derive_activity(snap)
+    assert carried == expected, (
+        f"{key}: recentActivity {carried} ≠ recomputed from this frame's payloads {expected} "
+        "— 最近活动必须逐条来自本快照自己的事实"
+    )
+    times = [it["time"] for it in carried]
+    assert times == sorted(times, reverse=True), f"{key}: recentActivity not newest-first"
+    # label↔source consistency, spelled out so a future writer of a wrong
+    # label is named, not silently displayed
+    rows = {r["name"] for r in snap["versions"].get(snap["focusDoc"], [])}
+    for it in carried:
+        if it["label"].startswith("提交 "):
+            assert it["label"][len("提交 "):] in rows, (
+                f"{key}: activity {it['label']!r} names no version row"
+            )
+
+
 def dump(path: Path, data: Any) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1953,6 +2023,7 @@ def main_run() -> None:
         check_regen(key, snap)
         check_devrun(key, snap)
         check_history(key, snap, jumpable)
+        check_activity(key, snap)
         dump(FIXTURES / f"state-{key}.json", snap)
     for name, script in SCRIPTS.items():
         dump(STEPS / f"{name}.json", script)
