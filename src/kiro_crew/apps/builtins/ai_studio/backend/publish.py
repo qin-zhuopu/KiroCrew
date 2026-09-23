@@ -85,9 +85,7 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 def _write_json(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _stamp(now: float) -> str:
@@ -246,6 +244,86 @@ def update_job_status(project_id: str, job_id: str, status: str) -> dict[str, An
     return job
 
 
+# ---------------------------------------------------------------------------
+# job log (T4): one append-only ``.log`` file beside the job json, the source
+# the streaming endpoint replays
+# ---------------------------------------------------------------------------
+
+#: The log line the executor writes LAST on success — the completion marker
+#: the streaming frontend (T7/§〇-2) looks for.
+LOG_DONE_MARKER = "发布完成"
+
+#: The log line the executor writes when the job ends failed.
+LOG_FAILED_MARKER = "发布失败"
+
+#: The log suffix: ``<jobId>.log`` beside ``<jobId>.json``, so a job's log
+#: lives and dies with the job and T3's executor swap cannot lose it (the
+#: log is durable file state, not in-memory).
+_LOG_SUFFIX = ".log"
+
+
+def _safe_job_id(job_id: str) -> bool:
+    """The id is a filename component (record_job's stem), never a path."""
+    return (
+        bool(job_id)
+        and "/" not in job_id
+        and "\\" not in job_id
+        and job_id
+        not in (
+            ".",
+            "..",
+        )
+    )
+
+
+def append_job_log(project_id: str, job_id: str, message: str) -> None:
+    """Append one line to the job's log file.
+
+    Whole-body ``append`` under the same tolerate posture as the rest of the
+    store: a log write failure must not fail the publish itself, so OSError
+    is swallowed (the stream simply shows fewer lines).
+    """
+    if not _safe_job_id(job_id):
+        return
+    path = _jobs_dir(_project_dir(project_id)) / f"{job_id}{_LOG_SUFFIX}"
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{stamp}] {message}\n")
+    except OSError:
+        pass
+
+
+def read_job_log(project_id: str, job_id: str) -> str:
+    """The job's full log text so far ('' when none — a job may have no
+    log yet, and a missing log is empty rather than an error)."""
+    if not _safe_job_id(job_id):
+        return ""
+    path = _jobs_dir(_project_dir(project_id)) / f"{job_id}{_LOG_SUFFIX}"
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def get_job(project_id: str, job_id: str) -> dict[str, Any] | None:
+    """One release-job by id, or None when the id names no job."""
+    if not _safe_job_id(job_id):
+        return None
+    return _read_json(_jobs_dir(_project_dir(project_id)) / f"{job_id}.json")
+
+
+def job_log_snapshot(project_id: str, job_id: str) -> tuple[str, str]:
+    """``(log_text, job_status)`` in one read — the unit the streaming
+    endpoint polls: it writes the new tail and stops when the status left
+    ``running``."""
+    job = get_job(project_id, job_id)
+    if job is None:
+        raise PublishError("release-job not found", "job_not_found", 404)
+    return read_job_log(project_id, job_id), str(job.get("status", "running"))
+
+
 def list_jobs(project_id: str) -> list[dict[str, Any]]:
     """The project's release-jobs, newest first (running ones the page pins
     to the top, which is a frontend sort over this order)."""
@@ -328,10 +406,16 @@ def preview_version(project_id: str, version: str) -> dict[str, Any]:
     if form == "full":
         return {"form": "full", "reason": "完整版通过验收（git tag 标注为完整版）"}
     if form == "demo":
-        return {"form": "demo", "reason": "完整版未通过验收（git tag 标注为演示版），仅可发布演示版"}
+        return {
+            "form": "demo",
+            "reason": "完整版未通过验收（git tag 标注为演示版），仅可发布演示版",
+        }
     if annotation is None:
         return {"form": "rejected", "reason": f"验收未通过：版本 {name} 无 git tag 标注"}
-    return {"form": "rejected", "reason": f"验收未通过：版本 {name} 的 tag 标注无法识别（未注明完整版或演示版）"}
+    return {
+        "form": "rejected",
+        "reason": f"验收未通过：版本 {name} 的 tag 标注无法识别（未注明完整版或演示版）",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -446,9 +530,7 @@ def trigger_publish(
         and j.get("commitHash") == commit_hash
     ]
     if running:
-        raise PublishError(
-            "this hash is already publishing", "publish_in_progress", 409
-        )
+        raise PublishError("this hash is already publishing", "publish_in_progress", 409)
 
     job = record_job(project_id, version=name, form=form, commit_hash=commit_hash)
     return _execute_job(project_dir, job, operator=operator)
@@ -464,6 +546,12 @@ def _execute_job(project_dir: Path, job: dict[str, Any], *, operator: str) -> di
     """
     project_id = project_dir.name
     version = job["version"]
+    job_id = job["id"]
+
+    def _log(message: str) -> None:
+        append_job_log(project_id, job_id, message)
+
+    _log(f"开始发布 {version}（{job.get('commitHash', '')}）")
     try:
         record = record_release(
             project_id,
@@ -473,12 +561,15 @@ def _execute_job(project_dir: Path, job: dict[str, Any], *, operator: str) -> di
             requirement_version=_requirement_version(project_dir),
             jira_task_ids=_jira_task_ids(project_dir),
             url=publish_url(project_id, version, operator),
-            deployment_id=job["id"],
+            deployment_id=job_id,
         )
-    except PublishError:
-        update_job_status(project_id, job["id"], "failed")
+    except PublishError as exc:
+        _log(f"{LOG_FAILED_MARKER}：{exc}")
+        update_job_status(project_id, job_id, "failed")
         raise
-    update_job_status(project_id, job["id"], "success")
+    _log(f"发布地址 {record['url']}")
+    _log(LOG_DONE_MARKER)
+    update_job_status(project_id, job_id, "success")
     return {
         "deploymentId": record["deploymentId"],
         "version": version,

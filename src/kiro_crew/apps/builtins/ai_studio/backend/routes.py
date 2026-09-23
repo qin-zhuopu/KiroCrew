@@ -11,6 +11,7 @@ literal status (the static error-code contract scan).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable
@@ -221,19 +222,74 @@ async def _handle_publish_trigger(request: web.Request) -> web.StreamResponse:
     return web.json_response(result, status=200 if result.get("idempotent") else 201)
 
 
+#: How often the running-job log stream re-reads the log file. The executor
+#: appends to a plain file, so the stream is a bounded poll of durable state
+#: (SSE carries the push; the file is the source of truth T3 cannot lose).
+_LOG_POLL_S = 0.2
+
+#: Hard cap on one log stream's lifetime, so a job wedged in ``running``
+#: releases the connection instead of holding it forever.
+_LOG_STREAM_MAX_S = 600.0
+
+
+async def _handle_publish_log(request: web.Request) -> web.StreamResponse:
+    # T4 (§〇-2 后台日志流): the release-job's execution log. A running job
+    # streams SSE frames that grow with the file ("边发边长"); a finished job
+    # replays the full log in one final frame and closes — the frontend reads
+    # both through the same EventSource code path.
+    project_id = request.query.get("project", "")
+    deployment_id = request.match_info["deployment_id"]
+    try:
+        text, status = await asyncio.to_thread(publish.job_log_snapshot, project_id, deployment_id)
+    except publish.PublishError as exc:
+        return _error(str(exc), exc.code, exc.status)
+
+    response = web.StreamResponse(
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
+    await response.prepare(request)
+    offset = 0
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _LOG_STREAM_MAX_S
+    try:
+        while True:
+            new = text[offset:]
+            offset = len(text)
+            done = status != "running"
+            if new or done:
+                frame = json.dumps(
+                    {
+                        "lines": new.splitlines(),
+                        "done": done,
+                        "status": status,
+                    },
+                    ensure_ascii=False,
+                )
+                await response.write(f"data: {frame}\n\n".encode())
+            if done or loop.time() >= deadline:
+                break
+            await asyncio.sleep(_LOG_POLL_S)
+            text, status = await asyncio.to_thread(
+                publish.job_log_snapshot, project_id, deployment_id
+            )
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass  # the tab closed mid-stream; nothing to answer
+    return response
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
-    app.router.add_get(
-        f"{_BASE}/projects/{{project_id}}", _require_enabled(_handle_project_get)
-    )
+    app.router.add_get(f"{_BASE}/projects/{{project_id}}", _require_enabled(_handle_project_get))
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/drafts",
         _require_enabled(_handle_project_drafts),
     )
-    app.router.add_post(
-        f"{_BASE}/projects/{{project_id}}/docs", _require_enabled(_handle_doc_save)
-    )
+    app.router.add_post(f"{_BASE}/projects/{{project_id}}/docs", _require_enabled(_handle_doc_save))
     # The literal ``docs/draft`` segment cannot collide with the
     # ``docs/{doc_name}/…`` history routes: those carry a further segment.
     app.router.add_post(
@@ -251,3 +307,7 @@ def register_routes(app: web.Application) -> None:
     app.router.add_post(f"{_BASE}/publish", _require_enabled(_handle_publish_trigger))
     app.router.add_get(f"{_BASE}/publish/records", _require_enabled(_handle_publish_records))
     app.router.add_get(f"{_BASE}/publish/preview", _require_enabled(_handle_publish_preview))
+    app.router.add_get(
+        f"{_BASE}/publish/{{deployment_id}}/log",
+        _require_enabled(_handle_publish_log),
+    )
