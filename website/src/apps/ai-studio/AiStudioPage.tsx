@@ -31,7 +31,8 @@ import RecentActivityFeed from './RecentActivityFeed'
 import ToolSidebar from './ToolSidebar'
 import WorkArea, { type WorkTab } from './WorkArea'
 import { DESIGN_VERSION, RUN_VERSION } from './fixtures'
-import { parseDemoScenario } from './demo/runtime'
+import { parseDemoScenario, STATE_DEMO_SCENARIO } from './demo/runtime'
+import DemoEntryButton from './DemoEntryButton'
 import { studioApi, StudioApiError, type StudioDoc } from './studioApi'
 
 // The demo surface (steps, fixtures, overlay, fake) loads ONLY on the
@@ -41,7 +42,6 @@ const DemoWorkspace = lazy(() => import('./demo/DemoWorkspace'))
 // out, prev/next/direct-select all just re-read a state — no replay. Sibling to
 // the step-replay surface; the same `?demo=` guard keeps it fetch-free.
 const StateDemo = lazy(() => import('./demo/StateDemo'))
-const STATE_DEMO_SCENARIO = 'states'
 
 const LS_WIDTHS = 'ai-studio.widths'
 const LS_HIDDEN = 'ai-studio.hidden'
@@ -86,20 +86,29 @@ export default function AiStudioPage() {
   // read here and nowhere else in the app — no business component below
   // learns a demo exists. On this route the URL's project id is ignored:
   // the scenario's fixture carries its own demo project (§5).
+  // ACP-793: one floating control, rendered on every branch, whose label and
+  // behaviour flip on `?demo=` presence — the entry the owner could not find.
   const demo = parseDemoScenario(location.search)
   if (demo) {
     const Surface = demo.scenario === STATE_DEMO_SCENARIO ? StateDemo : DemoWorkspace
     return (
-      <Suspense fallback={<div className="h-full p-6"><ContentSkeleton rows={6} /></div>}>
-        {/* keyed on the scenario: swapping `?demo=` remounts the runtime
-         * from step 0 instead of leaving it mid-script on another line */}
-        <Surface key={demo.scenario} params={demo} />
-      </Suspense>
+      <>
+        <Suspense fallback={<div className="h-full p-6"><ContentSkeleton rows={6} /></div>}>
+          {/* keyed on the scenario: swapping `?demo=` remounts the runtime
+           * from step 0 instead of leaving it mid-script on another line */}
+          <Surface key={demo.scenario} params={demo} />
+        </Suspense>
+        <DemoEntryButton />
+      </>
     )
   }
   const match = location.pathname.match(WORKSPACE_RE)
-  if (match) return <StudioWorkspace projectId={decodeURIComponent(match[1])} />
-  return <ProjectsListPage />
+  return (
+    <>
+      {match ? <StudioWorkspace projectId={decodeURIComponent(match[1])} /> : <ProjectsListPage />}
+      <DemoEntryButton />
+    </>
+  )
 }
 
 export function StudioWorkspace({ projectId }: { projectId: string }) {

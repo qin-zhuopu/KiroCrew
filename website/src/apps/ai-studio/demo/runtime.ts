@@ -38,6 +38,11 @@ export const DEMO_SCENARIOS: Record<string, DemoScript> = Object.fromEntries(
   ]),
 )
 
+/** The scenario name the state-direct demo (`?demo=states`) is reached under.
+ * Exported so the entry button and the router branch in `AiStudioPage` agree on
+ * one literal instead of two hand-typed copies drifting apart. */
+export const STATE_DEMO_SCENARIO = 'states'
+
 /** `?demo=<scenario>` off a search string; null outside demo mode. The query
  * param is the whole injection point (§4) — remove it and the page is the
  * ordinary workbench. Harness-only knobs (used by the script test, never by

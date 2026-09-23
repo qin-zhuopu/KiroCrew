@@ -84,7 +84,9 @@
     "aiStudio": {
       "demo_badge": "Demo",
       "demo_counter": "Step {{n}} / {{total}}",
+      "demo_enter": "Demo",
       "demo_event": "Event: {{event}}",
+      "demo_exit": "Exit demo",
       "demo_next": "Next",
       "demo_pause": "Pause",
       "demo_play": "Autoplay",
