@@ -56,8 +56,9 @@
 
 - 范围：ToolSidebar 的 releases 页签补挂 `ai-studio-publish-entry`，其内容从 fixture 桩
   换成发布版本列表：`ai-studio-publish-version-list` / `ai-studio-publish-version-row-<版本号>` /
-  `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>`；行内发布按钮复用
-  `ReleaseControl` 实例（即 `ai-studio-publish-btn-<版本号>`），**渲染与否按 hash 对比**
+  `ai-studio-publish-version-state` / `ai-studio-publish-reason-<版本号>`；行内发布按钮 `ai-studio-publish-btn-<版本号>`
+  在本新组件内自建（072257f52 拍板：**不复用、不改动顶栏 `ReleaseControl`**，其
+  `release-btn` testid 不动），**渲染与否按 hash 对比**
   （行 hash vs 最新发布 hash，相同=不渲染且状态「已发布」，不是禁用）；无版本选择器/手输框/确认弹层；
   四列行内布局。**不做点击后的发布链路与结果条（T6）；不碰 dev 页签共用的 ReleasesTool 分支**。
 - 文件与 testid：`ToolSidebar.tsx`、新建发布视图组件、`studioApi.ts`（publish 取数）；
@@ -107,6 +108,9 @@ T1 → T2 → {T3, T4 → T7} ；T1 → T5 → T6（T2 亦 blocks T6）；T7+T1 
 
 ## 待确认（随清单交 master，不阻塞无争议任务）
 
+> 进度：问题 6 已由 req-design 定稿（08 commit 072257f52，选「不复用、不改动 ReleaseControl」，
+> 行内发布按钮在发布版本列表新组件内自建），已同步进 T5 措辞。其余 1–5 仍在 owner 处等答复。
+
 1. **commit hash 来源与「项目级版本」粒度**：08 的行数据、B2 的 `commitHash`、hash 对比全依赖
    每版本一个 commit hash，但现状版本接口是**按文档**的 `versions/<doc>/<timestamp>`
    （前端 `StudioVersion{name,time,diff}`、后端 projects.py 均无 hash 字段）。08 §〇-1 说行与
@@ -117,8 +121,7 @@ T1 → T2 → {T3, T4 → T7} ；T1 → T5 → T6（T2 亦 blocks T6）；T7+T1 
 4. **B3 记录字段链路**：`requirementVersion` 与 `jiraTaskIds` 非空的写入方是谁（02 冻结版本 × Jira 任务），
    08 只断言存在，实现前需指明数据从哪来。
 5. **§五 验收是否单列自动化验收脚本单**（e2e）：本清单只覆盖实现侧；若 §五 要成 script，master 决定是否另立。
-6. **§六 复用表与 testid 契约的措辞冲突**：§六 说行内发布按钮「复用 ReleaseControl，即
-   `ai-studio-publish-btn-<版本号>` = `release-btn` 所在实例」，而 §〇-1/§二 把
-   `ai-studio-publish-btn-<版本号>` 当验收锚点——现组件渲染的 testid 是固定的 `release-btn`
-   （`ReleaseControl.tsx` 的 ACTS 表）。要让按版本的 testid 成立，要么给该组件加 testid 覆盖入口
-   （改复用组件，按拆分原则应单列一单，性质同 T7），要么 §六 措辞改准。请转 req-design 定一句，T5 才能定形。
+6. ~~**§六 复用表与 testid 契约的措辞冲突**~~ **已定（08 commit 072257f52，已并入 main）**：
+   选「不复用、不改动 ReleaseControl」——它是顶栏三态一表的控制条，`release-btn` testid 不动；
+   行内发布按钮 `ai-studio-publish-btn-<版本号>` 在「发布版本列表」新组件内自建。
+   T5 措辞已按此同步。
