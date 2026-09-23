@@ -1,0 +1,51 @@
+{
+  "name": "ai-studio",
+  "version": "0.1.0",
+  "displayName": "AI Studio",
+  "description": "A coding-studio workbench: a project list you can create from a name and a description, and per-project pages with an AI chat column wired to your real Kiro Crew sessions beside a tabbed workspace (seeded requirement, workflow and UI-spec docs, pending diffs, commit history) and a tool sidebar that opens them.",
+  "author": "qin-zhuopu",
+  "tags": [
+    "studio",
+    "workspace",
+    "design-docs",
+    "developer-tools"
+  ],
+  "highlights": [
+    "Native chat embedded frameless — real sessions, streaming, tool cards",
+    "Three resizable columns with per-pane show/hide that persist",
+    "Open docs, diffs, commits, graph nodes and deploy logs as center tabs from the tool sidebar",
+    "Lightweight markdown editor with a raw-Markdown toggle"
+  ],
+  "iconUrl": "/app-assets/ai-studio/icon.svg",
+  "screenshots": [
+    "/app-assets/ai-studio/screenshot-main.png"
+  ],
+  "defaultEnabled": false,
+  "backend": {
+    "routes": "backend.routes:register_routes"
+  },
+  "platform": {
+    "os": [
+      "macos",
+      "linux",
+      "windows"
+    ]
+  },
+  "permissions": {
+    "api": [
+      "/api/chat",
+      "/api/chat/*",
+      "/api/apps/ai-studio",
+      "/api/apps/ai-studio/*"
+    ]
+  },
+  "ui": {
+    "pages": [
+      {
+        "route": "/ai-studio",
+        "label": "AI Studio",
+        "icon": "Sparkles"
+      }
+    ]
+  }
+}
