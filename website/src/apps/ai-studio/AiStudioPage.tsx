@@ -4,7 +4,7 @@
 // (`/:builtinApp/*`) resolves every sub-path through the registry's single
 // `/ai-studio` entry, so the split between the two views happens here by URL:
 //   /ai-studio                   → ProjectsListPage (list + create)
-//   /ai-studio/projects/<id>     → StudioWorkspace (the workbench for one project)
+//   /projects/<id>/ai-studio     → StudioWorkspace (the workbench for one project)
 //
 // Workspace: left the native chat (ChatEmbed, real sessions — same embed
 // contract the spec-builder uses), center a tabbed work area (docs / diffs /
@@ -58,10 +58,13 @@ function loadHidden(): Hidden {
   return { left: false, center: false, right: false }
 }
 
-/** `/ai-studio/projects/<id>` → the id; anything else → the list. The id is
+/** `/projects/<id>/ai-studio` → the id; anything else → the list. The id is
  * read off the pathname rather than nested <Route>s because the dashboard
- * mounts this page as one catch-all entry (see BuiltinAppRoute). */
-const WORKSPACE_RE = /^\/ai-studio\/projects\/([^/]+)/
+ * mounts this page as one catch-all entry (see BuiltinAppRoute). The
+ * workspace lives under `/projects` — the Projects app's own top-level
+ * segment — so ProjectsPage dispatches here for this sub-path; this page
+ * stays mounted at `/ai-studio` for the list. */
+const WORKSPACE_RE = /^\/projects\/([^/]+)\/ai-studio/
 
 export default function AiStudioPage() {
   const match = useLocation().pathname.match(WORKSPACE_RE)
