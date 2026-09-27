@@ -391,6 +391,17 @@ export type StudioApi = {
   saveDraft: (id: string, name: string, content: string) => Promise<{ ok: boolean }>
   listDraftVersions: (id: string, name: string) => Promise<{ versions: StudioDraftVersion[] }>
   listVersions: (id: string, name: string) => Promise<{ versions: StudioVersion[] }>
+  // ACP-847 (BGDD PoC): the graph endpoints. getGraph reads the requirement
+  // graph mapped onto StudioGraph — the real data the graph view renders once
+  // the workspace stops passing fixtures (GraphView's own header comment).
+  getGraph: () => Promise<{ graphId: string; graph: StudioGraph }>
+  freeze: (
+    id: string,
+    version: string,
+    docName: string,
+    notes?: string,
+  ) => Promise<{ freeze: StudioFreeze }>
+  regen: (id: string, docName: string) => Promise<{ doc: string; content: string; generatedFrom: string }>
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -478,5 +489,18 @@ export const studioApi: StudioApi = {
   listVersions: (id: string, name: string) =>
     request<{ versions: StudioVersion[] }>(
       `/projects/${encodeURIComponent(id)}/docs/${encodeURIComponent(name)}/versions`,
+    ),
+  getGraph: () => request<{ graphId: string; graph: StudioGraph }>('/graph'),
+  // 409 already_frozen on a duplicate label is the backend's rule (ACP-847);
+  // the caller surfaces it, the client does not swallow it.
+  freeze: (id: string, version: string, docName: string, notes?: string) =>
+    request<{ freeze: StudioFreeze }>(`/projects/${encodeURIComponent(id)}/freeze`, {
+      method: 'POST',
+      body: JSON.stringify({ version, docName, notes }),
+    }),
+  regen: (id: string, docName: string) =>
+    request<{ doc: string; content: string; generatedFrom: string }>(
+      `/projects/${encodeURIComponent(id)}/regen`,
+      { method: 'POST', body: JSON.stringify({ docName }) },
     ),
 }

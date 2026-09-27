@@ -170,6 +170,28 @@ export function createDemoApi(fixture: DemoFixture): StudioApi & {
     async listVersions(_id: string, name: string) {
       return { versions: clone(store.versions.get(name) ?? []) }
     },
+    // ACP-847 added getGraph/freeze/regen to StudioApi. The fake refuses them
+    // the same way createProject does: a snapshot has no real graph behind it,
+    // so answering would be faking data the snapshot does not hold. The demo
+    // renders its graph from the fixture's own graphEntries instead.
+    async getGraph(): Promise<never> {
+      throw new StudioApiError(400, 'demo_mode', 'demo mode has no real requirement graph')
+    },
+    async regen(): Promise<never> {
+      throw new StudioApiError(400, 'demo_mode', 'demo mode never regenerates from the graph')
+    },
+    async freeze(_id: string, version: string, docName: string, notes?: string) {
+      // the snapshot's own duplicate rule (the 409 above), republished on the
+      // real endpoint's shape so a demo caller gets the same data-layer refusal
+      if (store.frozen) {
+        throw new StudioApiError(409, 'already_frozen', `version ${version} is already frozen`)
+      }
+      store.frozen = true
+      notify()
+      return {
+        freeze: { version, docName, generatedFrom: 'demo-snapshot', time: Date.now() / 1000, notes: notes ?? '' },
+      }
+    },
     async freezeBaseline(version: string) {
       // 00 doc 需求冻结：重复冻结同一版本被硬拒（409）——拒绝发生在数据层，
       // UI 的置灰只是这条硬规则的另一半显示。成功即记录，此后任何再冻结

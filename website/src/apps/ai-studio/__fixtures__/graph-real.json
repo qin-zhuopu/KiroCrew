@@ -1,0 +1,209 @@
+{
+  "graphId": "knowledge-doc-upload-v1",
+  "graph": {
+    "nodes": [
+      {
+        "id": "KDU-AC-01",
+        "label": "重复上传被拒绝（需求 1）",
+        "kind": "requirement"
+      },
+      {
+        "id": "KDU-AC-02",
+        "label": "删除后可再传（需求 1 例外分支）",
+        "kind": "requirement"
+      },
+      {
+        "id": "KDU-AC-03",
+        "label": "不上传保留原文档与原版本号（需求 2 前半）",
+        "kind": "requirement"
+      },
+      {
+        "id": "KDU-AC-04",
+        "label": "上传新文件自动升版本（需求 2 后半）",
+        "kind": "requirement"
+      },
+      {
+        "id": "KDU-AC-05",
+        "label": "提示条常驻（需求 3）",
+        "kind": "requirement"
+      },
+      {
+        "id": "page:KnowledgeEditPage",
+        "label": "编辑知识页面主容器：持有当前草稿附件与文档版本号，编排保存",
+        "kind": "doc"
+      },
+      {
+        "id": "cmp:AttachmentSection",
+        "label": "文档附件区：文件选择控件、当前附件名/空态显示、删除按钮、行内报错",
+        "kind": "doc"
+      },
+      {
+        "id": "cmp:UploadHintBar",
+        "label": "上传规则提示条：单文档规则与更换方法提示，常驻",
+        "kind": "doc"
+      },
+      {
+        "id": "cmp:VersionDisplay",
+        "label": "当前知识版本号显示",
+        "kind": "doc"
+      },
+      {
+        "id": "cmp:SaveButton",
+        "label": "保存按钮（testid=btn-save-knowledge）",
+        "kind": "doc"
+      },
+      {
+        "id": "domc:attachment-first-upload",
+        "label": "attachment-first-upload",
+        "kind": "module"
+      },
+      {
+        "id": "errc:upload-duplicate-rejected",
+        "label": "upload-duplicate-rejected",
+        "kind": "module"
+      },
+      {
+        "id": "domc:no-side-effect-on-reject",
+        "label": "no-side-effect-on-reject",
+        "kind": "module"
+      },
+      {
+        "id": "domc:remove-attachment-to-empty",
+        "label": "remove-attachment-to-empty",
+        "kind": "module"
+      },
+      {
+        "id": "domc:reupload-after-remove",
+        "label": "reupload-after-remove",
+        "kind": "module"
+      },
+      {
+        "id": "domc:no-stale-error",
+        "label": "no-stale-error",
+        "kind": "module"
+      },
+      {
+        "id": "savec:no-upload-keeps-doc-and-version",
+        "label": "no-upload-keeps-doc-and-version",
+        "kind": "module"
+      },
+      {
+        "id": "savec:new-file-upgrades-version",
+        "label": "new-file-upgrades-version",
+        "kind": "module"
+      },
+      {
+        "id": "savec:version-bump-rule",
+        "label": "version-bump-rule",
+        "kind": "module"
+      },
+      {
+        "id": "savec:history-preserved",
+        "label": "history-preserved",
+        "kind": "module"
+      },
+      {
+        "id": "hintc:upload-hint",
+        "label": "upload-hint",
+        "kind": "module"
+      },
+      {
+        "id": "tonec:friendly-copy",
+        "label": "friendly-copy",
+        "kind": "module"
+      }
+    ],
+    "edges": [
+      {
+        "from": "page:KnowledgeEditPage",
+        "to": "cmp:AttachmentSection",
+        "kind": "depends"
+      },
+      {
+        "from": "page:KnowledgeEditPage",
+        "to": "cmp:UploadHintBar",
+        "kind": "depends"
+      },
+      {
+        "from": "page:KnowledgeEditPage",
+        "to": "cmp:VersionDisplay",
+        "kind": "depends"
+      },
+      {
+        "from": "page:KnowledgeEditPage",
+        "to": "cmp:SaveButton",
+        "kind": "depends"
+      },
+      {
+        "from": "domc:attachment-first-upload",
+        "to": "KDU-AC-01",
+        "kind": "trace"
+      },
+      {
+        "from": "errc:upload-duplicate-rejected",
+        "to": "KDU-AC-01",
+        "kind": "trace"
+      },
+      {
+        "from": "domc:no-side-effect-on-reject",
+        "to": "KDU-AC-01",
+        "kind": "trace"
+      },
+      {
+        "from": "domc:remove-attachment-to-empty",
+        "to": "KDU-AC-02",
+        "kind": "trace"
+      },
+      {
+        "from": "domc:reupload-after-remove",
+        "to": "KDU-AC-02",
+        "kind": "trace"
+      },
+      {
+        "from": "domc:no-stale-error",
+        "to": "KDU-AC-01",
+        "kind": "trace"
+      },
+      {
+        "from": "savec:no-upload-keeps-doc-and-version",
+        "to": "KDU-AC-03",
+        "kind": "trace"
+      },
+      {
+        "from": "savec:new-file-upgrades-version",
+        "to": "KDU-AC-04",
+        "kind": "trace"
+      },
+      {
+        "from": "savec:new-file-upgrades-version",
+        "to": "KDU-AC-02",
+        "kind": "trace"
+      },
+      {
+        "from": "savec:version-bump-rule",
+        "to": "KDU-AC-04",
+        "kind": "trace"
+      },
+      {
+        "from": "savec:history-preserved",
+        "to": "KDU-AC-04",
+        "kind": "trace"
+      },
+      {
+        "from": "hintc:upload-hint",
+        "to": "KDU-AC-05",
+        "kind": "trace"
+      },
+      {
+        "from": "tonec:friendly-copy",
+        "to": "KDU-AC-05",
+        "kind": "trace"
+      },
+      {
+        "from": "tonec:friendly-copy",
+        "to": "KDU-AC-01",
+        "kind": "trace"
+      }
+    ]
+  }
+}
