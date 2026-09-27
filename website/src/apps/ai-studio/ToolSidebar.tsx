@@ -138,6 +138,13 @@ export interface ToolSidebarProps {
   // fixtures render exactly as before.
   /** the 开发 tab's injected 过程 / 历史 (a dev frame's own run) */
   dev?: ToolTabInjection
+  // T7 step 4 (ACP-851) adds the 开发 tab's REAL counterpart on the same
+  // injection footing as graphLoop: the page assembles `DevLoopPanel`
+  // (开始开发 → four phases as bgdd gate stages) and this file places it
+  // where the fixture dev tab would otherwise stand. A demo frame's `dev`
+  // injection outranks it — a frame's run is snapshot data.
+  /** the 开发 tab's real gate-driven run row (real workbench only) */
+  devLoop?: ReactNode
   /** the 部署 tab's injected 过程 / 历史 (a deploy frame's own record) */
   deploy?: ToolTabInjection
   // ACP-802 adds the sixth, and it is the SAME kind again: the 需求图谱 tab's
@@ -205,7 +212,7 @@ const MARK_KEY = {
 
 export default function ToolSidebar({
 onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
-  graphEntries, distillation, realGraph, graphLoop, releaseFiles, releaseAction, dev, deploy,
+  graphEntries, distillation, realGraph, graphLoop, releaseFiles, releaseAction, dev, devLoop, deploy,
   initialGraphType,
   commitApi, commitKey = 'real', onCommitted, onDraftsSeen,
 }: ToolSidebarProps) {
@@ -279,7 +286,10 @@ onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
         )}
         {tool === 'dev' && (dev
           ? <InjectedTool tab="dev" injection={dev} onOpenTab={onOpenTab} />
-          : <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />)}
+          // a frame's snapshot injection outranks the real loop, which in
+          // turn outranks the fixture — the tab shows gate-driven reality
+          // only where the calls are real
+          : devLoop ?? <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />)}
         {tool === 'deploy' && (deploy
           ? <InjectedTool tab="deploy" injection={deploy} onOpenTab={onOpenTab} />
           : <DeployTool onOpenTab={onOpenTab} />)}

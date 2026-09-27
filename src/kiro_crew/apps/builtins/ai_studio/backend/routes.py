@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 
 from aiohttp import web
 
-from kiro_crew.apps.builtins.ai_studio.backend import graph, projects, publish
+from kiro_crew.apps.builtins.ai_studio.backend import devruns, graph, projects, publish
 from kiro_crew.apps.manager import is_app_enabled
 
 logger = logging.getLogger(__name__)
@@ -408,6 +408,44 @@ async def _handle_distill_list(request: web.Request) -> web.StreamResponse:
     return web.json_response({"distillations": records})
 
 
+async def _handle_devrun_start(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/dev-runs: run the four phases through the bgdd
+    # gate (T7 step 4). The gate subprocess is long — it runs off the event
+    # loop and the record lands complete with the response, because a
+    # half-written 'running' record nobody owns is a stuck spinner.
+    project_id = request.match_info["project_id"]
+    body = await _body(request)
+    design_version = str(body.get("designVersion", "v1"))
+    release_version = str(body.get("releaseVersion", ""))
+    try:
+        rec = await asyncio.to_thread(devruns.run_dev, project_id, design_version, release_version)
+    except devruns.DevRunError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError:
+        logger.exception("ai-studio dev run write failed")
+        return _error("could not write the dev run record", "store_write_failed", 503)
+    return web.json_response({"run": rec}, status=201)
+
+
+async def _handle_devrun_list(request: web.Request) -> web.StreamResponse:
+    project_id = request.match_info["project_id"]
+    try:
+        records = await asyncio.to_thread(devruns.list_runs, project_id)
+    except devruns.DevRunError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response({"runs": records})
+
+
+async def _handle_devrun_get(request: web.Request) -> web.StreamResponse:
+    project_id = request.match_info["project_id"]
+    run_id = request.match_info["run_id"]
+    try:
+        rec = await asyncio.to_thread(devruns.get_run, project_id, run_id)
+    except devruns.DevRunError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response({"run": rec})
+
+
 async def _handle_regen(request: web.Request) -> web.StreamResponse:
     # POST /projects/{id}/regen: render the acceptance doc FROM the graph
     # into the draft layer (graph→doc direction of the BGDD loop, ACP-847).
@@ -459,6 +497,15 @@ def register_routes(app: web.Application) -> None:
     )
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/distills", _require_enabled(_handle_distill_list)
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/dev-runs", _require_enabled(_handle_devrun_start)
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/dev-runs", _require_enabled(_handle_devrun_list)
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/dev-runs/{{run_id}}", _require_enabled(_handle_devrun_get)
     )
     app.router.add_post(f"{_BASE}/publish", _require_enabled(_handle_publish_trigger))
     app.router.add_get(f"{_BASE}/publish/records", _require_enabled(_handle_publish_records))

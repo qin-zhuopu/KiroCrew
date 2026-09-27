@@ -25,6 +25,7 @@ import { Btn, ContentSkeleton } from '../../components/ui'
 import { usePointerDrag } from '../../hooks/usePointerDrag'
 import { i18nT } from '../../i18n/t'
 import ChatPane from './ChatPane'
+import DevLoopPanel from './DevLoopPanel'
 import GraphLoopPanel from './GraphLoopPanel'
 import ProjectsListPage from './ProjectsListPage'
 import RecentActivityFeed from './RecentActivityFeed'
@@ -364,6 +365,12 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
     queryFn: () => studioApi.listDistills(projectId).then((r) => r.distillations),
     enabled: !demoStates,
   })
+  // T7 step 4: the gate-driven dev runs this project has recorded
+  const devRunsQuery = useQuery({
+    queryKey: ['ai-studio', 'dev-runs', projectId],
+    queryFn: () => studioApi.listDevRuns(projectId).then((r) => r.runs),
+    enabled: !demoStates,
+  })
   // one place decides what a landed act re-reads: the loop's own lists, plus
   // the drafts (a regen lands as a draft) and the doc list it edits
   const onLoopActed = useCallback(() => {
@@ -677,6 +684,22 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               // a frame of any other slice passes neither, and those two tabs
               // then render the shipped DEV / DEPLOYMENTS fixtures unchanged.
               dev={demoDevTab}
+              // T7 step 4: the real 开发 tab — 开始开发 runs the four phases
+              // as bgdd gate stages through the backend. Real workbench only
+              // (a demo frame passes `dev` instead, and its fake throws on
+              // the real calls anyway).
+              devLoop={demoStates ? undefined : (
+                <DevLoopPanel
+                  projectId={projectId}
+                  api={studioApi}
+                  initialRuns={devRunsQuery.data ?? []}
+                  // the round's design version is the FROZEN one the graph
+                  // loop pinned (or the round's default until a baseline
+                  // exists) — a dev run builds a design, not a hope
+                  designVersion={freezesQuery.data?.[0]?.version ?? 'v1'}
+                  onRan={() => queryClient.invalidateQueries({ queryKey: ['ai-studio', 'dev-runs', projectId] })}
+                />
+              )}
               deploy={demoDeployTab}
               // the 提交 tab's action button (ACP-801) — the same bar the header
               // used to place, with the same wiring: the frame's fake as its

@@ -41,6 +41,10 @@ const api = vi.hoisted(() => ({
   distill: vi.fn(async () => ({ distillation: { id: 'd1', releaseVersion: 'v1', status: 'done', candidates: [] } })),
   freeze: vi.fn(async () => ({ freeze: { version: 'v1', docName: 'requirements.md', generatedFrom: 'd1', time: 1, notes: '' } })),
   regen: vi.fn(async () => ({ doc: 'requirements.md', content: '# x', generatedFrom: 'd1' })),
+  startDevRun: vi.fn(async () => ({
+    run: { id: 'dev-1', designVersion: 'v1', phases: [], artifacts: [] },
+  })),
+  listDevRuns: vi.fn(async () => ({ runs: [] })),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
@@ -263,6 +267,27 @@ describe('graph loop row (real workbench vs demo, T7)', () => {
     expect(api.listFreezes).not.toHaveBeenCalled()
     expect(api.listDistills).not.toHaveBeenCalled()
     expect(api.getGraph).not.toHaveBeenCalled()
+  })
+
+  it('the dev tab offers the real gate-driven run row and 开始开发 calls the api (T7 step 4)', async () => {
+    const user = userEvent.setup()
+    renderAt('/workspaces/p1/ai-studio')
+    await screen.findByTestId('ai-studio')
+    await user.click(await screen.findByRole('tab', { name: 'Dev' }))
+    await screen.findByTestId('dev-loop-panel')
+    expect(api.listDevRuns).toHaveBeenCalledWith('p1')
+    await user.click(screen.getByTestId('dev-start-btn'))
+    await waitFor(() => expect(api.startDevRun).toHaveBeenCalledWith('p1', 'v1'))
+  })
+
+  it('a dev frame shows its snapshot run, not the real loop row', async () => {
+    renderAt('/workspaces/p1/ai-studio?demo=states')
+    await screen.findByTestId('demo-states-dock')
+    const dock = screen.getByTestId('demo-states-dock')
+    fireEvent.click(within(dock).getByTestId('demo-states-select-V1'))
+    await waitFor(() => expect(dock).toHaveAttribute('data-demo-state', 'V1'))
+    expect(screen.queryByTestId('dev-loop-panel')).not.toBeInTheDocument()
+    expect(api.listDevRuns).not.toHaveBeenCalled()
   })
 })
 

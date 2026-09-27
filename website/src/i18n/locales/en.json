@@ -280,6 +280,7 @@
       "dev_status_pending": "Pending",
       "dev_status_running": "Running",
       "dev_status_done": "Done",
+      "dev_status_failed": "Failed",
       "dev_artifact_test": "Test report",
       "dev_artifact_build": "Build output",
       "dev_artifact_runtime": "Runtime entry",

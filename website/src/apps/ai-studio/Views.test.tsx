@@ -55,6 +55,14 @@ const api = vi.hoisted(() => ({
   listRecords: vi.fn(async () => ({ records: [] })),
   preview: vi.fn(async () => ({ form: 'full', reason: '完整版通过验收' })),
   trigger: vi.fn(),
+  // T7 (ACP-851): the real workbench now also reads the graph loop and the
+  // gate-driven dev runs; defaults keep every OTHER tab's test at the shape
+  // it had before these endpoints existed.
+  getGraph: vi.fn(async () => ({ graphId: 'none', graph: { nodes: [], edges: [] } })),
+  listFreezes: vi.fn(async () => ({ freezes: [] })),
+  listDistills: vi.fn(async () => ({ distillations: [] })),
+  listDevRuns: vi.fn(async () => ({ runs: [] })),
+  startDevRun: vi.fn(async () => ({ run: { id: 'x', designVersion: '', phases: [], artifacts: [] } })),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
@@ -102,13 +110,28 @@ describe('tool sidebar -> work area views', () => {
     expect(within(sidebar).getByTestId('ai-studio-publish-btn-v1.0')).toBeInTheDocument()
   })
 
-  it('dev tab: history row opens a tab', async () => {
+  // T7 step 4 (ACP-851) changed this tab's contract: the ordinary workbench's
+  // 开发 tab no longer stands on the DEV fixture — it runs the four phases
+  // through the bgdd gate (DevLoopPanel, observed IN the tab exactly like the
+  // graph tab's list rule). The fixture ReleasesTool the old case witnessed
+  // still stands behind ToolSidebar for callers that pass neither injection.
+  it('dev tab: the real workbench runs the gate loop in the tab', async () => {
+    api.listDevRuns.mockResolvedValue({ runs: [] })
+    api.startDevRun.mockResolvedValue({
+      run: {
+        id: 'dev-9', designVersion: 'v1 · gate:examples/widget',
+        phases: [{ name: 'tasks', status: 'done', summary: 'G2 PASS' }],
+        artifacts: [], runnableVersion: 'v1',
+      },
+    })
     const user = userEvent.setup()
     renderStudio(<AiStudioPage />)
     await openTool(user, 'Dev')
     const sidebar = screen.getByTestId('tool-sidebar')
-    await user.click(within(sidebar).getByText('dev-309'))
-    expect(await screen.findByRole('tab', { name: 'Dev run dev-309' })).toBeInTheDocument()
+    await user.click(within(sidebar).getByTestId('dev-start-btn'))
+    // the shipped panel draws the gate's record inside the tab
+    expect(await within(sidebar).findByTestId('dev-run-panel')).toBeInTheDocument()
+    expect(api.startDevRun).toHaveBeenCalled()
   })
 
   it('deploy tab: current and historical rows open deploy logs', async () => {

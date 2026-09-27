@@ -189,6 +189,12 @@ export function createDemoApi(fixture: DemoFixture): StudioApi & {
     async listDistills(): Promise<never> {
       throw new StudioApiError(400, 'demo_mode', 'demo mode carries its run on the frame')
     },
+    async startDevRun(): Promise<never> {
+      throw new StudioApiError(400, 'demo_mode', 'demo mode carries its dev run on the frame')
+    },
+    async listDevRuns(): Promise<never> {
+      throw new StudioApiError(400, 'demo_mode', 'demo mode carries its dev runs on the frame')
+    },
     async freeze(_id: string, version: string, docName: string, notes?: string) {
       // the snapshot's own duplicate rule (the 409 above), republished on the
       // real endpoint's shape so a demo caller gets the same data-layer refusal

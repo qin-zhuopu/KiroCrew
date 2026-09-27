@@ -498,6 +498,7 @@
       "dev_status_pending": "待启动",
       "dev_status_running": "进行中",
       "dev_status_done": "已完成",
+      "dev_status_failed": "已失败",
       "dev_artifact_test": "测试报告",
       "dev_artifact_build": "构建产物",
       "dev_artifact_runtime": "运行时入口",

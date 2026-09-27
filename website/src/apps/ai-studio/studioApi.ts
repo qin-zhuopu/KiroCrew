@@ -233,7 +233,12 @@ export interface StudioDiffGroup {
  * inventing progress on screen. */
 export interface StudioDevPhase {
   name: 'tasks' | 'implement' | 'test' | 'build'
-  status: 'pending' | 'running' | 'done'
+  // 'failed' is T7's addition (ACP-851): a real gate run can FAIL, and a
+  // run that stops at a failed gate must SAY so — the snapshot vocabulary
+  // had no word for a refusal, which left an honest adapter no way to
+  // record one. Absent from every shipped frame (they are all-green
+  // snapshots), present the first time a gate exits non-zero.
+  status: 'pending' | 'running' | 'done' | 'failed'
   /** one factual line shown when done (empty while not) */
   summary: string
 }
@@ -262,6 +267,9 @@ export interface StudioDevRun {
   /** set only when the build phase is done — the 体验 entry appears with
    * its product, not before */
   runnableVersion?: string
+  /** T7 wire addition (POST …/dev-runs): the release this run was opened
+   * for, when the caller named one; runnableVersion then names THAT */
+  releaseVersion?: string
 }
 
 /** The built-in experience screen of a finished dev run (ACP-735,
@@ -442,6 +450,14 @@ export type StudioApi = {
     Promise<{ distillation: StudioDistillation }>
   listFreezes: (id: string) => Promise<{ freezes: StudioFreeze[] }>
   listDistills: (id: string) => Promise<{ distillations: StudioDistillation[] }>
+  // T7 step 4 (ACP-851): the four development phases run the BGDD gate
+  // (bgdd repo tools/gate.ts, ACP-848) through the backend. startDevRun is
+  // the whole run — it resolves once every phase that got to run has an
+  // outcome; a 503 means this instance is not wired to a gate checkout,
+  // which the 开发 tab shows as the refusal it is, never as a fake run.
+  startDevRun: (id: string, designVersion: string, releaseVersion?: string) =>
+    Promise<{ run: StudioDevRun }>
+  listDevRuns: (id: string) => Promise<{ runs: StudioDevRun[] }>
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -554,4 +570,11 @@ export const studioApi: StudioApi = {
     request<{ freezes: StudioFreeze[] }>(`/projects/${encodeURIComponent(id)}/freezes`),
   listDistills: (id: string) =>
     request<{ distillations: StudioDistillation[] }>(`/projects/${encodeURIComponent(id)}/distills`),
+  startDevRun: (id: string, designVersion: string, releaseVersion?: string) =>
+    request<{ run: StudioDevRun }>(
+      `/projects/${encodeURIComponent(id)}/dev-runs`,
+      { method: 'POST', body: JSON.stringify({ designVersion, releaseVersion }) },
+    ),
+  listDevRuns: (id: string) =>
+    request<{ runs: StudioDevRun[] }>(`/projects/${encodeURIComponent(id)}/dev-runs`),
 }
