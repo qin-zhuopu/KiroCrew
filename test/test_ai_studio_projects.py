@@ -7,6 +7,7 @@ re-resolves per call — that is what makes this cheap). The route tests mount
 patched, the same shape test_ai_backend_routes_coverage.py uses for its
 builtins.
 """
+
 from __future__ import annotations
 
 import json
@@ -183,7 +184,9 @@ def test_commit_snapshots_versions_and_clears_drafts(home):
     assert len(versions) == 1
     assert "+# v1" in versions[0]["diff"]
     assert not [
-        ln for ln in versions[0]["diff"].splitlines() if ln.startswith("-") and not ln.startswith("---")
+        ln
+        for ln in versions[0]["diff"].splitlines()
+        if ln.startswith("-") and not ln.startswith("---")
     ]
 
     # draft, then commit: the request buffer is authoritative (it is newer
@@ -295,7 +298,9 @@ async def test_routes_draft_and_histories(home, monkeypatch):
         pid = (await resp.json())["project"]["id"]
 
         # empty until a draft exists; both history reads key ``versions``
-        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        resp = await client.get(
+            f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions"
+        )
         assert resp.status == 200
         assert (await resp.json())["versions"] == []
 
@@ -307,7 +312,9 @@ async def test_routes_draft_and_histories(home, monkeypatch):
         body = (await resp.json())["draft"]
         assert body["deduped"] is False and body["record"] is not None
 
-        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        resp = await client.get(
+            f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions"
+        )
         drafts = (await resp.json())["versions"]
         assert [d["content"] for d in drafts] == ["编辑中\n"]
         assert "time" in drafts[0]
@@ -319,7 +326,9 @@ async def test_routes_draft_and_histories(home, monkeypatch):
         assert (await resp.json())["doc"]["content"] == "编辑中\n"
 
         # committing clears the draft history
-        resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions")
+        resp = await client.get(
+            f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/draft-versions"
+        )
         assert (await resp.json())["versions"] == []
 
         resp = await client.get(f"/api/apps/ai-studio/projects/{pid}/docs/workflow.md/versions")
@@ -373,7 +382,7 @@ async def test_routes_project_drafts_list(home, monkeypatch):
 async def test_routes_draft_and_history_errors(home, monkeypatch):
     async with TestClient(TestServer(_make_app(monkeypatch))) as client:
         resp = await client.post(
-            f"/api/apps/ai-studio/projects/missing/docs/draft",
+            "/api/apps/ai-studio/projects/missing/docs/draft",
             json={"name": "a.md", "content": "x"},
         )
         assert resp.status == 404

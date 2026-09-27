@@ -381,6 +381,33 @@ async def _handle_freeze_list(request: web.Request) -> web.StreamResponse:
     return web.json_response({"freezes": records})
 
 
+async def _handle_distill(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/distill: compare the committed doc with the graph's
+    # promise and record the candidates (T7, ACP-851). Proposal only — the
+    # graph does not move here.
+    project_id = request.match_info["project_id"]
+    body = await _body(request)
+    graph_name = str(body.get("graph", "knowledge-doc-upload-v1"))
+    doc_name = str(body.get("docName", "requirements.md"))
+    release_version = str(body.get("releaseVersion", ""))
+    try:
+        rec = await asyncio.to_thread(
+            graph.distill, project_id, graph_name, doc_name, release_version
+        )
+    except graph.GraphError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError:
+        logger.exception("ai-studio distill write failed")
+        return _error("could not write the distill record", "store_write_failed", 503)
+    return web.json_response({"distillation": rec}, status=201)
+
+
+async def _handle_distill_list(request: web.Request) -> web.StreamResponse:
+    project_id = request.match_info["project_id"]
+    records = await asyncio.to_thread(graph.list_distills, project_id)
+    return web.json_response({"distillations": records})
+
+
 async def _handle_regen(request: web.Request) -> web.StreamResponse:
     # POST /projects/{id}/regen: render the acceptance doc FROM the graph
     # into the draft layer (graph→doc direction of the BGDD loop, ACP-847).
@@ -426,8 +453,12 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/freezes", _require_enabled(_handle_freeze_list)
     )
+    app.router.add_post(f"{_BASE}/projects/{{project_id}}/regen", _require_enabled(_handle_regen))
     app.router.add_post(
-        f"{_BASE}/projects/{{project_id}}/regen", _require_enabled(_handle_regen)
+        f"{_BASE}/projects/{{project_id}}/distill", _require_enabled(_handle_distill)
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/distills", _require_enabled(_handle_distill_list)
     )
     app.router.add_post(f"{_BASE}/publish", _require_enabled(_handle_publish_trigger))
     app.router.add_get(f"{_BASE}/publish/records", _require_enabled(_handle_publish_records))

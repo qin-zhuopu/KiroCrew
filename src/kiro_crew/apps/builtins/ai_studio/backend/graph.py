@@ -1,6 +1,11 @@
-"""The requirement graph read/freeze/regen layer (ACP-847 PoC).
+"""The requirement graph read/freeze/regen/distill layer (ACP-847 PoC, T7).
 
-Three endpoints' worth of logic, deliberately thin and deterministic:
+Four endpoints' worth of logic, deliberately thin and deterministic:
+
+* ``distill`` compares a committed doc against the graph's rendered promise
+  and writes one ``StudioDistillation`` PROPOSAL record per run — the
+  doc→graph direction, the mechanical half (absorbing candidates into the
+  graph is the LLM step and is not this endpoint's).
 
 * ``load_graph`` maps a ``kg-sem-poc/requirement-graph/v0`` JSON file into the
   wire shape the frontend's ``StudioGraph`` type (website/src/apps/ai-studio/
@@ -24,7 +29,9 @@ the PoC runs against REAL graph data with zero external state.
 
 from __future__ import annotations
 
+import difflib
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -84,10 +91,13 @@ def load_graph(name: str = "knowledge-doc-upload-v1") -> dict[str, Any]:
 #   G_contract nodes     → module        (the behavioural units between them)
 # Edges: a contract's acceptanceScenarioIds becomes a trace edge
 # contract→scenario (the wire's trace), and RENDERS (page→component) becomes
-# 'depends'. semanticRequirements are NOT emitted as nodes — the wire has no
-# kind for them — and with them every CONTRACT_REALIZES and realizes edge
-# lands on a dropped endpoint; that whole SR layer is the measured loss of
-# the projection, reported in the differential, not hidden.
+# 'depends'. T7 (ACP-851) closed the measured loss: the semanticRequirements
+# layer rides the wire as ``StudioGraph.srs`` — its own array, not a faked
+# fourth node kind (the canvas consumers — GraphView's layout table, the demo
+# frames — stay byte-identical) — carrying every SR's text/anchor/openRef/
+# adopted verbatim plus the canvas-node ids the source edges realise it (the
+# CONTRACT_REALIZES targets re-homed onto the SR record), so all 20 SRs and
+# every edge that pointed at one survive the projection.
 def to_studio_graph(doc: dict[str, Any]) -> dict[str, Any]:
     """Project a requirement-graph document onto the StudioGraph wire shape.
 
@@ -114,12 +124,46 @@ def to_studio_graph(doc: dict[str, Any]) -> dict[str, Any]:
         for sid in n.get("props", {}).get("acceptanceScenarioIds", []):
             if sid in id_set:
                 edges.append({"from": n["id"], "to": sid, "kind": "trace"})
-    return {"nodes": nodes, "edges": edges}
+
+    graph: dict[str, Any] = {"nodes": nodes, "edges": edges}
+    # The SR layer (T7). Every source SR becomes one wire record — none is
+    # dropped — and the edges that pointed AT it (CONTRACT_REALIZES, whose
+    # ``from`` is a module the wire kept) are re-homed onto it as ``realizes``
+    # ids, so the contract→SR realisation the PoC lost is now carried without
+    # inventing a canvas node. Declaration order is preserved.
+    src_srs = doc.get("semanticRequirements", [])
+    if src_srs:
+        sr_ids = {s["id"] for s in src_srs}
+        realizers: dict[str, list[str]] = {}
+        for grp in ("G_structure", "G_contract"):
+            for e in doc.get(grp, {}).get("edges", []):
+                to = e.get("to")
+                frm = e.get("from")
+                if to in sr_ids and frm in id_set:
+                    realizers.setdefault(to, []).append(frm)
+        srs: list[dict[str, Any]] = []
+        for sr in src_srs:
+            rec: dict[str, Any] = {
+                "id": sr["id"],
+                "text": sr.get("text", ""),
+                "realizes": realizers.get(sr["id"], []),
+            }
+            anchor = sr.get("anchor")
+            if isinstance(anchor, dict):
+                rec["anchor"] = {"ref": anchor.get("ref", ""), "quote": anchor.get("quote", "")}
+            if "openRef" in sr:
+                rec["openRef"] = sr["openRef"]
+            if "adopted" in sr:
+                rec["adopted"] = bool(sr["adopted"])
+            srs.append(rec)
+        graph["srs"] = srs
+    return graph
 
 
 # ---------------------------------------------------------------------------
 # freeze: one immutable record per version label, 409 on a duplicate
 # ---------------------------------------------------------------------------
+
 
 def _freezes_dir(project_id: str) -> Path:
     return projects.projects_root() / project_id / "freezes"
@@ -190,6 +234,7 @@ def freeze(
 # regen: graph → acceptance document draft (the graph→doc direction)
 # ---------------------------------------------------------------------------
 
+
 def render_acceptance_doc(doc: dict[str, Any]) -> str:
     """Mechanically render an acceptance document from the graph.
 
@@ -212,11 +257,7 @@ def render_acceptance_doc(doc: dict[str, Any]) -> str:
     lines.append("")
     for n in doc.get("G_contract", {}).get("nodes", []):
         p = n.get("props", {})
-        arrow = (
-            f"{p['trigger']} → {p['effect']}"
-            if p.get("trigger") and p.get("effect")
-            else ""
-        )
+        arrow = f"{p['trigger']} → {p['effect']}" if p.get("trigger") and p.get("effect") else ""
         parts = [p.get("assertion") or arrow]
         if p.get("message"):
             parts.append(f"文案逐字等于「{p['message']}」")
@@ -235,7 +276,121 @@ def render_acceptance_doc(doc: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def regen(project_id: str, graph_name: str = "knowledge-doc-upload-v1", doc_name: str = "requirements.md") -> dict[str, Any]:
+def distill(
+    project_id: str,
+    graph_name: str = "knowledge-doc-upload-v1",
+    doc_name: str = "requirements.md",
+    release_version: str = "",
+) -> dict[str, Any]:
+    """Distil the project's committed doc against what the graph promises.
+
+    The doc→graph direction of the BGDD loop (T7, ACP-851). Honest mechanical
+    subset, the mirror of ``render_acceptance_doc``'s discipline: the graph's
+    own rendered promise is diffed against the committed doc, and every
+    difference becomes one ``StudioDistillCandidate`` proposal — a heading the
+    doc added/removed names its scenario id as the target, anything else is a
+    ``modify`` on the doc itself. The record is a PROPOSAL, never an applied
+    change: the bundled graph is read truth and absorbing candidates (the LLM
+    half of distillation) is out of this endpoint's scope — ``appliedAt``
+    stays absent and says so.
+
+    Evidence: each candidate carries ``doc.md § section`` — the nearest
+    heading above its diff hunk — so every proposal points at the paragraph
+    it was distilled from (the acceptance doc's traceability requirement).
+    """
+    if projects.get_project(project_id) is None:
+        raise GraphError("project not found", "project_not_found", 404)
+    docs = {d["name"]: d["content"] for d in projects.list_docs(project_id)}
+    if doc_name not in docs:
+        raise GraphError(f"doc {doc_name} has no committed version", "doc_not_found", 404)
+    graph = load_graph(graph_name)
+    baseline = render_acceptance_doc(graph).splitlines()
+    current = docs[doc_name].splitlines()
+
+    def section_of(lines: list[str], idx: int) -> str:
+        for i in range(min(idx, len(lines) - 1), -1, -1):
+            if lines[i].startswith("#"):
+                return lines[i].lstrip("#").strip() or "(top)"
+        return "(top)"
+
+    def named_id(text: str) -> str | None:
+        """the node id a line names (regen writes `### id=KDU-AC-01 …`);
+        that id is the graph node this change is ABOUT."""
+        m = re.search(r"(?<![A-Za-z0-9])id=([A-Za-z0-9:.:-]+)", text)
+        return m.group(1) if m else None
+
+    candidates: list[dict[str, Any]] = []
+    seq = 0
+    sm = difflib.SequenceMatcher(a=baseline, b=current, autojunk=False)
+    for tag, a1, a2, b1, b2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        seq += 1
+        old = [ln for ln in baseline[a1:a2] if ln.strip()]
+        new = [ln for ln in current[b1:b2] if ln.strip()]
+        # kind: gone from the doc → a graph promise the doc no longer makes
+        # (remove); only in the doc → a promise the graph has yet to earn
+        # (add); both sides → modify. target: the id the changed text names.
+        if tag == "delete":
+            kind, shown, where = "remove", old, ("baseline", a1)
+        elif tag == "insert":
+            kind, shown, where = "add", new, ("current", b1)
+        else:
+            kind, shown, where = "modify", new or old, ("current", b1)
+        target = next((t for t in (named_id(ln) for ln in shown) if t), doc_name)
+        lines_ctx, idx = (baseline, a1) if where[0] == "baseline" else (current, b1)
+        candidates.append(
+            {
+                "id": f"{doc_name[:-3]}-{seq:03d}",
+                "kind": kind,
+                "target": target,
+                "summary": (new[0] if new else old[0] if old else "(blank change)")[:120],
+                "evidenceDoc": f"{doc_name} § {section_of(lines_ctx, idx)}",
+            }
+        )
+    rec: dict[str, Any] = {
+        "id": f"distill-{int(time.time() * 1000)}",
+        "releaseVersion": release_version,
+        "status": "done",
+        "candidates": candidates,
+        # appliedAt deliberately absent: proposals only, the graph has not
+        # absorbed anything (see docstring).
+        "distilledFromDoc": doc_name,
+        "graphId": graph.get("graphId", graph_name),
+    }
+    d = projects.projects_root() / project_id / "distills"
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{rec['id']}.json"
+    with path.open("x", encoding="utf-8") as fh:
+        json.dump(rec, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    return rec
+
+
+def list_distills(project_id: str) -> list[dict[str, Any]]:
+    """Distillation records of a project, newest first."""
+    if projects.get_project(project_id) is None:
+        return []
+    out: list[dict[str, Any]] = []
+    d = projects.projects_root() / project_id / "distills"
+    if not d.is_dir():
+        return []
+    for path in sorted(d.iterdir()):
+        if not path.is_file() or path.suffix != ".json":
+            continue
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(rec, dict):
+            out.append(rec)
+    out.sort(key=lambda r: r.get("id") or "", reverse=True)
+    return out
+
+
+def regen(
+    project_id: str, graph_name: str = "knowledge-doc-upload-v1", doc_name: str = "requirements.md"
+) -> dict[str, Any]:
     """Regenerate the acceptance doc from the graph into the project's draft.
 
     Writes through ``projects.save_draft`` so the draft history/commit flow is
@@ -247,4 +402,8 @@ def regen(project_id: str, graph_name: str = "knowledge-doc-upload-v1", doc_name
         saved = projects.save_draft(project_id, doc_name, content)
     except projects.ProjectError as exc:
         raise GraphError(str(exc), exc.code, exc.status) from exc
-    return {"doc": saved["name"], "content": content, "generatedFrom": graph.get("graphId", graph_name)}
+    return {
+        "doc": saved["name"],
+        "content": content,
+        "generatedFrom": graph.get("graphId", graph_name),
+    }
