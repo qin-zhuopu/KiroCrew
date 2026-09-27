@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable
 
 from aiohttp import web
 
-from kiro_crew.apps.builtins.ai_studio.backend import projects, publish
+from kiro_crew.apps.builtins.ai_studio.backend import graph, projects, publish
 from kiro_crew.apps.manager import is_app_enabled
 
 logger = logging.getLogger(__name__)
@@ -333,6 +333,71 @@ async def _handle_publish_log(request: web.Request) -> web.StreamResponse:
     return response
 
 
+async def _handle_graph(request: web.Request) -> web.StreamResponse:
+    # GET /graph[?project_id=…]: the requirement graph mapped to the
+    # StudioGraph wire shape (ACP-847). The PoC's data source is the bundled
+    # real graph file; project_id is accepted for shape parity with the
+    # other routes but the mapping itself is project-independent.
+    name = request.query.get("graph", "knowledge-doc-upload-v1")
+    try:
+        doc = await asyncio.to_thread(graph.load_graph, name)
+        studio = await asyncio.to_thread(graph.to_studio_graph, doc)
+    except graph.GraphError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response({"graphId": doc.get("graphId"), "graph": studio})
+
+
+async def _handle_freeze(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/freeze: one immutable record per version label;
+    # a duplicate freezes at the store (FreezeError → 409, ACP-847).
+    project_id = request.match_info["project_id"]
+    body = await _body(request)
+    version = body.get("version")
+    doc_name = body.get("docName")
+    if not isinstance(version, str) or not isinstance(doc_name, str) or not doc_name:
+        return _error("version and docName are required", "freeze_fields_required", 400)
+    try:
+        rec = await asyncio.to_thread(
+            graph.freeze,
+            project_id,
+            version,
+            doc_name,
+            str(body.get("notes", "")),
+            str(body.get("graph", "knowledge-doc-upload-v1")),
+        )
+    except graph.FreezeError as exc:
+        return _error(str(exc), exc.code, 409)
+    except graph.GraphError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError:
+        logger.exception("ai-studio freeze write failed")
+        return _error("could not write the freeze record", "store_write_failed", 503)
+    return web.json_response({"freeze": rec}, status=201)
+
+
+async def _handle_freeze_list(request: web.Request) -> web.StreamResponse:
+    project_id = request.match_info["project_id"]
+    records = await asyncio.to_thread(graph.list_freezes, project_id)
+    return web.json_response({"freezes": records})
+
+
+async def _handle_regen(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/regen: render the acceptance doc FROM the graph
+    # into the draft layer (graph→doc direction of the BGDD loop, ACP-847).
+    project_id = request.match_info["project_id"]
+    body = await _body(request)
+    graph_name = str(body.get("graph", "knowledge-doc-upload-v1"))
+    doc_name = str(body.get("docName", "requirements.md"))
+    try:
+        result = await asyncio.to_thread(graph.regen, project_id, graph_name, doc_name)
+    except graph.GraphError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError:
+        logger.exception("ai-studio regen write failed")
+        return _error("could not write the regen draft", "store_write_failed", 503)
+    return web.json_response(result, status=201)
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -355,6 +420,14 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/docs/{{doc_name}}/versions",
         _require_enabled(_handle_doc_versions),
+    )
+    app.router.add_get(f"{_BASE}/graph", _require_enabled(_handle_graph))
+    app.router.add_post(f"{_BASE}/projects/{{project_id}}/freeze", _require_enabled(_handle_freeze))
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/freezes", _require_enabled(_handle_freeze_list)
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/regen", _require_enabled(_handle_regen)
     )
     app.router.add_post(f"{_BASE}/publish", _require_enabled(_handle_publish_trigger))
     app.router.add_get(f"{_BASE}/publish/records", _require_enabled(_handle_publish_records))

@@ -1,0 +1,402 @@
+{
+  "schema": "kg-sem-poc/requirement-graph/v0",
+  "graphKind": "BGDDRequirementGraph",
+  "graphId": "knowledge-doc-upload-v1",
+  "notes": "编辑知识：附件单文件上传与版本号升级（源自 req-2026-09-24-yllegend-d70d1f7f，需求 1/2/3）。唯一真相是 v1 验收文档（01-acceptance-doc-v1.md），本图只从它拆出：每个语义需求节点带 anchor.ref（v1 判定行编号）与 quote（该行冒号后正文逐字引用）。标 adopted:true 的节点其 quote 含拟定值，owner 复核入口见 OPEN-questions.md（OPEN-1 版本号规则 / OPEN-2 保留原文档 / OPEN-3 文案 / OPEN-4 删除后直接保存不判定）。分权：worker 只挂载与新建，图谱冻结后改图走事实回传。",
+  "docRef": "requirements/knowledge-doc-upload/01-acceptance-doc-v1.md",
+  "semanticRequirements": [
+    {
+      "id": "SR-R1-1",
+      "text": "空附件时选择 test2.txt，附件名显示 test2.txt（首个上传成功路径）",
+      "anchor": { "ref": "R1-1", "quote": "在附件为空的编辑知识表单中，通过 testid=upload-file-input 选择文件 test2.txt 后，testid=attachment-filename 显示文本「test2.txt」。" }
+    },
+    {
+      "id": "SR-R1-2",
+      "text": "附件非空时再上传，出现逐字报错（需求 1 主判定）",
+      "adopted": true,
+      "openRef": "OPEN-3",
+      "anchor": { "ref": "R1-2", "quote": "在附件已为 test2.txt 的编辑知识表单中，再次通过 testid=upload-file-input 选择文件 test3.txt 后，testid=upload-error 出现且文本逐字等于「已经上传过文档啦，如需上传新的文档，请先删除已上传的文件哦。」（拟定文案，见 OPEN-questions.md OPEN-3）。" }
+    },
+    {
+      "id": "SR-R1-3",
+      "text": "报错后附件与版本号都不变（无副作用）",
+      "anchor": { "ref": "R1-3", "quote": "R1-2 的报错发生后，testid=attachment-filename 仍显示「test2.txt」，且 testid=doc-version 显示值与报错前一致。" }
+    },
+    {
+      "id": "SR-R1-4",
+      "text": "附件非空时有删除按钮，删除后进入空态",
+      "anchor": { "ref": "R1-4", "quote": "附件非空时表单中存在 testid=btn-remove-attachment；点击它后，testid=attachment-filename 消失，且 testid=attachment-empty 显示文本「暂未上传文档」。" }
+    },
+    {
+      "id": "SR-R1-5",
+      "text": "删除后可再传新文件且报错消失（需求 1 例外分支）",
+      "anchor": { "ref": "R1-5", "quote": "删除已上传附件后，再通过 testid=upload-file-input 选择文件 test3.txt，testid=attachment-filename 显示「test3.txt」，且 testid=upload-error 不存在。" }
+    },
+    {
+      "id": "SR-R1-6",
+      "text": "重新打开编辑表单后报错不残留",
+      "anchor": { "ref": "R1-6", "quote": "testid=upload-error 出现后，重新打开该知识的编辑表单，testid=upload-error 不存在。" }
+    },
+    {
+      "id": "SR-R2-1",
+      "text": "不上传保存：保留原文档与原版本号（需求 2 前半）",
+      "openRef": "OPEN-2",
+      "anchor": { "ref": "R2-1", "quote": "对已挂附件 old.txt 的知识打开编辑表单，不执行任何上传操作，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=attachment-filename 显示「old.txt」，且 testid=doc-version 显示值与保存前一致。" }
+    },
+    {
+      "id": "SR-R2-2",
+      "text": "上传新文件保存：v1 升 v2 且附件更换（需求 2 后半）",
+      "adopted": true,
+      "openRef": "OPEN-1",
+      "anchor": { "ref": "R2-2", "quote": "知识当前版本号为 v1，打开编辑表单，通过 testid=upload-file-input 选择文件 new.txt，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=doc-version 显示「v2」，且 testid=attachment-filename 显示「new.txt」。" }
+    },
+    {
+      "id": "SR-R2-3",
+      "text": "版本号可连续升级 v2 升 v3",
+      "adopted": true,
+      "openRef": "OPEN-1",
+      "anchor": { "ref": "R2-3", "quote": "对版本号为 v2、附件为 new.txt 的知识重复 R2-2 的操作（改选文件 new2.txt），保存成功后重新打开编辑表单，testid=doc-version 显示「v3」，且 testid=attachment-filename 显示「new2.txt」。" }
+    },
+    {
+      "id": "SR-R2-4",
+      "text": "升版不删除旧版本记录",
+      "adopted": true,
+      "openRef": "OPEN-2",
+      "anchor": { "ref": "R2-4", "quote": "R2-2 保存成功后，原始文件 old.txt 仍可被该知识的历史版本访问到，即升级版本号不删除旧版本记录。" }
+    },
+    {
+      "id": "SR-R3-1",
+      "text": "附件区常驻上传规则提示条（需求 3 主判定）",
+      "adopted": true,
+      "openRef": "OPEN-3",
+      "anchor": { "ref": "R3-1", "quote": "编辑知识表单打开后，testid=upload-hint 存在且文本逐字等于「编辑知识只能上传一个文档，不能上传多个文档。需要更换文档时，请先删除已上传的文档。」（拟定文案，见 OPEN-questions.md OPEN-3）。" }
+    },
+    {
+      "id": "SR-R3-2",
+      "text": "提示条在空态与非空态都常驻且文案一致",
+      "anchor": { "ref": "R3-2", "quote": "附件为空与附件非空两种状态下，testid=upload-hint 都存在且文本一致。" }
+    },
+    {
+      "id": "SR-T-1",
+      "text": "提示与报错文案语气负判定（需求 3 第二句）",
+      "anchor": { "ref": "T-1", "quote": "testid=upload-hint 与 testid=upload-error 的文本都不含「禁止」「严禁」「不允许」「错误操作」字样。" }
+    },
+    {
+      "id": "SR-B-1",
+      "text": "版本号显式规则：v+正整数，保存成功换文件时整数位加一",
+      "adopted": true,
+      "openRef": "OPEN-1",
+      "anchor": { "ref": "B-1", "quote": "版本号格式为 v + 正整数，初始版本显示「v1」；每次「上传新文件并保存成功」版本号整数部分加 1（v1 → v2 → v3）。（拟定规则，见 OPEN-questions.md OPEN-1）" }
+    },
+    {
+      "id": "SR-B-2",
+      "text": "拒绝路径零副作用",
+      "anchor": { "ref": "B-2", "quote": "报错时不改附件、不改版本号、不产生任何保存副作用。" }
+    },
+    {
+      "id": "SR-B-3",
+      "text": "单附件限制针对待保存草稿，界面上永不出现两个待保存附件",
+      "anchor": { "ref": "B-3", "quote": "单附件限制判定的是当前表单内的待保存附件；界面上不出现两个附件同时挂在待保存状态的情况（由 R1-2 拒绝路径保证）。" }
+    },
+    {
+      "id": "SR-B-4",
+      "text": "不存在直接替换路径，必须先删后传",
+      "anchor": { "ref": "B-4", "quote": "上传即报错、删除后才可再传，本需求集内不存在「直接替换」路径。" }
+    },
+    {
+      "id": "SR-B-5",
+      "text": "删除后不上传直接保存的版本号行为不判定（OPEN-4 边界声明）",
+      "openRef": "OPEN-4",
+      "anchor": { "ref": "B-5", "quote": "R2 与 B-1 的版本号断言只判定「上传新文件并保存成功」后的升级；「删除附件后不上传直接保存」的版本号行为原文无依据，本需求集不判定，已列 OPEN。" }
+    },
+    {
+      "id": "SR-OP-1",
+      "text": "操作定义：选择文件是外部 UI 操作",
+      "anchor": { "ref": "OP-DEF-1", "quote": "本文中「通过 testid=upload-file-input 选择文件 X」指外部 UI 操作：打开该控件的文件选择框，在其中选中指定文件 X。" }
+    },
+    {
+      "id": "SR-OP-2",
+      "text": "操作定义：重新打开编辑表单是外部 UI 操作，所有 DOM 断言前先重新拉取",
+      "anchor": { "ref": "OP-DEF-2", "quote": "本文中「重新打开该知识的编辑表单」指外部 UI 操作：关闭当前编辑表单，再从知识列表再次打开同一条知识的编辑表单。" }
+    }
+  ],
+  "G_structure": {
+    "nodes": [
+      {
+        "id": "page:KnowledgeEditPage",
+        "type": "ComponentView",
+        "props": {
+          "role": "编辑知识页面主容器：持有当前草稿附件与文档版本号，编排保存",
+          "states": ["draftAttachment", "docVersion"],
+          "propsIn": ["knowledgeId", "initialAttachment", "initialVersion"],
+          "events": ["onSave"]
+        },
+        "anchor": { "ref": "R1-1", "quote": "在附件为空的编辑知识表单中，通过 testid=upload-file-input 选择文件 test2.txt 后，testid=attachment-filename 显示文本「test2.txt」。" }
+      },
+      {
+        "id": "cmp:AttachmentSection",
+        "type": "ComponentView",
+        "props": {
+          "role": "文档附件区：文件选择控件、当前附件名/空态显示、删除按钮、行内报错",
+          "states": ["uploadError"],
+          "propsIn": ["draftAttachment"],
+          "events": ["onPickFile", "onRemoveAttachment"]
+        },
+        "anchor": { "ref": "R1-4", "quote": "附件非空时表单中存在 testid=btn-remove-attachment；点击它后，testid=attachment-filename 消失，且 testid=attachment-empty 显示文本「暂未上传文档」。" }
+      },
+      {
+        "id": "cmp:UploadHintBar",
+        "type": "ComponentView",
+        "props": {
+          "role": "上传规则提示条：单文档规则与更换方法提示，常驻",
+          "states": [],
+          "propsIn": [],
+          "events": []
+        },
+        "anchor": { "ref": "R3-1", "quote": "编辑知识表单打开后，testid=upload-hint 存在且文本逐字等于「编辑知识只能上传一个文档，不能上传多个文档。需要更换文档时，请先删除已上传的文档。」（拟定文案，见 OPEN-questions.md OPEN-3）。" }
+      },
+      {
+        "id": "cmp:VersionDisplay",
+        "type": "ComponentView",
+        "props": {
+          "role": "当前知识版本号显示",
+          "states": [],
+          "propsIn": ["docVersion"],
+          "events": []
+        },
+        "anchor": { "ref": "R2-2", "quote": "知识当前版本号为 v1，打开编辑表单，通过 testid=upload-file-input 选择文件 new.txt，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=doc-version 显示「v2」，且 testid=attachment-filename 显示「new.txt」。" }
+      },
+      {
+        "id": "cmp:SaveButton",
+        "type": "ComponentView",
+        "props": {
+          "role": "保存按钮（testid=btn-save-knowledge）",
+          "states": [],
+          "propsIn": [],
+          "events": ["onSave"]
+        },
+        "anchor": { "ref": "R2-1", "quote": "对已挂附件 old.txt 的知识打开编辑表单，不执行任何上传操作，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=attachment-filename 显示「old.txt」，且 testid=doc-version 显示值与保存前一致。" }
+      }
+    ],
+    "edges": [
+      { "type": "RENDERS", "from": "page:KnowledgeEditPage", "to": "cmp:AttachmentSection" },
+      { "type": "RENDERS", "from": "page:KnowledgeEditPage", "to": "cmp:UploadHintBar" },
+      { "type": "RENDERS", "from": "page:KnowledgeEditPage", "to": "cmp:VersionDisplay" },
+      { "type": "RENDERS", "from": "page:KnowledgeEditPage", "to": "cmp:SaveButton" }
+    ]
+  },
+  "G_contract": {
+    "nodes": [
+      {
+        "id": "domc:attachment-first-upload",
+        "type": "DomContract",
+        "props": {
+          "component": "cmp:AttachmentSection",
+          "testid": "attachment-filename",
+          "assertion": "空附件时选择 test2.txt 后显示「test2.txt」",
+          "acceptanceScenarioIds": ["KDU-AC-01"]
+        },
+        "anchor": { "ref": "R1-1", "quote": "在附件为空的编辑知识表单中，通过 testid=upload-file-input 选择文件 test2.txt 后，testid=attachment-filename 显示文本「test2.txt」。" }
+      },
+      {
+        "id": "errc:upload-duplicate-rejected",
+        "type": "DomErrorContract",
+        "props": {
+          "component": "cmp:AttachmentSection",
+          "testid": "upload-error",
+          "errorKey": "ATTACHMENT_ALREADY_UPLOADED",
+          "message": "已经上传过文档啦，如需上传新的文档，请先删除已上传的文件哦。",
+          "messageAdopted": true,
+          "sideEffects": "无（不改附件、不改版本号、不保存）",
+          "acceptanceScenarioIds": ["KDU-AC-01"]
+        },
+        "anchor": { "ref": "R1-2", "quote": "在附件已为 test2.txt 的编辑知识表单中，再次通过 testid=upload-file-input 选择文件 test3.txt 后，testid=upload-error 出现且文本逐字等于「已经上传过文档啦，如需上传新的文档，请先删除已上传的文件哦。」（拟定文案，见 OPEN-questions.md OPEN-3）。" }
+      },
+      {
+        "id": "domc:no-side-effect-on-reject",
+        "type": "DomContract",
+        "props": {
+          "component": "cmp:AttachmentSection",
+          "testid": "attachment-filename,doc-version",
+          "assertion": "报错后附件名与版本号均不变",
+          "acceptanceScenarioIds": ["KDU-AC-01"]
+        },
+        "anchor": { "ref": "R1-3", "quote": "R1-2 的报错发生后，testid=attachment-filename 仍显示「test2.txt」，且 testid=doc-version 显示值与报错前一致。" }
+      },
+      {
+        "id": "domc:remove-attachment-to-empty",
+        "type": "DomContract",
+        "props": {
+          "component": "cmp:AttachmentSection",
+          "testid": "btn-remove-attachment,attachment-empty",
+          "assertion": "附件非空时有删除按钮；删除后文件名消失且显示空态「暂未上传文档」",
+          "acceptanceScenarioIds": ["KDU-AC-02"]
+        },
+        "anchor": { "ref": "R1-4", "quote": "附件非空时表单中存在 testid=btn-remove-attachment；点击它后，testid=attachment-filename 消失，且 testid=attachment-empty 显示文本「暂未上传文档」。" }
+      },
+      {
+        "id": "domc:reupload-after-remove",
+        "type": "DomContract",
+        "props": {
+          "component": "cmp:AttachmentSection",
+          "testid": "attachment-filename,upload-error",
+          "assertion": "删除后选择 test3.txt：显示 test3.txt 且报错不存在",
+          "acceptanceScenarioIds": ["KDU-AC-02"]
+        },
+        "anchor": { "ref": "R1-5", "quote": "删除已上传附件后，再通过 testid=upload-file-input 选择文件 test3.txt，testid=attachment-filename 显示「test3.txt」，且 testid=upload-error 不存在。" }
+      },
+      {
+        "id": "domc:no-stale-error",
+        "type": "DomContract",
+        "props": {
+          "component": "cmp:AttachmentSection",
+          "testid": "upload-error",
+          "assertion": "重新打开编辑表单后报错不存在",
+          "acceptanceScenarioIds": ["KDU-AC-01"]
+        },
+        "anchor": { "ref": "R1-6", "quote": "testid=upload-error 出现后，重新打开该知识的编辑表单，testid=upload-error 不存在。" }
+      },
+      {
+        "id": "savec:no-upload-keeps-doc-and-version",
+        "type": "SaveContract",
+        "props": {
+          "component": "page:KnowledgeEditPage",
+          "testid": "btn-save-knowledge",
+          "trigger": "不上传直接保存成功",
+          "effect": "保留原附件与原版本号，重新打开后仍显示 old.txt 与 v1",
+          "acceptanceScenarioIds": ["KDU-AC-03"]
+        },
+        "anchor": { "ref": "R2-1", "quote": "对已挂附件 old.txt 的知识打开编辑表单，不执行任何上传操作，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=attachment-filename 显示「old.txt」，且 testid=doc-version 显示值与保存前一致。" }
+      },
+      {
+        "id": "savec:new-file-upgrades-version",
+        "type": "SaveContract",
+        "props": {
+          "component": "page:KnowledgeEditPage",
+          "testid": "btn-save-knowledge",
+          "trigger": "上传新文件并保存成功",
+          "effect": "版本号按 B-1 升一（v1→v2），附件更换；再次操作 v2→v3",
+          "acceptanceScenarioIds": ["KDU-AC-04", "KDU-AC-02"]
+        },
+        "anchor": { "ref": "R2-2", "quote": "知识当前版本号为 v1，打开编辑表单，通过 testid=upload-file-input 选择文件 new.txt，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=doc-version 显示「v2」，且 testid=attachment-filename 显示「new.txt」。" }
+      },
+      {
+        "id": "savec:version-bump-rule",
+        "type": "SaveContract",
+        "props": {
+          "component": "cmp:VersionDisplay",
+          "testid": "doc-version",
+          "trigger": "保存成功且换了新文件",
+          "effect": "版本号为 v+正整数，整数部分加 1",
+          "adopted": true,
+          "acceptanceScenarioIds": ["KDU-AC-04"]
+        },
+        "anchor": { "ref": "B-1", "quote": "版本号格式为 v + 正整数，初始版本显示「v1」；每次「上传新文件并保存成功」版本号整数部分加 1（v1 → v2 → v3）。（拟定规则，见 OPEN-questions.md OPEN-1）" }
+      },
+      {
+        "id": "savec:history-preserved",
+        "type": "SaveContract",
+        "props": {
+          "component": "page:KnowledgeEditPage",
+          "trigger": "版本升级",
+          "effect": "旧版本文件保留可访问，不删除记录",
+          "adopted": true,
+          "acceptanceScenarioIds": ["KDU-AC-04"]
+        },
+        "anchor": { "ref": "R2-4", "quote": "R2-2 保存成功后，原始文件 old.txt 仍可被该知识的历史版本访问到，即升级版本号不删除旧版本记录。" }
+      },
+      {
+        "id": "hintc:upload-hint",
+        "type": "DomContract",
+        "props": {
+          "component": "cmp:UploadHintBar",
+          "testid": "upload-hint",
+          "assertion": "常驻显示单文档规则提示，空态与非空态文案一致",
+          "message": "编辑知识只能上传一个文档，不能上传多个文档。需要更换文档时，请先删除已上传的文档。",
+          "messageAdopted": true,
+          "acceptanceScenarioIds": ["KDU-AC-05"]
+        },
+        "anchor": { "ref": "R3-1", "quote": "编辑知识表单打开后，testid=upload-hint 存在且文本逐字等于「编辑知识只能上传一个文档，不能上传多个文档。需要更换文档时，请先删除已上传的文档。」（拟定文案，见 OPEN-questions.md OPEN-3）。" }
+      },
+      {
+        "id": "tonec:friendly-copy",
+        "type": "ToneContract",
+        "props": {
+          "component": "cmp:UploadHintBar,cmp:AttachmentSection",
+          "testid": "upload-hint,upload-error",
+          "assertion": "提示与报错都不含「禁止」「严禁」「不允许」「错误操作」字样",
+          "acceptanceScenarioIds": ["KDU-AC-05", "KDU-AC-01"]
+        },
+        "anchor": { "ref": "T-1", "quote": "testid=upload-hint 与 testid=upload-error 的文本都不含「禁止」「严禁」「不允许」「错误操作」字样。" }
+      }
+    ],
+    "edges": [
+      { "type": "CONTRACT_REALIZES", "from": "domc:attachment-first-upload", "to": "SR-R1-1" },
+      { "type": "CONTRACT_REALIZES", "from": "errc:upload-duplicate-rejected", "to": "SR-R1-2" },
+      { "type": "CONTRACT_REALIZES", "from": "domc:no-side-effect-on-reject", "to": "SR-R1-3" },
+      { "type": "CONTRACT_REALIZES", "from": "domc:remove-attachment-to-empty", "to": "SR-R1-4" },
+      { "type": "CONTRACT_REALIZES", "from": "domc:reupload-after-remove", "to": "SR-R1-5" },
+      { "type": "CONTRACT_REALIZES", "from": "domc:no-stale-error", "to": "SR-R1-6" },
+      { "type": "CONTRACT_REALIZES", "from": "savec:no-upload-keeps-doc-and-version", "to": "SR-R2-1" },
+      { "type": "CONTRACT_REALIZES", "from": "savec:new-file-upgrades-version", "to": "SR-R2-2" },
+      { "type": "CONTRACT_REALIZES", "from": "savec:version-bump-rule", "to": "SR-B-1" },
+      { "type": "CONTRACT_REALIZES", "from": "savec:history-preserved", "to": "SR-R2-4" },
+      { "type": "CONTRACT_REALIZES", "from": "hintc:upload-hint", "to": "SR-R3-1" },
+      { "type": "CONTRACT_REALIZES", "from": "tonec:friendly-copy", "to": "SR-T-1" }
+    ]
+  },
+  "acceptanceScenarios": [
+    {
+      "id": "KDU-AC-01",
+      "title": "重复上传被拒绝（需求 1）",
+      "steps": ["打开附件 test2.txt、版本 v1 的编辑表单，断言附件名", "再传 test3.txt，断言报错文案逐字", "保存后重新打开，断言仍是 test2.txt 与 v1"],
+      "realizes": ["SR-R1-1", "SR-R1-2", "SR-R1-3", "SR-R1-6", "SR-B-2", "SR-B-3"],
+      "anchors": [
+        { "ref": "KDU-AC-01.1", "quote": "打开一条已挂附件 test2.txt、版本号 v1 的知识的编辑表单，testid=attachment-filename 显示「test2.txt」。" },
+        { "ref": "KDU-AC-01.2", "quote": "通过 testid=upload-file-input 选择文件 test3.txt，testid=upload-error 出现且文本逐字等于 R1-2 报错文案。" },
+        { "ref": "KDU-AC-01.3", "quote": "点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=attachment-filename 显示「test2.txt」，且 testid=doc-version 显示「v1」。" }
+      ]
+    },
+    {
+      "id": "KDU-AC-02",
+      "title": "删除后可再传（需求 1 例外分支）",
+      "steps": ["删除附件进空态", "再传 test3.txt", "保存后重新打开，断言 test3.txt 且版本 v2"],
+      "realizes": ["SR-R1-4", "SR-R1-5", "SR-B-4"],
+      "anchors": [
+        { "ref": "KDU-AC-02.1", "quote": "在附件为 test2.txt 的编辑表单中点击 testid=btn-remove-attachment，testid=attachment-empty 显示「暂未上传文档」。" },
+        { "ref": "KDU-AC-02.2", "quote": "通过 testid=upload-file-input 选择文件 test3.txt，testid=attachment-filename 显示「test3.txt」。" },
+        { "ref": "KDU-AC-02.3", "quote": "点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=attachment-filename 显示「test3.txt」，且 testid=doc-version 显示「v2」。" }
+      ]
+    },
+    {
+      "id": "KDU-AC-03",
+      "title": "不上传保留原文档与原版本号（需求 2 前半）",
+      "steps": ["不上传直接保存", "重新打开，断言 old.txt 与 v1 不变"],
+      "realizes": ["SR-R2-1"],
+      "anchors": [
+        { "ref": "KDU-AC-03.1", "quote": "对已挂附件 old.txt、版本号 v1 的知识打开编辑表单，不执行任何上传操作，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=attachment-filename 显示「old.txt」，且 testid=doc-version 显示「v1」。" }
+      ]
+    },
+    {
+      "id": "KDU-AC-04",
+      "title": "上传新文件自动升版本（需求 2 后半）",
+      "steps": ["传 new.txt 保存，重新打开断言 v2+new.txt", "再传 new2.txt 保存，断言 v3+new2.txt"],
+      "realizes": ["SR-R2-2", "SR-R2-3", "SR-B-1", "SR-R2-4"],
+      "anchors": [
+        { "ref": "KDU-AC-04.1", "quote": "对版本号 v1、附件 old.txt 的知识，通过 testid=upload-file-input 选择文件 new.txt，点击 testid=btn-save-knowledge 保存成功后，重新打开该知识的编辑表单，testid=doc-version 显示「v2」，且 testid=attachment-filename 显示「new.txt」。" },
+        { "ref": "KDU-AC-04.2", "quote": "对 KDU-AC-04.1 之后的知识（v2、new.txt）再次通过 testid=upload-file-input 选择文件 new2.txt 并保存成功，重新打开该知识的编辑表单，testid=doc-version 显示「v3」，且 testid=attachment-filename 显示「new2.txt」。" }
+      ]
+    },
+    {
+      "id": "KDU-AC-05",
+      "title": "提示条常驻（需求 3）",
+      "steps": ["空态打开断言提示条逐字", "非空态再断言逐字一致"],
+      "realizes": ["SR-R3-1", "SR-R3-2", "SR-T-1"],
+      "anchors": [
+        { "ref": "KDU-AC-05.1", "quote": "打开编辑知识表单（附件为空），testid=upload-hint 存在且文本逐字等于 R3-1 提示文案。" },
+        { "ref": "KDU-AC-05.2", "quote": "在附件非空的编辑表单中，testid=upload-hint 存在且文本与 KDU-AC-05.1 逐字一致。" }
+      ]
+    }
+  ],
+  "acceptanceScenarioRefs": ["KDU-AC-01", "KDU-AC-02", "KDU-AC-03", "KDU-AC-04", "KDU-AC-05"]
+}
