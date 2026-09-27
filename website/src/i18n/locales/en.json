@@ -252,6 +252,7 @@
       "diff_no_change": "No differences",
       "close": "Close",
       "distill": "Start distillation",
+      "regen": "Regenerate doc",
       "distill_title": "AI distillation",
       "distill_hint": "Distil the frozen docs of this release into structured design facts",
       "distill_running": "Running",

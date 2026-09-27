@@ -25,6 +25,7 @@ import { Btn, ContentSkeleton } from '../../components/ui'
 import { usePointerDrag } from '../../hooks/usePointerDrag'
 import { i18nT } from '../../i18n/t'
 import ChatPane from './ChatPane'
+import GraphLoopPanel from './GraphLoopPanel'
 import ProjectsListPage from './ProjectsListPage'
 import RecentActivityFeed from './RecentActivityFeed'
 import ToolSidebar, { type ToolTabInjection } from './ToolSidebar'
@@ -339,6 +340,43 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
     // fetch in demo mode and hit the `?demo=` guard's throw
     enabled: !demoStates,
   })
+  // T7 (ACP-851): the live requirement graph for the 需求图谱 tab. Same rule
+  // as every other real read here — never asked in demo mode (a frame feeds
+  // its own snapshot list instead). A failed or empty read leaves the tab on
+  // its fixture drill-down: the graph tab degrades to what it was, it does
+  // not go blank.
+  const graphQuery = useQuery({
+    queryKey: ['ai-studio', 'graph'],
+    queryFn: () => studioApi.getGraph(),
+    enabled: !demoStates,
+  })
+  const realGraph = graphQuery.data?.graph
+  // T7 (ACP-851): the 需求图谱 tab's loop reads — the frozen baselines and
+  // the distillation runs the store actually holds. Same rule as every real
+  // read: never asked in demo mode (a frame carries its own snapshot states).
+  const freezesQuery = useQuery({
+    queryKey: ['ai-studio', 'freezes', projectId],
+    queryFn: () => studioApi.listFreezes(projectId).then((r) => r.freezes),
+    enabled: !demoStates,
+  })
+  const distillsQuery = useQuery({
+    queryKey: ['ai-studio', 'distills', projectId],
+    queryFn: () => studioApi.listDistills(projectId).then((r) => r.distillations),
+    enabled: !demoStates,
+  })
+  // one place decides what a landed act re-reads: the loop's own lists, plus
+  // the drafts (a regen lands as a draft) and the doc list it edits
+  const onLoopActed = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['ai-studio', 'freezes', projectId] })
+    queryClient.invalidateQueries({ queryKey: ['ai-studio', 'distills', projectId] })
+    queryClient.invalidateQueries({ queryKey: ['ai-studio', 'drafts', projectId] })
+    queryClient.invalidateQueries({ queryKey: ['ai-studio', 'project', projectId] })
+  }, [queryClient, projectId])
+  // the loop acts on the canonical requirement doc the project is seeded
+  // with; the doc list is its source of truth for the name when it changes
+  const loopDocName = docs.some((d) => d.name === 'requirements.md')
+    ? 'requirements.md'
+    : docs[0]?.name ?? 'requirements.md'
   const draftedNames = useMemo(() => (draftsQuery.data ?? []).map((d) => d.name), [draftsQuery.data])
   const activity = useMemo(
     () => draftedNames.map((name) => ({ label: `${i18nT('apps.aiStudio.drafts_pending')}: ${name}` })),
@@ -611,6 +649,21 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               // rule puts them — in the tab, never in the middle column
               graphEntries={demoGraph?.graphEntries}
               distillation={demoGraph?.distillation}
+              realGraph={demoStates ? undefined : realGraph}
+              // T7: the real loop's 沉淀/冻结/重生成 row, placed at the top of
+              // the graph tab. Only the ordinary workbench gets it — a demo
+              // frame's actions are snapshot data, and a button that hits the
+              // `?demo=` guard would be a button that lies.
+              graphLoop={demoStates ? undefined : (
+                <GraphLoopPanel
+                  projectId={projectId}
+                  docName={loopDocName}
+                  api={studioApi}
+                  initialFreezes={freezesQuery.data ?? []}
+                  initialDistills={distillsQuery.data ?? []}
+                  onActed={onLoopActed}
+                />
+              )}
               // ACP-798: 本版修改过的文件 rides the frame's own payload — the
               // releases tab reads the version history AND this version's
               // changed files (each with its 图谱拆解状态) from one frame.

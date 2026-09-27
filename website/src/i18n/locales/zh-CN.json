@@ -470,6 +470,7 @@
       "diff_no_change": "无差异",
       "close": "关闭",
       "distill": "开始沉淀",
+      "regen": "重生成文档",
       "distill_title": "AI 沉淀",
       "distill_hint": "把本次发版冻结的文档沉淀为结构化设计事实",
       "distill_running": "进行中",

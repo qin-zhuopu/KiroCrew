@@ -27,6 +27,7 @@ import type {
   StudioApi,
   StudioDistillation,
   StudioDoc,
+  StudioGraph,
   StudioPublishApi,
   StudioReleaseFiles,
 } from './studioApi'
@@ -104,6 +105,23 @@ export interface ToolSidebarProps {
   /** the 需求图谱 tab's generation run (status 'running' → 进行中, 'done' →
    * the extracted candidates), rendered by the shipped DistillPanel */
   distillation?: StudioDistillation
+  // ---- T7 (ACP-851) adds the real-data seam for the ORDINARY workbench: the
+  // graph the backend actually reports (GET …/graph → studioApi.getGraph).
+  // When present and no frame injects `entries`, the tab renders THIS graph
+  // with the same list shape the demo frames use — grouped by kind, one row
+  // per node — instead of the GRAPH_NODES fixtures. Absent (demo frames, or a
+  // still-loading / failed read) → today's drill-down, byte for byte.
+  /** the live requirement graph from the backend (real workbench only) */
+  realGraph?: StudioGraph
+  // ---- T7 (ACP-851) adds the 图谱 tab's own REAL loop actions, on the same
+  // injection footing as every frame seam above: the page assembles the
+  // shipped `GraphLoopPanel` (its own queries and studioApi calls) and this
+  // file only PLACES it, at the top of the tab's list. A demo frame never
+  // passes it — its frames carry their distill/freeze states as snapshot
+  // data through `distillation`/`graphEntries` — so the button row exists
+  // only where the calls are real.
+  /** the 需求图谱 tab's real 沉淀/冻结/重生成 action row */
+  graphLoop?: ReactNode
   // ACP-798 adds a fourth of the same kind: 本版修改过的文件 for the releases
   // tab. Omitted — every ordinary workbench — the list is simply absent.
   /** the releases tab's 本版修改过的文件 list (a demo frame's own data) */
@@ -187,7 +205,7 @@ const MARK_KEY = {
 
 export default function ToolSidebar({
 onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
-  graphEntries, distillation, releaseFiles, releaseAction, dev, deploy,
+  graphEntries, distillation, realGraph, graphLoop, releaseFiles, releaseAction, dev, deploy,
   initialGraphType,
   commitApi, commitKey = 'real', onCommitted, onDraftsSeen,
 }: ToolSidebarProps) {
@@ -246,14 +264,18 @@ onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
           />
         )}
         {tool === 'graph' && (
-          <GraphTool
-            graphType={graphType}
-            setGraphType={setGraphType}
-            onOpenTab={onOpenTab}
-            docs={docs}
-            entries={graphEntries}
-            distillation={distillation}
-          />
+          <>
+            {graphLoop}
+            <GraphTool
+              graphType={graphType}
+              setGraphType={setGraphType}
+              onOpenTab={onOpenTab}
+              docs={docs}
+              entries={graphEntries}
+              distillation={distillation}
+              realGraph={realGraph}
+            />
+          </>
         )}
         {tool === 'dev' && (dev
           ? <InjectedTool tab="dev" injection={dev} onOpenTab={onOpenTab} />
@@ -436,14 +458,58 @@ function ReleasesTool({ model, history, noun, onOpenTab }: {
  * change did to it. No frame carries entries → the shipped drill-down, byte
  * for byte as before. Neither shape draws a node-and-arrow canvas: the owner's
  * rule is that the graph is observed here, as text. */
-function GraphTool({ graphType, setGraphType, onOpenTab, docs, entries, distillation }: {
+/** the kind → group order the REAL graph is laid out in — the same three
+ * words the demo's graph frames use (states-graph's KIND_GROUPS), restated
+ * here rather than imported from the demo tree so the ordinary workbench
+ * never pays the demo bundle. Graph vocabulary is data, like GRAPH_NODES'
+ * keys. */
+const REAL_KIND_GROUPS: { kind: StudioGraph['nodes'][number]['kind']; label: string }[] = [
+  { kind: 'requirement', label: '需求' },
+  { kind: 'doc', label: '文档' },
+  { kind: 'module', label: '模块' },
+]
+
+/** T7 (ACP-851): the backend graph as the tab's list — the same shape a demo
+ * frame injects (group per kind, row per node), minus the per-change marks,
+ * which a live full-graph read does not have. The SR layer (the response's
+ * optional `srs`) closes as a fourth group: an SR names no doc, so its rows
+ * are text, and its meta line names the canvas nodes that realise it — the
+ * same traceability the layer carries on the wire. */
+function realGraphGroups(graph: StudioGraph): GraphEntryGroup[] {
+  const groups: GraphEntryGroup[] = REAL_KIND_GROUPS.map(({ kind, label }) => ({
+    label,
+    rows: graph.nodes.filter((n) => n.kind === kind).map((n) => ({
+      id: n.id,
+      label: n.label,
+      // a doc node IS a document; a requirement names the one that produced it
+      doc: n.doc ?? (n.kind === 'doc' ? n.label : undefined),
+    })),
+  }))
+  if (graph.srs?.length) {
+    groups.push({
+      label: '语义需求',
+      rows: graph.srs.map((sr) => ({
+        id: sr.id,
+        label: sr.text,
+        meta: sr.realizes.length ? `实现：${sr.realizes.join('、')}` : sr.openRef ? `待决：${sr.openRef}` : undefined,
+      })),
+    })
+  }
+  return groups
+}
+
+function GraphTool({ graphType, setGraphType, onOpenTab, docs, entries, distillation, realGraph }: {
   graphType: string | null
   setGraphType: (t: string | null) => void
   onOpenTab: ToolSidebarProps['onOpenTab']
   docs: StudioDoc[]
   entries?: GraphEntryGroup[]
   distillation?: StudioDistillation
+  realGraph?: StudioGraph
 }) {
+  // an empty graph is not a graph: until the backend reports nodes the tab
+  // stays on the drill-down it has always shown, never three empty sections
+  if (!entries && realGraph && realGraph.nodes.length > 0) entries = realGraphGroups(realGraph)
   if (entries) {
     return (
       <div>

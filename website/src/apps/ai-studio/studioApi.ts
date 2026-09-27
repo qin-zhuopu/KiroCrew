@@ -105,9 +105,39 @@ export interface StudioGraphEdge {
   kind: 'trace' | 'depends'
 }
 
+/** One semantic requirement of the source graph (kg-sem-poc/v0
+ * `semanticRequirements`) — T7/ACP-851 closes ACP-847's measured loss: the
+ * SR layer had NO kind on the wire and the projection dropped all 20 of them
+ * with their CONTRACT_REALIZES edges. The SR is a SEMANTIC layer over the
+ * canvas nodes (page/component/contract/scenario), not one more box-and-arrow
+ * kind, so it rides as its own optional array rather than faking a fourth
+ * node kind — every existing consumer (GraphView's layout table, the demo
+ * frames, GraphTool's kind groups) stays byte-identical. `realizes` names
+ * the canvas node ids this SR is realised by (the CONTRACT_REALIZES /
+ * structure edges that pointed at this SR id); an empty list is data — an SR
+ * no contract realises yet, not a mapping gap. */
+export interface StudioSemanticRequirement {
+  id: string
+  /** the requirement in one sentence, the graph's own text */
+  text: string
+  /** verbatim quote from the doc this SR was distilled from ("ref § quote") */
+  anchor?: { ref: string; quote: string }
+  /** an open question this SR waits on (OPEN-3 …), absent when adopted */
+  openRef?: string
+  /** the source's own adoption flag (adopted = accepted into this round) */
+  adopted?: boolean
+  /** which canvas node ids (modules/docs/requirements) realise this SR */
+  realizes: string[]
+}
+
 export interface StudioGraph {
   nodes: StudioGraphNode[]
   edges: StudioGraphEdge[]
+  /** the semantic-requirement layer (T7): absent on a graph that has none,
+   * present and complete (zero-loss from the source) when the backend emits
+   * it — optional so pre-T7 carriers (demo snapshots, older responses) keep
+   * parsing unchanged */
+  srs?: StudioSemanticRequirement[]
 }
 
 /** One release cut from the committed docs (ACP-730). Same doctrine as
@@ -147,8 +177,14 @@ export interface StudioDistillation {
   releaseVersion: string
   status: 'running' | 'done'
   candidates: StudioDistillCandidate[]
-  /** unix seconds once status=done, absent while running */
+  /** unix seconds once the graph has ABSORBED the accepted candidates — the
+   * real endpoint (T7) leaves it absent on purpose: it records proposals,
+   * absorbing them into the graph is the LLM step this endpoint never fakes */
   appliedAt?: number
+  /** T7 wire additions (POST …/distill emits both): the doc the candidates
+   * were distilled from and the graph they were compared against */
+  distilledFromDoc?: string
+  graphId?: string
 }
 
 /** A document version the system regenerated FROM the distilled structured
@@ -402,6 +438,10 @@ export type StudioApi = {
     notes?: string,
   ) => Promise<{ freeze: StudioFreeze }>
   regen: (id: string, docName: string) => Promise<{ doc: string; content: string; generatedFrom: string }>
+  distill: (id: string, docName: string, releaseVersion?: string) =>
+    Promise<{ distillation: StudioDistillation }>
+  listFreezes: (id: string) => Promise<{ freezes: StudioFreeze[] }>
+  listDistills: (id: string) => Promise<{ distillations: StudioDistillation[] }>
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -503,4 +543,15 @@ export const studioApi: StudioApi = {
       `/projects/${encodeURIComponent(id)}/regen`,
       { method: 'POST', body: JSON.stringify({ docName }) },
     ),
+  // T7 (ACP-851): the doc→graph direction. Proposals only — the endpoint
+  // never mutates the graph, so `appliedAt` stays absent on its records.
+  distill: (id: string, docName: string, releaseVersion?: string) =>
+    request<{ distillation: StudioDistillation }>(
+      `/projects/${encodeURIComponent(id)}/distill`,
+      { method: 'POST', body: JSON.stringify({ docName, releaseVersion }) },
+    ),
+  listFreezes: (id: string) =>
+    request<{ freezes: StudioFreeze[] }>(`/projects/${encodeURIComponent(id)}/freezes`),
+  listDistills: (id: string) =>
+    request<{ distillations: StudioDistillation[] }>(`/projects/${encodeURIComponent(id)}/distills`),
 }

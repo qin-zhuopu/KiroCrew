@@ -59,3 +59,10 @@
   两个假绿：website 根 tsconfig 是 `files:[]` 引用壳，`tsc --noEmit` 空跑 exit 0
   （要用 `-p tsconfig.app.json`）；组件持久化面板显隐到 localStorage，同文件前序
   用例点隐藏后毒死后续用例（整棵子树不进 DOM，单跑却过）。
+- [20260927-131130-worktree-venv-points-at-main-checkout.md](20260927-131130-worktree-venv-points-at-main-checkout.md) —
+  worktree 借主检出 venv 跑代码：editable 装的是主检出绝对路径，忘带 `PYTHONPATH=src`
+  就 import 到主检出的旧代码（graph 路由 404 却像「代码没错」）；`print(mod.__file__)`
+  自证来源，node_modules 同理要软链回主检出。
+- [20260927-134900-baseline-red-count-is-the-only-honest-ruler.md](20260927-134900-baseline-red-count-is-the-only-honest-ruler.md) —
+  「基线 11 红」是上次抽样跑的数不是测量值：判定红灯归属唯一诚实的尺子是同命令在
+  基线 worktree 再跑一遍 diff 失败清单；本机 eslint 配置在基线就崩（@shadcn/lint 缺）。

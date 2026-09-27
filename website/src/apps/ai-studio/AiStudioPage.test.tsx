@@ -7,7 +7,7 @@
 // leaves the test. UI strings assert the English catalog (tests pin en);
 // project/doc content is Chinese by design and asserted as data.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -35,6 +35,12 @@ const api = vi.hoisted(() => ({
   listDraftDocs: vi.fn(async () => ({ drafts: [] as unknown[] })),
   listDraftVersions: vi.fn(async () => ({ versions: [] })),
   listVersions: vi.fn(async () => ({ versions: [] })),
+  getGraph: vi.fn(async () => ({ graphId: 'none', graph: { nodes: [], edges: [] } })),
+  listFreezes: vi.fn(async () => ({ freezes: [] })),
+  listDistills: vi.fn(async () => ({ distillations: [] })),
+  distill: vi.fn(async () => ({ distillation: { id: 'd1', releaseVersion: 'v1', status: 'done', candidates: [] } })),
+  freeze: vi.fn(async () => ({ freeze: { version: 'v1', docName: 'requirements.md', generatedFrom: 'd1', time: 1, notes: '' } })),
+  regen: vi.fn(async () => ({ doc: 'requirements.md', content: '# x', generatedFrom: 'd1' })),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
@@ -221,6 +227,42 @@ describe('project-level commit (moved into the 提交 tab, ACP-801)', () => {
     await openCommitsTab(user)
     expect(screen.getByRole('button', { name: /Commit all/i })).toBeDisabled()
     expect(api.saveDoc).not.toHaveBeenCalled()
+  })
+})
+
+// T7 (ACP-851): the 需求图谱 tab's real loop row. The panel's own behaviour
+// is GraphLoopPanel.test's business; what THIS file measures is the page's
+// half of the seam — the row exists only in the ordinary workbench, its
+// button reaches the real client with the page's project and doc, and a demo
+// frame neither shows the row nor issues the real reads.
+describe('graph loop row (real workbench vs demo, T7)', () => {
+  it('the graph tab offers the real 沉淀/冻结/重生成 row and 沉淀 calls the api', async () => {
+    const user = userEvent.setup()
+    renderAt('/workspaces/p1/ai-studio')
+    await screen.findByTestId('ai-studio')
+    await user.click(await screen.findByRole('tab', { name: 'Graph' }))
+    const panel = await screen.findByTestId('graph-loop-panel')
+    expect(within(panel).getByTestId('graph-distill-btn')).toBeInTheDocument()
+    expect(within(panel).getByTestId('freeze-btn')).toBeInTheDocument()
+    expect(within(panel).getByTestId('graph-regen-btn')).toBeInTheDocument()
+    // the loop's reads went out with the page's project
+    expect(api.listFreezes).toHaveBeenCalledWith('p1')
+    expect(api.listDistills).toHaveBeenCalledWith('p1')
+    await user.click(within(panel).getByTestId('graph-distill-btn'))
+    await waitFor(() => expect(api.distill).toHaveBeenCalledWith('p1', 'requirements.md'))
+  })
+
+  it('a demo frame shows no loop row and issues none of the real graph reads', async () => {
+    renderAt('/workspaces/p1/ai-studio?demo=states')
+    await screen.findByTestId('demo-states-dock')
+    // the graph frame: its tab is lit, and the tab it shows is snapshot data
+    const dock = screen.getByTestId('demo-states-dock')
+    fireEvent.click(within(dock).getByTestId('demo-states-select-G1'))
+    await waitFor(() => expect(dock).toHaveAttribute('data-demo-state', 'G1'))
+    expect(screen.queryByTestId('graph-loop-panel')).not.toBeInTheDocument()
+    expect(api.listFreezes).not.toHaveBeenCalled()
+    expect(api.listDistills).not.toHaveBeenCalled()
+    expect(api.getGraph).not.toHaveBeenCalled()
   })
 })
 
