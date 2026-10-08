@@ -315,30 +315,60 @@ describe('graph loop row (real workbench vs demo, T7)', () => {
   })
 })
 
-describe('new-project dialog', () => {
-  it('creates a project and lands in its workbench', async () => {
+// ACP-2085 replaced this dialog: 新建项目 became 新建工作区, the form gained a
+// mandatory 代号, and a successful create NO LONGER navigates — the backend
+// answers `status: "creating"` and derives the repo in the background, so the
+// dialog turns into the step progress. The create-then-enter-workbench path
+// those two tests pinned does not exist any more; what replaces it is asserted
+// here at the page level, and the dialog's own behaviour lives in
+// NewWorkspaceDialog.test.tsx.
+describe('new-workspace dialog', () => {
+  it('creates a workspace and shows its derive progress instead of navigating', async () => {
     const user = userEvent.setup()
-    api.createProject.mockResolvedValue({
-      project: { ...TEST_PROJECT, id: 'p2', name: '新项目' },
-    })
+    // a 3-character code: the field's own rule is 3~24, so a 2-character one
+    // would sit in the dialog's form and never reach the create
+    const record = {
+      ...TEST_PROJECT,
+      id: 'eqp',
+      name: '新项目',
+      code: 'eqp',
+      status: 'creating' as const,
+      // the rows the dialog renders ARE the record's, so the read has to answer
+      // one — a record without `steps` would legitimately render no rows
+      steps: ['克隆模板', '建个人仓', '推送', '启动开发服务器'].map((name) => ({
+        name,
+        state: name === '克隆模板' ? ('running' as const) : ('pending' as const),
+        message: null,
+      })),
+    }
+    api.createProject.mockResolvedValue({ project: record })
+    api.getProject.mockResolvedValue({ project: record, docs: [] })
     renderAt('/workspaces')
-    await user.click(await screen.findByRole('button', { name: /New project/i }))
-    await user.type(screen.getByLabelText(/Project name/i), '新项目')
-    await user.type(screen.getByLabelText(/Description/i), '描述')
-    await user.click(screen.getByRole('button', { name: /Create project/i }))
-    expect(api.createProject).toHaveBeenCalledWith('新项目', '描述')
-    // navigation into the new project's workbench fires the detail load
-    expect(await screen.findByTestId('ai-studio')).toBeInTheDocument()
+    await user.click(await screen.findByTestId('new-ws-open'))
+    await user.type(screen.getByTestId('new-ws-name'), '新项目')
+    await user.type(screen.getByTestId('new-ws-code'), 'eqp')
+    await user.type(screen.getByTestId('new-ws-desc'), '描述')
+    const submit = screen.getByTestId('new-ws-submit')
+    await waitFor(() => expect(submit).toBeEnabled())
+    await user.click(submit)
+    expect(api.createProject).toHaveBeenCalledWith('新项目', '描述', { code: 'eqp' })
+    // the progress rows, and the workbench stays unmounted: the repo is not
+    // there yet, so there is nothing to open
+    expect(await screen.findByTestId('new-ws-step-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-studio')).not.toBeInTheDocument()
   })
 
   it('keeps the dialog open and names the failure when create is refused', async () => {
     const { StudioApiError } = await import('./studioApi')
-    api.createProject.mockRejectedValue(new StudioApiError(400, 'name_required', 'project name is required'))
+    api.createProject.mockRejectedValue(new StudioApiError(409, 'code_taken', '代号已被占用'))
     renderAt('/workspaces')
-    await userEvent.click(await screen.findByRole('button', { name: /New project/i }))
-    await userEvent.type(screen.getByLabelText(/Project name/i), 'x')
-    await userEvent.click(screen.getByRole('button', { name: /Create project/i }))
-    expect(await screen.findByText('Project name is required')).toBeInTheDocument()
+    await userEvent.click(await screen.findByTestId('new-ws-open'))
+    await userEvent.type(screen.getByTestId('new-ws-name'), '新项目')
+    await userEvent.type(screen.getByTestId('new-ws-code'), 'eqp')
+    const submit = screen.getByTestId('new-ws-submit')
+    await waitFor(() => expect(submit).toBeEnabled())
+    await userEvent.click(submit)
+    expect(await screen.findByText('代号已被占用')).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 })
