@@ -105,3 +105,7 @@
   `_trust_scope` 那条带 TTL 的 Scoped 授权），策略 key 要用 `effective_session_key` 且它要
   从 `chat_utils` 导（`chat_handlers` 那份 import 一次 13.5 秒），旗按 slot 存而策略按
   session 存（共用 session 的槽要一起打），策略只在当前 asyncio 任务可见，`sel()` 没有 `noop()`。
+- [20261009-030704-website-pretest-jscpd-shadows-vitest.md](20261009-030704-website-pretest-jscpd-shadows-vitest.md) —
+  `npm run test` 的 `pretest` 是全仓 jscpd 且阈值 0%，而 main 自己就报 1197 个 clone：
+  pretest 一红 vitest 一条都没跑，报的还全是别人的文件。本地判据改用 `npx vitest run <自己的 spec>`；
+  顺带 tsc 全量构建会被存量未使用 import 挡住，契约门禁的行号会被你的改动推后 —— 判归属一律去干净基线复现。
