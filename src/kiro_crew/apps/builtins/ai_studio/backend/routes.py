@@ -21,6 +21,8 @@ from typing import Any, Awaitable, Callable
 from aiohttp import web
 
 from kiro_crew.apps.builtins.ai_studio.backend import (
+    accept,
+    devdag,
     devruns,
     devserver,
     graph,
@@ -771,6 +773,168 @@ async def _handle_req_session(request: web.Request) -> web.StreamResponse:
     return web.json_response(result)
 
 
+#: One :class:`devdag.DevRun` per project, for the lifetime of the gateway.
+#:
+#: The loop lives on the object, so a fresh instance per request would read a
+#: running project's file as ``running`` with no loop attached and judge it a
+#: restart orphan (failing a run that is very much alive), and a second
+#: ``start`` would spawn a second loop over the same workspace. Same reasoning
+#: as ``devserver._SERVERS``. Cleared wholesale by tests via
+#: :func:`_dev_run_for`'s module global.
+_DEV_RUNS: dict[str, devdag.DevRun] = {}
+
+
+def _dev_run_for(project_id: str, record: dict[str, Any], ws: Path, state: Any) -> devdag.DevRun:
+    run = _DEV_RUNS.get(project_id)
+    if run is None:
+        run = devdag.DevRun(state, record, ws)
+        _DEV_RUNS[project_id] = run
+    return run
+
+
+async def _dev_target(
+    request: web.Request,
+) -> tuple[devdag.DevRun, dict[str, Any], Path] | web.Response:
+    # Shared prologue for the five dev/accept routes: the project must exist,
+    # its workspace must resolve (that is where .ai-studio/ lives), and the
+    # dashboard state must be reachable — a dev task IS a chat session, so
+    # without it there is nothing to open one on.
+    project_id = request.match_info["project_id"]
+    record = await asyncio.to_thread(projects.get_project, project_id)
+    if record is None:
+        return _error("project not found", "project_not_found", 404)
+    ws = requirements.workspace_dir(record, projects.projects_root() / project_id)
+    state = request.app.get("state")
+    if state is None:
+        return _error("no chat state available to open a session", "state_unavailable", 503)
+    return _dev_run_for(project_id, record, ws, state), record, ws
+
+
+async def _handle_dev_start(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/dev/start: build the plan and hand the serial loop to
+    # the background. ``pages`` omitted = every page the verdict allows (全齐, or
+    # 可以开工但有已知缺口 — a known gap is a recorded gap, not a blocker). A page
+    # the caller NAMED is honoured as an explicit choice and only 不齐 refuses it
+    # (422, with the page names), so the board's 不齐 guard can never be talked
+    # out of by omitting the check client-side.
+    target = await _dev_target(request)
+    if isinstance(target, web.Response):
+        return target
+    run, _record, ws = target
+    body = await _body(request)
+    raw_pages = body.get("pages")
+    try:
+        pages = await asyncio.to_thread(_resolve_dev_pages, ws, raw_pages)
+    except requirements.RequirementError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except DevPagesError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    if not pages:
+        return _error("no page's requirement is ready for development", "no_pages", 422)
+    try:
+        result = await run.start(pages)
+    except devdag.DevDagError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError as exc:
+        logger.exception("ai-studio dev run start failed")
+        return _error(f"could not start the development run: {exc}", "dev_run_write_failed", 503)
+    return web.json_response(result, status=202)
+
+
+class DevPagesError(Exception):
+    """A page choice the workspace's own verdicts refuse (404 / 422)."""
+
+    def __init__(self, message: str, code: str, status: int) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status = status
+
+
+#: 判定为这两种的页才允许开工。「可以开工但有已知缺口」里的缺口是**记着的**缺口，
+#: 不是拦路的（RFC §9.4 的三档判定）；「不齐」才是。
+DEV_READY_VERDICTS = ("全齐", "可以开工但有已知缺口")
+
+
+def _resolve_dev_pages(ws: Path, raw_pages: Any) -> list[str]:
+    """Validate the requested pages (or pick the allowed ones) against the verdicts.
+
+    Sync on purpose: the caller wraps it in ``asyncio.to_thread``, because each
+    verdict is a ``jc fe reqdoc`` subprocess and the gateway loop serves every
+    other session while these run.
+    """
+    listed = requirements.list_pages(ws)
+    by_page = {str(p.get("page")): p for p in listed}
+    if isinstance(raw_pages, list) and raw_pages:
+        pages = [str(p) for p in raw_pages]
+        missing = [p for p in pages if p not in by_page]
+        if missing:
+            raise DevPagesError(f"需求页不存在：{'、'.join(missing)}", "page_not_found", 404)
+        # name every 不齐 page, not just the first: the board has to mark them all
+        not_ready = [p for p in pages if by_page[p].get("verdict") not in DEV_READY_VERDICTS]
+        if not_ready:
+            raise DevPagesError(
+                f"不齐：还不能开发：{'、'.join(not_ready)}",
+                "not_ready",
+                422,
+            )
+        return pages
+    return [page for page, entry in by_page.items() if entry.get("verdict") in DEV_READY_VERDICTS]
+
+
+async def _handle_dev_dag(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/dev/dag: the board's single read. ``get`` also owns the
+    # restart-orphan verdict (a file left at running by a dead process), so the
+    # UI never spins forever after a gateway restart.
+    target = await _dev_target(request)
+    if isinstance(target, web.Response):
+        return target
+    run, _record, _ws = target
+    return web.json_response(run.get())
+
+
+async def _handle_dev_log(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/dev/log?lines=100: the scheduler's own log, which is
+    # where a failed node's reason is (the node's `message` is one line).
+    target = await _dev_target(request)
+    if isinstance(target, web.Response):
+        return target
+    run, _record, _ws = target
+    try:
+        lines = int(request.query.get("lines", "100"))
+    except ValueError:
+        lines = 100
+    tail = await asyncio.to_thread(run.log_lines, lines)
+    return web.json_response({"lines": tail})
+
+
+async def _handle_accept_run(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/accept/run: the workspace's own checks, exit codes
+    # only. Off the loop — this is a pnpm typecheck plus a unit suite, minutes
+    # long, and the gateway loop serves every other session.
+    target = await _dev_target(request)
+    if isinstance(target, web.Response):
+        return target
+    run, _record, ws = target
+    state = run.get()
+    try:
+        record = await asyncio.to_thread(accept.run_accept, ws, state)
+    except accept.AcceptError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError:
+        logger.exception("ai-studio accept record write failed")
+        return _error("could not write the acceptance record", "store_write_failed", 503)
+    return web.json_response({"record": record}, status=201)
+
+
+async def _handle_accept_records(request: web.Request) -> web.StreamResponse:
+    target = await _dev_target(request)
+    if isinstance(target, web.Response):
+        return target
+    _run, _record, ws = target
+    records = await asyncio.to_thread(accept.list_records, ws)
+    return web.json_response({"records": records})
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -845,6 +1009,29 @@ def register_routes(app: web.Application) -> None:
         _require_enabled(_handle_dev_server_log),
     )
     app.router.add_get(f"{_BASE}/graph", _require_enabled(_handle_graph))
+    # ACP-2085-S4: the development board and its acceptance run. The literal
+    # ``dev/start`` / ``dev/dag`` / ``dev/log`` cannot collide with the
+    # ``dev-server`` family (a further segment each) or with ``dev-runs``.
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/dev/start",
+        _require_enabled(_handle_dev_start),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/dev/dag",
+        _require_enabled(_handle_dev_dag),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/dev/log",
+        _require_enabled(_handle_dev_log),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/accept/run",
+        _require_enabled(_handle_accept_run),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/accept/records",
+        _require_enabled(_handle_accept_records),
+    )
     app.router.add_post(f"{_BASE}/projects/{{project_id}}/freeze", _require_enabled(_handle_freeze))
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/freezes", _require_enabled(_handle_freeze_list)

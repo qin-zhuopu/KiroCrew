@@ -100,6 +100,15 @@
   （假红，必须 `cd website`）；真跑时 Chrome 起不来（报「browser has been closed」）
   是 swap 用满 + 102 个漏掉的 chrome 主进程，跟网关无关——门禁与浏览器真跑要串行；
   开场白发两遍是「持久标记 + 中间有 await」挡不住并发（StrictMode 双跑），补进程内原子闸。
+- [20261009-022126-dev-trust-grant-needs-chat-utils-and-slot-key.md](20261009-022126-dev-trust-grant-needs-chat-utils-and-slot-key.md) —
+  后端自己仿〔信任会话〕开关：判定不在设值处（在 `chat_runner._slot_is_trusted`，还认
+  `_trust_scope` 那条带 TTL 的 Scoped 授权），策略 key 要用 `effective_session_key` 且它要
+  从 `chat_utils` 导（`chat_handlers` 那份 import 一次 13.5 秒），旗按 slot 存而策略按
+  session 存（共用 session 的槽要一起打），策略只在当前 asyncio 任务可见，`sel()` 没有 `noop()`。
+- [20261009-030704-website-pretest-jscpd-shadows-vitest.md](20261009-030704-website-pretest-jscpd-shadows-vitest.md) —
+  `npm run test` 的 `pretest` 是全仓 jscpd 且阈值 0%，而 main 自己就报 1197 个 clone：
+  pretest 一红 vitest 一条都没跑，报的还全是别人的文件。本地判据改用 `npx vitest run <自己的 spec>`；
+  顺带 tsc 全量构建会被存量未使用 import 挡住，契约门禁的行号会被你的改动推后 —— 判归属一律去干净基线复现。
 - [20261008-235002-browser-sends-two-opens-and-no-frontend-test-could-see-it.md](20261008-235002-browser-sends-two-opens-and-no-frontend-test-could-see-it.md) —
   同一个页面发两次「开需求会话」，两个请求都 200、两个会话都活着，前端 238 条用例全绿、
   后端 13 条全绿：幂等标记落在项目记录里，而写它之前隔着一整个 agent turn 的 await；

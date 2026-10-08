@@ -464,6 +464,85 @@ export interface StudioDevServer {
 }
 
 // ---------------------------------------------------------------------------
+// development board + acceptance (ACP-2085-S4): the serial per-page task run
+// and the workspace's own checks. Real-store only, on the same footing as the
+// publish client below: the demo runtime implements StudioApi exactly and never
+// fakes these, so they are an OPTIONAL member of StudioApi (an interface member
+// the demo object cannot omit would break that file, which is not this ticket's
+// territory) and a standalone object holding the implementations.
+//
+// The board's whole picture comes from ONE read: the backend's state file is the
+// truth (a gateway restart must still render the last run), so nothing here
+// derives state client-side.
+// ---------------------------------------------------------------------------
+
+/** The four node states the board renders, and the only four (07 §〇-1). */
+export type StudioDevNodeState = 'queued' | 'running' | 'done' | 'failed'
+
+/** The run's own state; `idle` is the no-file-yet answer, not a phase. */
+export type StudioDevRunState = 'idle' | 'running' | 'done' | 'failed'
+
+/** One task node: one page's 后端接口 or 前端页面, scheduled in plan order.
+ * `jiraKey` is the field name 07 §三 B1 fixed and holds the TASK id
+ * (`<page>:<kind>`) in this version — nothing here talks to Jira. */
+export interface StudioDevNode {
+  jiraKey: string
+  title: string
+  dependsOn: string[]
+  state: StudioDevNodeState
+  /** the assistant session this task ran on, '' before it started */
+  slotKey: string
+  startCommit: string
+  endCommit: string
+  /** the failure's own line, verbatim from the assistant or the scheduler */
+  message: string
+}
+
+/** `GET …/dev/dag` — the whole board in one read. */
+export interface StudioDevDag {
+  runId?: string
+  phase?: string
+  runState: StudioDevRunState
+  startedAt?: string
+  graphHashes?: Record<string, string>
+  nodes: StudioDevNode[]
+}
+
+/** One acceptance command's outcome. `id` is the command text, `tail` the last
+ * 40 lines of its output — the only place the real error exists. */
+export interface StudioAcceptResult {
+  id: string
+  ok: boolean
+  tail: string
+}
+
+/** One acceptance record (`POST …/accept/run`). `voided` is always present and
+ * always false in this version: 07 §三 B4 requires the field to EXIST so a
+ * downstream reader never guesses at a missing default. */
+export interface StudioAcceptRecord {
+  id: string
+  phase: string
+  result: 'passed' | 'failed'
+  voided: boolean
+  results: StudioAcceptResult[]
+  requirementVersion: string
+  commitHash: string
+  at: string
+}
+
+export type StudioDevBoardApi = {
+  /** 202 as soon as the run is scheduled — a page's front and back end is
+   * minutes to an hour of work and no request may wait for it. `pages` omitted
+   * = every page whose requirement verdict allows it. */
+  startDev: (id: string, pages?: string[]) => Promise<{ runId: string; phase: string }>
+  getDevDag: (id: string) => Promise<StudioDevDag>
+  getDevLog: (id: string, lines?: number) => Promise<{ lines: string[] }>
+  /** 409 `dev_not_done` until every node is done; 201 with the new record. */
+  runAccept: (id: string) => Promise<{ record: StudioAcceptRecord }>
+  listAcceptRecords: (id: string) => Promise<{ records: StudioAcceptRecord[] }>
+}
+
+// ---------------------------------------------------------------------------
 // publish (08-publish-app): version rows, release records, form preview and
 // the publish trigger. A separate client object (not a StudioApi member) on
 // purpose: the demo runtime implements StudioApi exactly, and the demo never
@@ -842,4 +921,29 @@ export const workspaceApi: StudioWorkspaceApi = {
     request<{ lines: string[] }>(
       `/projects/${encodeURIComponent(id)}/workspace-log?lines=${encodeURIComponent(String(lines))}`,
     ),
+}
+
+/** ACP-2085-S4: the development board and its acceptance run. Its own client
+ * object for the publishApi reason — the demo runtime implements StudioApi
+ * exactly and never fakes a dev run, so these stay outside that interface and
+ * a caller passes its own stand-in in as a prop. */
+export const devBoardApi: StudioDevBoardApi = {
+  startDev: (id: string, pages?: string[]) =>
+    request<{ runId: string; phase: string }>(
+      `/projects/${encodeURIComponent(id)}/dev/start`,
+      { method: 'POST', body: JSON.stringify(pages?.length ? { pages } : {}) },
+    ),
+  getDevDag: (id: string) =>
+    request<StudioDevDag>(`/projects/${encodeURIComponent(id)}/dev/dag`),
+  getDevLog: (id: string, lines = 100) =>
+    request<{ lines: string[] }>(
+      `/projects/${encodeURIComponent(id)}/dev/log?lines=${encodeURIComponent(String(lines))}`,
+    ),
+  runAccept: (id: string) =>
+    request<{ record: StudioAcceptRecord }>(
+      `/projects/${encodeURIComponent(id)}/accept/run`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+  listAcceptRecords: (id: string) =>
+    request<{ records: StudioAcceptRecord[] }>(`/projects/${encodeURIComponent(id)}/accept/records`),
 }
