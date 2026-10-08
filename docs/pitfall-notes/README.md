@@ -66,3 +66,8 @@
 - [20260927-134900-baseline-red-count-is-the-only-honest-ruler.md](20260927-134900-baseline-red-count-is-the-only-honest-ruler.md) —
   「基线 11 红」是上次抽样跑的数不是测量值：判定红灯归属唯一诚实的尺子是同命令在
   基线 worktree 再跑一遍 diff 失败清单；本机 eslint 配置在基线就崩（@shadcn/lint 缺）。
+- [20261008-103819-worktree-gateway-apparmor-and-one-shot-token.md](20261008-103819-worktree-gateway-apparmor-and-one-shot-token.md) —
+  worktree 起网关两个假健康：dev-backend.sh 的 `python -m` 起法让 AppArmor 路径档案
+  不命中（服务 200 但会话全起不来，要 exec 档案附着的真实路径 + `PYTHONPATH` 换源码树，
+  判据是 `/proc/<pid>/attr/current`）；`kirocrew token` 的链接票恒 300 秒（`--ttl` 只搬
+  `session_exp`），中途必失效，脚本要换 cookie 且换/用同一主机名。
