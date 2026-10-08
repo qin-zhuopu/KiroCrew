@@ -16,6 +16,7 @@ import { Btn, ContentSkeleton, EmptyState, Input, PageHeader } from '../../compo
 import { useDialogFocusTrap } from '../../hooks/useDialogFocusTrap'
 import { fmtRelative } from '../../i18n/format'
 import { i18nT } from '../../i18n/t'
+import { DevServerBadge } from './DevServerControl'
 import { studioApi, StudioApiError, type StudioProject } from './studioApi'
 
 export default function ProjectsListPage() {
@@ -101,7 +102,13 @@ function ProjectCard({ project, onOpen }: { project: StudioProject; onOpen: () =
       {project.description && (
         <div className="text-[12px] text-muted mt-1 line-clamp-2 min-h-[2em]">{project.description}</div>
       )}
-      <div className="text-[11px] text-muted mt-2">{fmtRelative(project.createdAt * 1000)}</div>
+      {/* the footer row carries the when and, ACP-2060, the live dev-server URL.
+          The badge renders nothing at all unless that project's server answers
+          `running`, so a stopped project's card is byte-identical to before. */}
+      <div className="flex items-center justify-between gap-2 mt-2 min-w-0">
+        <span className="text-[11px] text-muted shrink-0">{fmtRelative(project.createdAt * 1000)}</span>
+        <DevServerBadge projectId={project.id} />
+      </div>
     </Clickable>
   )
 }

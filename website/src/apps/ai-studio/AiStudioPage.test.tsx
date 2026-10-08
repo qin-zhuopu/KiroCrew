@@ -49,6 +49,23 @@ const api = vi.hoisted(() => ({
   // runs the requirement list read; this project has no graphs.
   listRequirements: vi.fn(async () => ({ pages: [] })),
   getRequirement: vi.fn(async () => { throw new Error('unused') }),
+  // ACP-2060: the top bar's dev-server control reads on mount (and the project
+  // cards read once each). Nothing here is running.
+  getDevServer: vi.fn(async () => ({
+    state: 'stopped',
+    url: '',
+    ports: { web: null, api: null },
+    failedStep: null,
+    message: null,
+    startedAt: null,
+  })),
+  startDevServer: vi.fn(async () => {
+    throw new Error('unused')
+  }),
+  stopDevServer: vi.fn(async () => {
+    throw new Error('unused')
+  }),
+  getDevServerLog: vi.fn(async () => ({ lines: [] })),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')

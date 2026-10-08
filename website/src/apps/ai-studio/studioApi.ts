@@ -365,6 +365,31 @@ export interface StudioRequirementPage {
 }
 
 // ---------------------------------------------------------------------------
+// dev server (ACP-2060, RFC rfc-ai-studio-req-flow §9.6): one pnpm dev pair per
+// project, published on its rule domain. The state is recomputed by the backend
+// on every read (pid alive AND the URL answers 200), so polling it is honest.
+// ---------------------------------------------------------------------------
+
+/** The four states the top bar renders: grey / amber / green / red. */
+export type StudioDevServerState = 'stopped' | 'starting' | 'running' | 'failed'
+
+/** One read of a project's dev server. `failedStep`/`message` are populated
+ * ONLY while `state === 'failed'` — the backend nulls them otherwise, so a
+ * stale failure never lingers on screen after a successful start. */
+export interface StudioDevServer {
+  state: StudioDevServerState
+  /** the rule domain (https://<代号>-<工号>-dev.…), '' before the first start */
+  url: string
+  ports: { web: number | null; api: number | null }
+  /** which of the six steps broke, e.g. "pnpm install" */
+  failedStep: string | null
+  /** the tail of that step's output — shown verbatim, never rephrased */
+  message: string | null
+  /** ISO timestamp of the last successful start, null before it */
+  startedAt: string | null
+}
+
+// ---------------------------------------------------------------------------
 // publish (08-publish-app): version rows, release records, form preview and
 // the publish trigger. A separate client object (not a StudioApi member) on
 // purpose: the demo runtime implements StudioApi exactly, and the demo never
@@ -497,6 +522,16 @@ export type StudioApi = {
   startDevRun: (id: string, designVersion: string, releaseVersion?: string) =>
     Promise<{ run: StudioDevRun }>
   listDevRuns: (id: string) => Promise<{ runs: StudioDevRun[] }>
+  // ACP-2060: the project's dev server. getDevServer is cheap (one state read
+  // plus one loopback probe), which is what makes the 2s poll while starting
+  // affordable. start answers 202 `starting` at once — a pnpm install is
+  // minutes long and never blocks a request; a 400 `code_required` /
+  // `staff_id_required` means the domain rule rejected the project before a
+  // single process spawned.
+  getDevServer: (id: string) => Promise<StudioDevServer>
+  startDevServer: (id: string) => Promise<StudioDevServer>
+  stopDevServer: (id: string) => Promise<StudioDevServer>
+  getDevServerLog: (id: string, lines?: number) => Promise<{ lines: string[] }>
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -624,4 +659,22 @@ export const studioApi: StudioApi = {
     ),
   listDevRuns: (id: string) =>
     request<{ runs: StudioDevRun[] }>(`/projects/${encodeURIComponent(id)}/dev-runs`),
+  // ACP-2060: the domain rule lives on the backend, so a project with no 代号
+  // is a 400 the caller shows verbatim — retrying cannot fix a missing code.
+  getDevServer: (id: string) =>
+    request<StudioDevServer>(`/projects/${encodeURIComponent(id)}/dev-server`),
+  startDevServer: (id: string) =>
+    request<StudioDevServer>(`/projects/${encodeURIComponent(id)}/dev-server/start`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  stopDevServer: (id: string) =>
+    request<StudioDevServer>(`/projects/${encodeURIComponent(id)}/dev-server/stop`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  getDevServerLog: (id: string, lines = 50) =>
+    request<{ lines: string[] }>(
+      `/projects/${encodeURIComponent(id)}/dev-server/log?lines=${encodeURIComponent(String(lines))}`,
+    ),
 }

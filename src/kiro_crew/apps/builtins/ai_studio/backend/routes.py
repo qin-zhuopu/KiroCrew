@@ -22,6 +22,7 @@ from aiohttp import web
 
 from kiro_crew.apps.builtins.ai_studio.backend import (
     devruns,
+    devserver,
     graph,
     projects,
     publish,
@@ -512,6 +513,80 @@ async def _handle_regen(request: web.Request) -> web.StreamResponse:
     return web.json_response(result, status=201)
 
 
+async def _dev_server_target(request: web.Request) -> devserver.DevServer | web.Response:
+    # Shared prologue for the four dev-server routes (RFC §9.6): the project must
+    # exist and its workspace (where .ai-studio/dev-server.json lives) must
+    # resolve. The DevServer itself is process-cached by dev_server_for — the
+    # "starting" fact lives on the object, so a fresh instance per request would
+    # report a launching project as stopped and let a second click spawn a second
+    # set of processes.
+    project_id = request.match_info["project_id"]
+    record = await asyncio.to_thread(projects.get_project, project_id)
+    if record is None:
+        return _error("project not found", "project_not_found", 404)
+    ws = requirements.workspace_dir(record, projects.projects_root() / project_id)
+    return devserver.dev_server_for(record, ws)
+
+
+async def _handle_dev_server_get(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/dev-server: the recomputed truth (pid alive + URL 200),
+    # never the state file alone. Cheap enough to poll every 2s from the top bar.
+    target = await _dev_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        view = await asyncio.to_thread(target.status)
+    except OSError:
+        logger.exception("ai-studio dev-server status read failed")
+        return _error("could not read the dev server state", "store_write_failed", 503)
+    return web.json_response(view)
+
+
+async def _handle_dev_server_start(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/dev-server/start: validates the domain rules inline
+    # (a bad 代号 or a missing 工号 is a 400 with zero processes spawned) and then
+    # hands the six-step chain to a background thread, answering `starting` at
+    # once — an install is minutes long and no HTTP handler may wait for it.
+    target = await _dev_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        view = await asyncio.to_thread(target.start)
+    except devserver.DevServerError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(view, status=202)
+
+
+async def _handle_dev_server_stop(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/dev-server/stop: kill the process groups, drop the
+    # gateway conf (+reload), release the ports. Runs inline — it is bounded by
+    # the 5s SIGTERM grace, not by a package install.
+    target = await _dev_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        view = await asyncio.to_thread(target.stop)
+    except devserver.DevServerError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(view)
+
+
+async def _handle_dev_server_log(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/dev-server/log?lines=50: the tail of the merged
+    # stdout/stderr of both children, which is where a failed step's real error
+    # is (the route's `message` is one line by design).
+    target = await _dev_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    raw = request.query.get("lines", "50")
+    try:
+        lines = int(raw)
+    except ValueError:
+        lines = 50
+    tail = await asyncio.to_thread(target.log_tail, lines)
+    return web.json_response({"lines": tail})
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -542,6 +617,24 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/requirements/{{page}}",
         _require_enabled(_handle_requirement_page),
+    )
+    # RFC §9.6: the dev-server control. ``dev-server/log`` and the bare
+    # ``dev-server`` cannot collide — the log route carries a further segment.
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/dev-server",
+        _require_enabled(_handle_dev_server_get),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/dev-server/start",
+        _require_enabled(_handle_dev_server_start),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/dev-server/stop",
+        _require_enabled(_handle_dev_server_stop),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/dev-server/log",
+        _require_enabled(_handle_dev_server_log),
     )
     app.router.add_get(f"{_BASE}/graph", _require_enabled(_handle_graph))
     app.router.add_post(f"{_BASE}/projects/{{project_id}}/freeze", _require_enabled(_handle_freeze))

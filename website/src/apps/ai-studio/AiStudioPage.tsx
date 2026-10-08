@@ -25,6 +25,7 @@ import { Btn, ContentSkeleton } from '../../components/ui'
 import { usePointerDrag } from '../../hooks/usePointerDrag'
 import { i18nT } from '../../i18n/t'
 import ChatPane from './ChatPane'
+import DevServerControl from './DevServerControl'
 import DevLoopPanel from './DevLoopPanel'
 import GraphLoopPanel from './GraphLoopPanel'
 import ProjectsListPage from './ProjectsListPage'
@@ -562,6 +563,11 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
         <span className="rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-muted">
           {i18nT('apps.aiStudio.run_version')}: {RUN_VERSION}
         </span>
+        {/* ACP-2060: the dev-server control sits at the right end of the bar
+            because it is the one piece of bar state that is about the HOST, not
+            about the project's documents. Absent in the demo: a snapshot spawns
+            no processes and owns no ports, and the frames are frozen copy. */}
+        {!demoStates && <DevServerControl projectId={projectId} />}
       </header>
       {/* the recent-activity feed, the same component the demo workbench
        * mounts (ACP-754) — the hook exists on both surfaces, fed by data

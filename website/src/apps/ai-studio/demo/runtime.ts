@@ -204,6 +204,28 @@ export function createDemoApi(fixture: DemoFixture): StudioApi & {
     async getRequirement(): Promise<never> {
       throw new StudioApiError(400, 'demo_mode', 'demo mode has no workspace requirement pages')
     },
+    // ACP-2060: a demo snapshot spawns no processes and owns no ports, so the
+    // control reads as stopped (its grey dot renders) and every action that
+    // would touch the host is refused like the other real-store reads.
+    async getDevServer() {
+      return {
+        state: 'stopped' as const,
+        url: '',
+        ports: { web: null, api: null },
+        failedStep: null,
+        message: null,
+        startedAt: null,
+      }
+    },
+    async startDevServer(): Promise<never> {
+      throw new StudioApiError(400, 'demo_mode', 'demo mode never spawns a dev server')
+    },
+    async stopDevServer(): Promise<never> {
+      throw new StudioApiError(400, 'demo_mode', 'demo mode never spawns a dev server')
+    },
+    async getDevServerLog() {
+      return { lines: [] as string[] }
+    },
     async freeze(_id: string, version: string, docName: string, notes?: string) {
       // the snapshot's own duplicate rule (the 409 above), republished on the
       // real endpoint's shape so a demo caller gets the same data-layer refusal
