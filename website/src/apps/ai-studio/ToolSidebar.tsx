@@ -1,7 +1,8 @@
-// Right column: the tool sidebar. Six tool tabs (docs / commits / releases /
-// graph / dev / deploy); every row opens a tab in the center work area via
-// onOpenTab. The graph tab drills type → node → (tab), mirroring the demo's
-// two-level navigation. Docs are the project's real files (passed in from the
+// Right column: the tool sidebar. Seven tool tabs (requirements / docs /
+// commits / releases / graph / dev / deploy); every row opens a tab in the
+// center work area via onOpenTab. The graph tab drills type → node → (tab),
+// mirroring the demo's two-level navigation. Docs are the project's real files
+// (passed in from the
 // workspace query) and the releases tab is the publish version list; the other
 // four tabs are fixture-backed unless a caller injects its own content — the
 // commits lists (ACP-795) and the 开发 / 部署 tabs (ACP-799). Every injection is
@@ -32,11 +33,13 @@ import type {
   StudioReleaseFiles,
 } from './studioApi'
 import PublishVersionList from './PublishVersionList'
+import RequirementsTool from './RequirementsTool'
 import type { WorkTab } from './WorkArea'
 
-type Tool = 'docs' | 'commits' | 'releases' | 'graph' | 'dev' | 'deploy'
+type Tool = 'requirements' | 'docs' | 'commits' | 'releases' | 'graph' | 'dev' | 'deploy'
 
 const TOOL_KEYS: Record<Tool, string> = {
+  requirements: i18nT('apps.aiStudio.tool_requirements'),
   docs: i18nT('apps.aiStudio.tool_docs'),
   commits: i18nT('apps.aiStudio.tool_commits'),
   releases: i18nT('apps.aiStudio.tool_releases'),
@@ -78,7 +81,9 @@ export interface ToolSidebarProps {
   // neither renders exactly what it rendered before: the sidebar always opens
   // on 文档, and the commits tab reads the CHANGED / COMMITS fixtures.
   /** which tool tab is showing on first paint (a demo frame sets 'commits'
-   * to pin the 提交 tab lit); omitted = 'docs' */
+   * to pin the 提交 tab lit); omitted = 'requirements' — ACP-2015 step 2 made
+   * the 需求 tab the workbench's first screen, because the verdict is the first
+   * question a project answers: can it be built yet */
   initialTool?: Tool
   /** the commits tab's 「待提交的改动」 rows (a demo frame's own list) */
   changed?: ChangedFile[]
@@ -174,6 +179,13 @@ initialGraphType?: string
   onCommitted?: (docs: StudioDoc[]) => void
   /** reports the drafted doc names the bar's own query read (ACP-754) */
   onDraftsSeen?: (names: string[]) => void
+  // ---- ACP-2015 step 2 adds the 需求 tab's own live read, on the same
+  // footing as the commit bar above: the tab owns its query, this file only
+  // places the component. Absent `requirementApi` the tab reads the real
+  // studioApi, which is what every ordinary workbench wants; a demo frame
+  // hands in its snapshot fake so the tab never reaches the network.
+  /** the 需求 tab's workspace requirement read source */
+  requirementApi?: StudioApi
 }
 
 /** One entry row of the 需求图谱 tab's list (ACP-797): a node of the frame's
@@ -211,10 +223,10 @@ const MARK_KEY = {
 } as const
 
 export default function ToolSidebar({
-onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
+onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publishApi,
   graphEntries, distillation, realGraph, graphLoop, releaseFiles, releaseAction, dev, devLoop, deploy,
   initialGraphType,
-  commitApi, commitKey = 'real', onCommitted, onDraftsSeen,
+  commitApi, commitKey = 'real', onCommitted, onDraftsSeen, requirementApi,
 }: ToolSidebarProps) {
   const [tool, setTool] = useState<Tool>(initialTool)
   // graph drill state: null = type list, string = inside a type. A frame that
@@ -249,6 +261,9 @@ onOpenTab, docs, projectId, initialTool = 'docs', changed, commits, publishApi,
         ))}
       </div>
       <div className="flex-1 min-h-0 overflow-auto p-3">
+        {tool === 'requirements' && (
+          <RequirementsTool projectId={projectId} api={requirementApi} onOpenTab={onOpenTab} />
+        )}
         {tool === 'docs' && <DocsTool docs={docs} onOpenTab={onOpenTab} />}
 {tool === 'commits' && (
           <CommitsTool

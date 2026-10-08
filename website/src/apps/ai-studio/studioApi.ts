@@ -329,6 +329,42 @@ export interface StudioGeneratedFile {
 }
 
 // ---------------------------------------------------------------------------
+// requirement pages (ACP-2015 step 2, RFC rfc-ai-studio-req-flow §9.4): the
+// read-only view onto the workspace's docs/需求图谱/*.json. Read-only on
+// purpose — 直改 and 开始开发 are steps 3 and 4.
+// ---------------------------------------------------------------------------
+
+/** The v34 verdict, verbatim from ``jc fe reqdoc check``. Three values, and
+ * the backend coerces anything else onto '不齐' (fail closed: an unknown
+ * verdict must never read as 'ready'). */
+export type StudioVerdict = '不齐' | '可以开工但有已知缺口' | '全齐'
+
+/** One page row in the right-hand 需求 tab. */
+export interface StudioRequirementSummary {
+  page: string
+  graphHash: string
+  verdict: StudioVerdict
+  missingCount: number
+  updatedAt: string
+}
+
+/** One page's whole read: the raw graph, the rendered doc (null when the
+ * graph is unqualified — v34 refuses to render those), and the verdict detail
+ * the bar expands. `devState`/`stale` are step-2 constants, step 3 moves them. */
+export interface StudioRequirementPage {
+  page: string
+  graph: unknown
+  markdown: string | null
+  graphHash: string
+  verdict: StudioVerdict
+  errors: string[]
+  missing: string[]
+  tiers: { api: string[]; ui: string[]; parts: string[] }
+  devState: 'editing' | 'requested'
+  stale: boolean
+}
+
+// ---------------------------------------------------------------------------
 // publish (08-publish-app): version rows, release records, form preview and
 // the publish trigger. A separate client object (not a StudioApi member) on
 // purpose: the demo runtime implements StudioApi exactly, and the demo never
@@ -450,6 +486,9 @@ export type StudioApi = {
     Promise<{ distillation: StudioDistillation }>
   listFreezes: (id: string) => Promise<{ freezes: StudioFreeze[] }>
   listDistills: (id: string) => Promise<{ distillations: StudioDistillation[] }>
+  // ACP-2015 step 2: the workspace's requirement pages and one page's read.
+  listRequirements: (id: string) => Promise<{ pages: StudioRequirementSummary[] }>
+  getRequirement: (id: string, page: string) => Promise<StudioRequirementPage>
   // T7 step 4 (ACP-851): the four development phases run the BGDD gate
   // (bgdd repo tools/gate.ts, ACP-848) through the backend. startDevRun is
   // the whole run — it resolves once every phase that got to run has an
@@ -570,6 +609,14 @@ export const studioApi: StudioApi = {
     request<{ freezes: StudioFreeze[] }>(`/projects/${encodeURIComponent(id)}/freezes`),
   listDistills: (id: string) =>
     request<{ distillations: StudioDistillation[] }>(`/projects/${encodeURIComponent(id)}/distills`),
+  // Read-only requirement reads (step 2). A 503 `reqdoc_cmd_unavailable` is a
+  // real answer the verdict bar renders, not something to retry away.
+  listRequirements: (id: string) =>
+    request<{ pages: StudioRequirementSummary[] }>(`/projects/${encodeURIComponent(id)}/requirements`),
+  getRequirement: (id: string, page: string) =>
+    request<StudioRequirementPage>(
+      `/projects/${encodeURIComponent(id)}/requirements/${encodeURIComponent(page)}`,
+    ),
   startDevRun: (id: string, designVersion: string, releaseVersion?: string) =>
     request<{ run: StudioDevRun }>(
       `/projects/${encodeURIComponent(id)}/dev-runs`,

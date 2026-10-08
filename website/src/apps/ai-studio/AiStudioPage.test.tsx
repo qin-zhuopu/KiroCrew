@@ -45,6 +45,10 @@ const api = vi.hoisted(() => ({
     run: { id: 'dev-1', designVersion: 'v1', phases: [], artifacts: [] },
   })),
   listDevRuns: vi.fn(async () => ({ runs: [] })),
+  // ACP-2015 step 2: 需求 is the sidebar's default tab, so every workbench mount
+  // runs the requirement list read; this project has no graphs.
+  listRequirements: vi.fn(async () => ({ pages: [] })),
+  getRequirement: vi.fn(async () => { throw new Error('unused') }),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
@@ -121,6 +125,9 @@ describe('workbench shell', () => {
   it('opens a real project doc from the sidebar into a closable center tab', async () => {
     const user = userEvent.setup()
     renderAt('/workspaces/p1/ai-studio')
+    // ACP-2015 step 2: the sidebar opens on 需求 now, so the doc list is one tab
+    // click away — this test is about the center tab it opens, not the first tab
+    await user.click(await screen.findByRole('tab', { name: 'Docs' }))
     await user.click(await screen.findByText('requirements.md'))
     const tab = await screen.findByRole('tab', { name: /requirements\.md/ })
     expect(document.querySelector('[data-testid="doc-requirements.md"]')).toBeInTheDocument()

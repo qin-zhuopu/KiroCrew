@@ -61,6 +61,11 @@ afterEach(() => {
  * request leaves the test either way. */
 function mountFrame(frame: CommitStateSnapshot, off = false) {
   const onOpenTab = vi.fn()
+  // one fake serves both live seams: the commit bar's drafts and — since
+  // ACP-2015 step 2 made 需求 the default tab, so an `off` mount lands on it —
+  // the 需求 tab's requirement list. The frame's snapshot answers both and no
+  // request leaves the test.
+  const demoApi = createDemoApi(frame.fixture)
   renderStudio(
     <ToolSidebar
       onOpenTab={onOpenTab}
@@ -69,7 +74,8 @@ function mountFrame(frame: CommitStateSnapshot, off = false) {
       initialTool={off ? undefined : frame.activeSidebarTab}
       changed={off ? undefined : frame.changed}
       commits={off ? undefined : frame.commits}
-      commitApi={createDemoApi(frame.fixture)}
+      commitApi={demoApi}
+      requirementApi={demoApi}
       commitKey={frame.id}
     />,
   )
@@ -206,12 +212,13 @@ describe('C1/C2 snapshot data contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('the real ToolSidebar on the commits tab', () => {
-  it('has the commits tab selected and the other five not', () => {
+  it('has the commits tab selected and the other six not', () => {
     mountFrame(C1)
     expect(screen.getByTestId('tool-sidebar')).toBeTruthy()
     const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(6)
-    expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'false', 'false', 'false'])
+    // 7 since ACP-2015 step 2 (需求 leads the row); commits is the third
+    expect(tabs).toHaveLength(7)
+    expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true', 'false', 'false', 'false', 'false'])
     expect(screen.getByRole('tab', { name: 'Commits' }).getAttribute('aria-selected')).toBe('true')
   })
 
@@ -276,8 +283,15 @@ describe('the real ToolSidebar on the commits tab', () => {
 
   it('without the new props the sidebar renders exactly what it rendered before', async () => {
     mountFrame(C1, true)
-    // default tab is still 文档, and its list is the caller's docs
-    expect(screen.getByRole('tab', { name: 'Docs' }).getAttribute('aria-selected')).toBe('true')
+    // The default tab is no longer 文档 — ACP-2015 step 2 moved the sidebar's
+    // first screen to 需求, deliberately. What must not have changed is the
+    // panel BEHIND the default: with the frame's seams dropped, 文档 still
+    // lists the caller's own docs and nothing else. So the before-picture is
+    // asserted by clicking 文档, and 需求 is pinned as the new default.
+    expect(screen.getByRole('tab', { name: 'Requirements' }).getAttribute('aria-selected')).toBe('true')
+    await userEvent.click(screen.getByRole('tab', { name: 'Docs' }))
+    expect(screen.getByText(FOCUS_DOC)).toBeTruthy()
+    await userEvent.click(screen.getByRole('tab', { name: 'Commits' }))
     await userEvent.click(screen.getByRole('tab', { name: 'Commits' }))
     // the shipped fixtures, not the frame's lists
     expect(screen.getByText(CHANGED[0].file)).toBeTruthy()

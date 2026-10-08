@@ -195,6 +195,15 @@ export function createDemoApi(fixture: DemoFixture): StudioApi & {
     async listDevRuns(): Promise<never> {
       throw new StudioApiError(400, 'demo_mode', 'demo mode carries its dev runs on the frame')
     },
+    // ACP-2015 step 2: the demo frames carry no workspace requirement graphs,
+    // so the tab's list is empty (its empty state renders) and opening a page
+    // — which no empty list can offer — is refused like the other real reads.
+    async listRequirements(): Promise<{ pages: never[] }> {
+      return { pages: [] }
+    },
+    async getRequirement(): Promise<never> {
+      throw new StudioApiError(400, 'demo_mode', 'demo mode has no workspace requirement pages')
+    },
     async freeze(_id: string, version: string, docName: string, notes?: string) {
       // the snapshot's own duplicate rule (the 409 above), republished on the
       // real endpoint's shape so a demo caller gets the same data-layer refusal

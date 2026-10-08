@@ -63,6 +63,10 @@ const api = vi.hoisted(() => ({
   listDistills: vi.fn(async () => ({ distillations: [] })),
   listDevRuns: vi.fn(async () => ({ runs: [] })),
   startDevRun: vi.fn(async () => ({ run: { id: 'x', designVersion: '', phases: [], artifacts: [] } })),
+  // ACP-2015 step 2: 需求 is the sidebar's default tab, so every workbench mount
+  // runs the requirement list read; this fixture project has no graphs.
+  listRequirements: vi.fn(async () => ({ pages: [] })),
+  getRequirement: vi.fn(async () => { throw new Error('unused') }),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
@@ -165,7 +169,10 @@ describe('tool sidebar -> work area views', () => {
     // wait out the project-query skeleton before reaching for the sidebar
     await screen.findByTestId('ai-studio')
     const sidebar = screen.getByTestId('tool-sidebar')
-    await user.click(screen.getByText('requirements.md'))
+    // ACP-2015 step 2: the sidebar now opens on 需求, so the doc list has to be
+    // asked for — the test is about tab switching, not about which tab is first
+    await openTool(user, 'Docs')
+    await user.click(await within(sidebar).findByText('requirements.md'))
     await screen.findByTestId('doc-requirements.md')
     await user.click(within(sidebar).getByText('workflow.md'))
     await screen.findByTestId('doc-workflow.md')

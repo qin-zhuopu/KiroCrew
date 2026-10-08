@@ -33,6 +33,7 @@ import type { GraphEntryGroup } from '../ToolSidebar'
 import WorkArea from '../WorkArea'
 import { GRAPH_NODES } from '../fixtures'
 import { renderStudio } from '../testUtils'
+import { createDemoApi } from './runtime'
 import { COMMIT_STATES } from './states-commit'
 import { DESIGN_STATES } from './states-design'
 import {
@@ -79,7 +80,11 @@ afterEach(() => {
  * drops every seam — the ordinary caller's call shape. */
 function mountFrame(frame: GraphStateSnapshot, off = false) {
   const onOpenTab = vi.fn()
-  const view = render(
+  // renderStudio since ACP-2015 step 2: with the seams dropped the sidebar
+  // opens on 需求, whose panel owns a live query — so the mount needs the
+  // providers, and the frame's in-memory fake answers that read (an empty
+  // list; frames carry no graphs) instead of a request leaving the test.
+  const view = renderStudio(
     <ToolSidebar
       onOpenTab={onOpenTab}
       docs={frame.fixture.docs}
@@ -88,6 +93,7 @@ function mountFrame(frame: GraphStateSnapshot, off = false) {
       graphEntries={off ? undefined : frame.graphEntries}
       distillation={off ? undefined : frame.distillation}
       initialGraphType={off ? undefined : frame.graphType}
+      requirementApi={createDemoApi(frame.fixture)}
     />,
   )
   return { onOpenTab, unmount: view.unmount }
@@ -301,7 +307,12 @@ describe('the real ToolSidebar on the 需求图谱 tab', () => {
 
   it('without the new props the tab renders exactly what it rendered before', async () => {
     mountFrame(G2, true)
-    // the demo's default tab is still 文档, and the tab itself is unchanged
+    // The sidebar no longer opens on 文档 — ACP-2015 step 2 moved the first
+    // screen to 需求, deliberately (pinned in states-commit). What must not
+    // have changed is the panel behind it, so the before-picture is asserted by
+    // clicking 文档, and the new default is pinned as a fact.
+    expect(screen.getByRole('tab', { name: 'Requirements' }).getAttribute('aria-selected')).toBe('true')
+    await userEvent.click(screen.getByRole('tab', { name: 'Docs' }))
     expect(screen.getByRole('tab', { name: 'Docs' }).getAttribute('aria-selected')).toBe('true')
     await userEvent.click(screen.getByRole('tab', { name: 'Graph' }))
     // the shipped drill-down: the fixture's node types, and no frame data at all

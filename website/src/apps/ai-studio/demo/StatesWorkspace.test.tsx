@@ -126,8 +126,9 @@ describe('state demo inside the real workbench (ACP-794)', () => {
     // the top bar still shows the project this page loaded
     expect(screen.getByText(/测试项目/)).toBeInTheDocument()
 
-    // the shipped three-column chrome, by its own testids
-    expect(within(screen.getByTestId('tool-sidebar')).getAllByRole('tab')).toHaveLength(6)
+    // the shipped three-column chrome, by its own testids. 7 tool tabs since
+    // ACP-2015 step 2 added 需求 in front of 文档.
+    expect(within(screen.getByTestId('tool-sidebar')).getAllByRole('tab')).toHaveLength(7)
     expect(screen.getByTestId('ai-studio-chat')).toBeInTheDocument()
     expect(screen.getByTestId('recent-activity')).toBeInTheDocument()
     expect(screen.getByTestId('resizer-left')).toBeInTheDocument()

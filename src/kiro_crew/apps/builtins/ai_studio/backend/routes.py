@@ -15,11 +15,18 @@ import base64
 import json
 import logging
 from functools import wraps
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from aiohttp import web
 
-from kiro_crew.apps.builtins.ai_studio.backend import devruns, graph, projects, publish
+from kiro_crew.apps.builtins.ai_studio.backend import (
+    devruns,
+    graph,
+    projects,
+    publish,
+    requirements,
+)
 from kiro_crew.apps.manager import is_app_enabled
 
 logger = logging.getLogger(__name__)
@@ -446,6 +453,48 @@ async def _handle_devrun_get(request: web.Request) -> web.StreamResponse:
     return web.json_response({"run": rec})
 
 
+async def _requirements_target(request: web.Request) -> Path | web.Response:
+    # Shared prologue for the two requirement reads: the project must exist and
+    # its workspace (the repo that actually holds docs/需求图谱) must resolve.
+    # Returning the error response instead of raising keeps the handlers a
+    # straight line.
+    project_id = request.match_info["project_id"]
+    record = await asyncio.to_thread(projects.get_project, project_id)
+    if record is None:
+        return _error("project not found", "project_not_found", 404)
+    ws = requirements.workspace_dir(record, projects.projects_root() / project_id)
+    return ws
+
+
+async def _handle_requirements_list(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/requirements (RFC §9.4 B1): the workspace's pages with
+    # their verdicts. A missing docs/需求图谱 is an empty list, not a 404 — the
+    # right-hand tab has a legitimate empty state.
+    target = await _requirements_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        pages = await asyncio.to_thread(requirements.list_pages, target)
+    except requirements.RequirementError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response({"pages": pages})
+
+
+async def _handle_requirement_page(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/requirements/{page} (RFC §9.4 B2): graph + verdict +
+    # rendered doc, read-only. Runs off the loop because each read spawns two
+    # reqdoc subprocesses.
+    target = await _requirements_target(request)
+    if isinstance(target, web.Response):
+        return target
+    page = request.match_info["page"]
+    try:
+        result = await asyncio.to_thread(requirements.get_page, target, page)
+    except requirements.RequirementError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(result)
+
+
 async def _handle_regen(request: web.Request) -> web.StreamResponse:
     # POST /projects/{id}/regen: render the acceptance doc FROM the graph
     # into the draft layer (graph→doc direction of the BGDD loop, ACP-847).
@@ -485,6 +534,14 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/docs/{{doc_name}}/versions",
         _require_enabled(_handle_doc_versions),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/requirements",
+        _require_enabled(_handle_requirements_list),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/requirements/{{page}}",
+        _require_enabled(_handle_requirement_page),
     )
     app.router.add_get(f"{_BASE}/graph", _require_enabled(_handle_graph))
     app.router.add_post(f"{_BASE}/projects/{{project_id}}/freeze", _require_enabled(_handle_freeze))

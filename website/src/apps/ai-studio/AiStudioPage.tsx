@@ -645,7 +645,16 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               projectId={projectId}
               initialTool={
                 demoDevDeploy ? demoDevDeploy.activeSidebarTab
-                  : demoGraph ? 'graph' : demoRelease ? 'releases' : demoCommit ? 'commits' : 'docs'
+                  : demoGraph ? 'graph' : demoRelease ? 'releases' : demoCommit ? 'commits'
+                    // a frame that names no tab keeps 文档 explicitly rather than
+                    // riding the component's default: ACP-2015 step 2 moved that
+                    // default to 需求, and a demo frame has no workspace repo, so
+                    // inheriting it would have every design frame open on 「this
+                    // workspace has no requirement graphs」. The ORDINARY
+                    // workbench (no frame) passes undefined and gets the new
+                    // default — the first screen a real project answers is its
+                    // readiness verdict.
+                    : demoState ? 'docs' : undefined
               }
               changed={demoCommit?.changed}
               commits={demoCommit?.commits}
@@ -707,6 +716,10 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               // frame's draft list instead of serving the previous one's
               commitApi={shownApi}
               commitKey={demoState?.id ?? 'real'}
+              // ACP-2015 step 2: the 需求 tab's workspace read. The frame's
+              // snapshot fake answers with an empty list (a demo frame has no
+              // workspace repo), the ordinary workbench reads the real client.
+              requirementApi={shownApi}
               onCommitted={onDocCommitted}
               // no onDraftsSeen: the feed reads the drafts query this page owns
               // (same key as the bar's, so the bar opening shares that read

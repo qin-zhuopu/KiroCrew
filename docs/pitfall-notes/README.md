@@ -71,3 +71,19 @@
   不命中（服务 200 但会话全起不来，要 exec 档案附着的真实路径 + `PYTHONPATH` 换源码树，
   判据是 `/proc/<pid>/attr/current`）；`kirocrew token` 的链接票恒 300 秒（`--ttl` 只搬
   `session_exp`），中途必失效，脚本要换 cookie 且换/用同一主机名。
+- [20261008-155500-ai-studio-cjk-project-id-collides-in-same-second.md](20261008-155500-ai-studio-cjk-project-id-collides-in-same-second.md) —
+  同一测试里连建两个中文名项目，第二个 `KeyError: 'project'`：纯中文名 slug 为空、
+  项目 id 只剩秒级时间戳，同秒撞目录 → create 回 503（没有 `project` 键）。测试改
+  用能 slug 的 ASCII 名，生产语义不动。
+- [20261008-161000-headless-probe-on-dev-origin-self-inflicted-blank-page.md](20261008-161000-headless-probe-on-dev-origin-self-inflicted-blank-page.md) —
+  无头探针在 dev 域名上「必定起不来」，四个自挖坑：在途请求没跑完就
+  `unregister()` Service Worker（把偶发丢包做成 100% 失败）；cookie 改名到
+  localhost 走 vite 直连，代理 `changeOrigin` 让 `/api` 全 403，SPA 只剩空壳；
+  用 CDP 塞 cookie 头把 token 钉死在过期那份；全新 context 没 seed
+  `mc-onboarded`，首启弹窗吃掉所有点击。dev 域名偶发丢模块是真的，但「必定失败」
+  都是我自己造的——正解是失败就换全新 context 重试，不存在那个神奇启动参数。
+- [20261008-164500-local-gate-red-list-is-mostly-not-yours.md](20261008-164500-local-gate-red-list-is-mostly-not-yours.md) —
+  提交前门禁 6 红的分诊：`local-gate.py` 要用 `.venv/bin/python` 跑（系统 python3
+  没 pytest）；worktree 的 venv 软链主仓、`pytest_split` 没装 → CI 专属插件用例
+  本机必红；其余是存量文档目录债与并行 flake。用 `git worktree add --detach HEAD`
+  造干净对照自证归属（记得 `PYTHONPATH=$PWD/src`）。

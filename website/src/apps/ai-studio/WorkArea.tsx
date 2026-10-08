@@ -9,6 +9,7 @@ import DeployLog from './DeployLog'
 import DiffView from './DiffView'
 import DocEditor from './DocEditor'
 import NodeDetail from './NodeDetail'
+import RequirementPage from './RequirementPage'
 import type { StudioApi } from './studioApi'
 
 export type WorkTab =
@@ -29,6 +30,10 @@ export type WorkTab =
   | { id: string; kind: 'diff'; title: string; file: string }
   | { id: string; kind: 'commit'; title: string; commitId: string }
   | { id: string; kind: 'node'; title: string; type: string; nodeId: string }
+  // ACP-2015 step 2: one workspace requirement page, read from the project's
+  // workspace docs/需求图谱. `page` is the graph file's stem, which is also the
+  // tab's identity (openTab dedupes by id, and a page has exactly one tab).
+  | { id: string; kind: 'req'; title: string; page: string }
   | { id: string; kind: 'deploy'; title: string; deployId: string }
 
 export interface WorkAreaProps {
@@ -108,6 +113,16 @@ export default function WorkArea({ tabs, activeId, onSelect, onClose, projectId,
           <CommitView commitId={active.commitId} />
         ) : active.kind === 'node' ? (
           <NodeDetail type={active.type} nodeId={active.nodeId} />
+        ) : active.kind === 'req' ? (
+          // read before the deploy fallback on purpose: that branch is the
+          // chain's unguarded `:`, so a new kind placed after it would render
+          // DeployLog with an undefined deployId
+          <RequirementPage
+            key={`${projectId}:${active.page}`}
+            projectId={projectId}
+            page={active.page}
+            api={api}
+          />
         ) : (
           <DeployLog deployId={active.deployId} projectId={projectId} />
         )}
