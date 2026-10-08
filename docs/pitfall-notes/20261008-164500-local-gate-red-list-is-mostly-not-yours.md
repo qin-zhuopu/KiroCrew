@@ -66,6 +66,34 @@ PYTHONPATH=$PWD/src <主仓>/.venv/bin/python -m pytest -q -p no:randomly \
 - 用完 `git worktree remove` 掉，别留（本仓 `.worktrees/` 之外的 worktree
   也会进全仓扫描，见 AGENTS.md 的测试约定）
 
+## 前端那 9 个红同理：`src/test/` 是全局目录，改动会扫到它
+
+`local-gate.py` 的前端半边按 diff 扩范围，会连带跑 `website/src/test/`。我这次
+`npx vitest run src/apps/ai-studio/` 是 223 全绿，而半边跑出来是
+**56 failed | 14676 passed**，红的 9 个文件一个都不在 `src/apps/ai-studio/` 下。
+同样造一个前端对照（worktree 里 `website/node_modules` 是指向主仓的软链，直接复用，
+**不要 npm install**）：
+
+```bash
+git worktree add ../wt-ctl-kc2 HEAD~1 --detach
+ln -s <主仓>/website/node_modules ../wt-ctl-kc2/website/node_modules
+cd ../wt-ctl-kc2/website && npx vitest run <那 9 个文件>
+# 控制组 8 failed | 41 failed tests —— 与我这边同命令同输出，逐条同名
+```
+
+`approvalOneShotDecisionRule.test.ts` 是第 9 个，单独跑（第一次写成 `.tsx` 没匹配到，
+所以两边都只跑了 8 个文件，别把这个当成差异）：控制组同样红，
+`Cannot find package '@shadcn/lint'` —— 它在 `website/package.json` 的 devDependencies
+里声明了但本机 `node_modules` 没装（约定禁装）。41 + 15 = 56，正好等于半边跑的全部红数。
+
+三类根因，都跟改动无关：
+
+| 红的文件 | 根因 |
+|---|---|
+| `DiffBlock.streaming` / `MarkdownRendererCoverage` / `normalizePatchHunks` / `PierreImpl.workerPool` / `ArtifactDetailPage` | `Denied ID .../KiroCrew/website/node_modules/@pierre/diffs/...` —— vite 的 `server.fs.allow` 只放行本仓 `__dirname`（见 `vite.config.ts` 里那段 allow 白名单），而 worktree 的 `node_modules` **软链**解析到主仓真实路径，落在白名单外 |
+| `approvalOneShotDecisionRule` | 缺 `@shadcn/lint`（`website/eslint.config.js` 顶层 import，测试装配时会走到） |
+| `appManifest` / `safeArea.guard` / `SchedulePage.secrets` | 存量断言债：`APP_MANIFEST_KEY` 里没有 `ai-studio`（和上面 `apps.md` 缺登记是同一笔账的前端半边）；safe-area 守卫有人新贴了贴边 fixed 元素；`closest` 那个是 mock 缺节点 |
+
 ## 怎么避免
 
 - **本机跑门禁一律用 `.venv/bin/python`**，不是 `python3`；`No module named pytest`
@@ -75,6 +103,6 @@ PYTHONPATH=$PWD/src <主仓>/.venv/bin/python -m pytest -q -p no:randomly \
 - **自己新增的 subprocess 调用一律 `encoding="utf-8"`**：
   `check_subprocess_encoding.py` 会按 `origin/main...HEAD` 的范围报「新增违规」，
   而它同样会报出这条范围里**别人**留下的旧账（这次报的是
-  `ai_studio/backend/devruns.py:131`，9-27 的提交，与本步无关）——
-  看到 rc=1 先看文件是不是自己碰过的
+  `ai_studio/backend/devruns.py` 里那个没给 encoding 的 `Popen`，9-27 的提交，
+  与本步无关）—— 看到 rc=1 先看文件是不是自己碰过的
 - **并行 flake 的特征**是「单跑绿、`-n auto` 红」：别去改被测代码，记下用例名
