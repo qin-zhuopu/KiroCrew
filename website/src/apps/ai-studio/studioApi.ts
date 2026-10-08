@@ -464,6 +464,36 @@ export interface StudioDevServer {
 }
 
 // ---------------------------------------------------------------------------
+// production server (ACP-2085-S5, 08-publish-app): the same pair as above on its
+// OWN domain pair (a stable one plus a per-version one), reachable only after an
+// acceptance pass with no commits after it. `step` is which of the seven deploy
+// steps is running; `failedStep`/`message` are populated ONLY while failed.
+// ---------------------------------------------------------------------------
+
+/** Grey / amber / green / red, same four the dev-server control renders. */
+export type StudioProdServerState = 'stopped' | 'deploying' | 'running' | 'failed'
+
+export interface StudioProdServer {
+  state: StudioProdServerState
+  /** the stable URL: https://<代号>-<工号>.gb10.jereh-pe.cn */
+  url: string
+  /** the per-version URL: https://v<N>-<代号>-<工号>.… */
+  versionUrl: string
+  /** 「v<N>」, from the release ledger's row count */
+  version: string
+  ports: { web: number | null; api: number | null }
+  /** which of the seven steps is running, ONLY while deploying */
+  step: string | null
+  failedStep: string | null
+  /** the failing step's one-line reason — shown verbatim, never rephrased */
+  message: string | null
+  /** ISO timestamp of the last successful deploy, null before it */
+  deployedAt: string | null
+  /** the commit the version tag was put on */
+  commit: string
+}
+
+// ---------------------------------------------------------------------------
 // development board + acceptance (ACP-2085-S4): the serial per-page task run
 // and the workspace's own checks. Real-store only, on the same footing as the
 // publish client below: the demo runtime implements StudioApi exactly and never
@@ -711,6 +741,22 @@ export type StudioApi = {
   getDevServerLog: (id: string, lines?: number) => Promise<{ lines: string[] }>
 }
 
+/** The production server's four calls (ACP-2085-S5). A separate client object —
+ * `publishApi` / `requirementWriteApi` precedent, same reason: the demo runtime
+ * implements `StudioApi` exactly, and a snapshot deploys nothing, tags nothing
+ * and owns no domain, so faking 「正式运行中」 would be precisely the dishonesty the
+ * demo doctrine forbids. `deployProdServer` answers 409 `not_accepted` when the
+ * workspace has no passing acceptance record at HEAD; that is a refusal the
+ * panel shows as one grey line, never as an error dialog. */
+export type StudioProdServerApi = {
+  getProdServer: (id: string) => Promise<StudioProdServer>
+  /** 202 with the state AFTER the seven steps ran (running / failed) or, while a
+   * background deploy is still in flight, `deploying`. */
+  deployProdServer: (id: string) => Promise<StudioProdServer>
+  stopProdServer: (id: string) => Promise<StudioProdServer>
+  getProdServerLog: (id: string, lines?: number) => Promise<{ lines: string[] }>
+}
+
 /** The derive job's two reads (ACP-2085). A separate client object, the
  * `publishApi` precedent and for the same reason: the demo runtime implements
  * `StudioApi` exactly, and a snapshot fakes no clone, no repo and no push — so
@@ -906,6 +952,27 @@ export const requirementWriteApi = {
     request<StudioStartRequestResult>(
       `/projects/${encodeURIComponent(id)}/requirements/${encodeURIComponent(page)}/start`,
       { method: 'POST', body: JSON.stringify({ graphHash }) },
+    ),
+}
+
+export const prodServerApi: StudioProdServerApi = {
+  getProdServer: (id: string) =>
+    request<StudioProdServer>(`/projects/${encodeURIComponent(id)}/prod-server`),
+  deployProdServer: (id: string) =>
+    request<StudioProdServer>(`/projects/${encodeURIComponent(id)}/prod-server/deploy`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  stopProdServer: (id: string) =>
+    request<StudioProdServer>(`/projects/${encodeURIComponent(id)}/prod-server/stop`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  // 80 is the ticket's default and the backend's own: the file holds the build
+  // output plus both children's stdout, so the interesting part is the end.
+  getProdServerLog: (id: string, lines = 80) =>
+    request<{ lines: string[] }>(
+      `/projects/${encodeURIComponent(id)}/prod-server/log?lines=${encodeURIComponent(String(lines))}`,
     ),
 }
 

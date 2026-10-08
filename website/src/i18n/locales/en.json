@@ -227,6 +227,23 @@
         "log_loading": "Reading the log…",
         "log_empty": "No log output yet"
       },
+      "prodServer": {
+        "stopped": "Not deployed",
+        "deploying": "Deploying…",
+        "running": "Live in production",
+        "failed": "Deploy failed",
+        "deploying_step": "Deploying: {{step}}",
+        "querying": "Checking…",
+        "deploy": "Deploy to production",
+        "redeploy": "Redeploy",
+        "stop": "Stop production server",
+        "version": "Version {{version}}",
+        "not_accepted": "Pass acceptance first",
+        "view_log": "View log",
+        "hide_log": "Hide log",
+        "log_loading": "Reading the log…",
+        "log_empty": "No log output yet"
+      },
       "newWorkspace": {
         "title": "New workspace",
         "progress_title": "Creating workspace",

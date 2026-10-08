@@ -27,6 +27,7 @@ import { i18nT } from '../../i18n/t'
 import ChatPane from './ChatPane'
 import DevServerControl from './DevServerControl'
 import DevLoopPanel from './DevLoopPanel'
+import ProdServerControl from './ProdServerControl'
 import GraphLoopPanel from './GraphLoopPanel'
 import ProjectsListPage from './ProjectsListPage'
 import RecentActivityFeed from './RecentActivityFeed'
@@ -568,6 +569,11 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
             about the project's documents. Absent in the demo: a snapshot spawns
             no processes and owns no ports, and the frames are frozen copy. */}
         {!demoStates && <DevServerControl projectId={projectId} />}
+        {/* ACP-2085-S5: the production-server control, immediately right of the
+            dev one — the two are the same shape (a host-side process pair behind
+            a domain) and reading them side by side is the point: 开发网址 and
+            正式网址 in one glance. Absent in the demo for the same reason. */}
+        {!demoStates && <ProdServerControl projectId={projectId} />}
       </header>
       {/* the recent-activity feed, the same component the demo workbench
        * mounts (ACP-754) — the hook exists on both surfaces, fed by data

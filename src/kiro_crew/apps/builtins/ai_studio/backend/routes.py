@@ -26,6 +26,7 @@ from kiro_crew.apps.builtins.ai_studio.backend import (
     devruns,
     devserver,
     graph,
+    prodserver,
     projects,
     publish,
     reqsession,
@@ -935,6 +936,79 @@ async def _handle_accept_records(request: web.Request) -> web.StreamResponse:
     return web.json_response({"records": records})
 
 
+async def _prod_server_target(request: web.Request) -> prodserver.ProdServer | web.Response:
+    # Shared prologue for the four prod-server routes (ACP-2085-S5): the project
+    # must exist and its workspace (where .ai-studio/prod-server.json lives) must
+    # resolve. ``prod_server_for`` caches the object process-wide because the
+    # "deploying" fact lives on it — a fresh instance per request would report a
+    # deploying project as stopped and let a second click spawn a second set.
+    project_id = request.match_info["project_id"]
+    record = await asyncio.to_thread(projects.get_project, project_id)
+    if record is None:
+        return _error("project not found", "project_not_found", 404)
+    ws = requirements.workspace_dir(record, projects.projects_root() / project_id)
+    return prodserver.prod_server_for(record, ws)
+
+
+async def _handle_prod_server_get(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/prod-server: the recomputed truth (pids alive AND the
+    # stable URL answers 200), never the state file alone. Polled every 2s while
+    # deploying; a build is minutes long so the poll is the only honest UI.
+    target = await _prod_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        view = await asyncio.to_thread(target.status)
+    except OSError:
+        logger.exception("ai-studio prod-server status read failed")
+        return _error("could not read the prod server state", "store_write_failed", 503)
+    return web.json_response(view)
+
+
+async def _handle_prod_server_deploy(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/prod-server/deploy: the acceptance gate is checked
+    # SYNCHRONOUSLY (a 409 not_accepted is a refusal a human must read, not a
+    # failure that appears after we already said 「部署中」), then the seven steps
+    # hand off to a background thread — a build never blocks a request.
+    target = await _prod_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        view = await asyncio.to_thread(target.deploy)
+    except prodserver.ProdServerError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(view, status=202)
+
+
+async def _handle_prod_server_stop(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/prod-server/stop: kill the process groups, drop the
+    # gateway conf (+reload), release the ports. Inline — bounded by the SIGTERM
+    # grace, not by a build.
+    target = await _prod_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        view = await asyncio.to_thread(target.stop)
+    except prodserver.ProdServerError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(view)
+
+
+async def _handle_prod_server_log(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/prod-server/log?lines=80: the tail of the build output
+    # and both children's merged stdout/stderr — the route's `message` is one
+    # line by design, and a build failure's real error is never in one line.
+    target = await _prod_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        lines = int(request.query.get("lines", "80"))
+    except ValueError:
+        lines = 80
+    tail = await asyncio.to_thread(target.log_tail, lines)
+    return web.json_response({"lines": tail})
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -1031,6 +1105,26 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/accept/records",
         _require_enabled(_handle_accept_records),
+    )
+    # ACP-2085-S5: the production server. ``prod-server`` is a literal segment
+    # distinct from ``dev-server`` (they differ at the 5th character), and
+    # ``prod-server/deploy`` / ``/stop`` / ``/log`` carry a further segment, so
+    # nothing here can be reached by another route.
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/prod-server",
+        _require_enabled(_handle_prod_server_get),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/prod-server/deploy",
+        _require_enabled(_handle_prod_server_deploy),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/prod-server/stop",
+        _require_enabled(_handle_prod_server_stop),
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/prod-server/log",
+        _require_enabled(_handle_prod_server_log),
     )
     app.router.add_post(f"{_BASE}/projects/{{project_id}}/freeze", _require_enabled(_handle_freeze))
     app.router.add_get(

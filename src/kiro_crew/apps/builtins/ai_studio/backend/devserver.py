@@ -57,9 +57,10 @@ _STUDIO_DIR = ".ai-studio"
 #: 装依赖的天花板：pnpm 装一个 monorepo 冷启动是分钟级，这个只挡死住的孩子。
 _INSTALL_TIMEOUT_S = 900
 
-#: 网址检查：每 2 秒一次，120 秒内 200 才算 running。
-_PROBE_INTERVAL_S = 2.0
-_PROBE_TIMEOUT_S = 120.0
+#: 网址检查：每 2 秒一次，120 秒内 200 才算 running。公开：正式服务器的「检查
+#: 网址」是同一步，节奏也必须一致（两个数字各写一份，改一处就漂一处）。
+PROBE_INTERVAL_S = 2.0
+PROBE_TIMEOUT_S = 120.0
 
 #: SIGTERM 后等多久升 SIGKILL。
 _KILL_WAIT_S = 5.0
@@ -83,11 +84,13 @@ class DevServerError(Exception):
         self.status = status
 
 
-def dev_domain(project: dict[str, Any], staff_id: str | None) -> str:
-    """``<代号>-<工号><后缀>``。
+def domain_label(project: dict[str, Any], staff_id: str | None) -> str:
+    """域名里属于这个项目的标签 ``<代号>-<工号>``（不含后缀）。
 
     代号取 ``project['code']``，没有就退化成项目 id；两者都先转小写再验字符集。
-    工号来自 ``KIROCREW_STAFF_ID``，只许数字或小写字母。
+    工号来自 ``KIROCREW_STAFF_ID``，只许数字或小写字母。公开给 ``prodserver``：
+    正式网址和开发网址的唯一区别就是后缀，代号/工号的规矩必须一字不差地共用
+    这一份 —— 两份各自验一遍，就会有一边先漂。
     """
     raw = project.get("code")
     if not (isinstance(raw, str) and raw.strip()):
@@ -101,7 +104,12 @@ def dev_domain(project: dict[str, Any], staff_id: str | None) -> str:
         raise DevServerError("没有工号：请设置 KIROCREW_STAFF_ID", "no_staff_id", 400)
     if not _STAFF_RE.match(staff):
         raise DevServerError("没有工号：请设置 KIROCREW_STAFF_ID", "no_staff_id", 400)
-    return f"{code}-{staff}{domain_suffix()}"
+    return f"{code}-{staff}"
+
+
+def dev_domain(project: dict[str, Any], staff_id: str | None) -> str:
+    """``<代号>-<工号><后缀>``。规则全在 :func:`domain_label`。"""
+    return f"{domain_label(project, staff_id)}{domain_suffix()}"
 
 
 def domain_suffix() -> str:
@@ -220,35 +228,69 @@ def staff_id() -> str:
     return (os.environ.get("KIROCREW_STAFF_ID") or "").strip()
 
 
-def _now_iso() -> str:
+def now_iso() -> str:
+    """本地时区的 ISO 时间戳。公开：正式服务器（``prodserver``）写自己的状态文件
+    要用同一个格式，两处两种时间格式在界面上就是两种「上次部署时间」。"""
     return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
 
 
-def _proc_alive(pid: Any) -> bool:
+def read_json_file(path: Path) -> dict[str, Any]:
+    """读一份 JSON 对象，读不动或形状不对就是空字典。公开同上的理由：状态文件
+    是磁盘上的旧文件（手改过、上一版代码写的、还没写过），读它不许崩。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def proc_alive(pid: Any) -> bool:
+    """pid 是否还是个活着的进程。``pid > 1`` 是刻意的：1 是 init，往里发信号
+    等于对本机广播。"""
     return isinstance(pid, int) and pid > 1 and platform_compat.pid_exists(pid)
 
 
-def _proc_start_time(pid: int) -> str | None:
+def proc_start_time(pid: int) -> str | None:
+    """进程签名（启动时刻），读不到回 None。"""
     try:
         return platform_compat.process_start_time(pid)
     except OSError:
         return None
 
 
+def safe_conf_name(prefix: str, label: str) -> str:
+    """conf 文件名（不含后缀）= ``<前缀>-<清洗过的标签>``。
+
+    名字最后要进文件路径，所以不是 ``[a-z0-9-]`` 的字符全换成 ``-``。公开给
+    ``prodserver``（它的前缀是 ``ais-prod``，和开发服务器的 conf 必须分开：一个
+    项目的开发实例和正式实例可以同时挂着，删一个不许碰另一个）。
+    """
+    safe = re.sub(r"[^a-z0-9-]+", "-", (label or "").lower()).strip("-")
+    return f"{prefix}-{safe or 'default'}"
+
+
 def conf_stem(domain: str) -> str:
     """conf 文件名（不含后缀）：``ais-<代号>-<工号>``。
 
     域名去掉后缀就是标签；后缀被改过（`AI_STUDIO_DEV_DOMAIN_SUFFIX`）也要能算出
-    稳定的名字，所以拿不到标签时退回清洗整个域名。名字最后要进文件路径，这里
-    顺手把不是 ``[a-z0-9-]`` 的字符全换成 ``-``。
+    稳定的名字，所以拿不到标签时退回清洗整个域名。
     """
     suffix = domain_suffix()
     label = domain[: -len(suffix)] if suffix and domain.endswith(suffix) else domain
-    safe = re.sub(r"[^a-z0-9-]+", "-", label.lower()).strip("-")
-    return f"ais-{safe or 'default'}"
+    return safe_conf_name("ais", label)
 
 
-def _proc_entries(state: dict[str, Any]) -> list[dict[str, Any]]:
+def merge_json_file(path: Path, **fields: Any) -> dict[str, Any]:
+    """把 ``fields`` 并进一份 JSON 文件并写回，返回合并后的整份。公开：正式
+    服务器的状态文件也是「读旧 → 改几个键 → 写回」，两份各写一遍就会漂。"""
+    merged = read_json_file(path)
+    merged.update(fields)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return merged
+
+
+def proc_entries(state: dict[str, Any]) -> list[dict[str, Any]]:
     """状态里的进程清单 ``[{pid, name, startTime}]``，形状不对的一律丢掉。
 
     状态文件是磁盘上的旧 JSON，可能被手改过、也可能是上一版代码写的：读它不能
@@ -260,7 +302,7 @@ def _proc_entries(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [one for one in raw if isinstance(one, dict)]
 
 
-def _identity_matches(pid: int, expected: str | None) -> bool:
+def identity_matches(pid: int, expected: str | None) -> bool:
     """pid 是否仍是我们起的那个进程。
 
     没有签名可比时放行（本机开发服务器，签名读不到通常是进程刚没了）；有签名就
@@ -268,15 +310,17 @@ def _identity_matches(pid: int, expected: str | None) -> bool:
     """
     if not expected:
         return True
-    return _proc_start_time(pid) == expected
+    return proc_start_time(pid) == expected
 
 
-def _tail(text: str, limit: int = 600) -> str:
+def tail_text(text: str, limit: int = 600) -> str:
     text = (text or "").strip()
     return text[-limit:] if len(text) > limit else text
 
 
-def _pos_int(value: Any) -> int | None:
+def pos_int(value: Any) -> int | None:
+    """状态文件里的数字：可能是 int，也可能是手改成字符串的旧文件。bool 不算数
+    （``True`` 变成 1 就是一个指向 1 号端口的端口号）。"""
     if isinstance(value, bool):
         return None
     if isinstance(value, int) and value > 0:
@@ -284,6 +328,156 @@ def _pos_int(value: Any) -> int | None:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     return None
+
+
+def run_capped(
+    cmd: list[str], cwd: Path, env: dict, log_path: Path, timeout_s: float
+) -> tuple[int, str]:
+    """跑一条会自己结束的命令（构建一类），输出并进日志文件。回 (退出码, 尾巴)。
+
+    公开给 ``prodserver`` 的构建步骤用：跑法与超时都只有一份。**不许改成管道**
+    —— 子进程写满管道缓冲区后会阻塞在写操作上，而父进程在等它退出，那就是死锁。
+    所以 stdout 直接落文件，失败时再从文件里截尾巴当错误原文。
+    """
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("ab") as log_file:
+        start = log_file.tell()
+        try:
+            proc = subprocess.run(
+                list(cmd),
+                cwd=str(cwd),
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                timeout=timeout_s,
+                check=False,
+            )
+        except FileNotFoundError:
+            return 127, f"command not found: {cmd[0]}"
+        except subprocess.TimeoutExpired:
+            return 124, f"timed out after {timeout_s:.0f}s: {' '.join(cmd)}"
+        except OSError as exc:
+            return 127, f"could not run {cmd[0]}: {exc}"
+        try:
+            log_file.flush()
+            with log_path.open("rb") as reader:
+                reader.seek(start)
+                tail = reader.read().decode("utf-8", errors="replace")
+        except OSError:
+            tail = ""
+    return int(proc.returncode), tail
+
+
+def stored_ports(state: dict[str, Any]) -> list[int]:
+    """状态文件里记着的端口（去重、按 api/web 顺序）。公开给 ``prodserver``。"""
+    raw = state.get("ports")
+    ports: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    out: list[int] = []
+    for key in ("api", "web"):
+        value = pos_int(ports.get(key))
+        if value is not None and value not in out:
+            out.append(value)
+    return out
+
+
+def children_alive(state: dict[str, Any]) -> bool:
+    """状态里记着的进程都还在才算活着；只记了一个 pid 的旧文件就只验那一个。"""
+    procs = proc_entries(state)
+    if procs:
+        return all(proc_alive(one.get("pid")) for one in procs)
+    return proc_alive(state.get("pid"))
+
+
+def kill_group(state: dict[str, Any], sleep: Callable[[float], None] = time.sleep) -> None:
+    """SIGTERM 整组，等一会儿还活着就 SIGKILL。
+
+    子进程都是 ``start_new_session=True`` 的组长，杀组就覆盖它带起来的整棵子树
+    （pnpm → node → esbuild）。pid 可能已被回收，所以发信号前先比 ``startTime``
+    签名，身份不符就当它早不在了 —— 这是 platform_compat 对 os.kill 的硬教训
+    （Windows 上 os.kill(pid, 0) 是杀进程不是探活）。
+    """
+    entries = proc_entries(state)
+    if not entries and pos_int(state.get("pid")) is not None:
+        entries = [{"pid": state.get("pid"), "startTime": state.get("startTime")}]
+    targets: list[tuple[int, str | None]] = []
+    seen: set[int] = set()
+    for one in entries:
+        pid = pos_int(one.get("pid"))
+        if pid is None or pid in seen:
+            continue
+        seen.add(pid)
+        raw = one.get("startTime")
+        targets.append((pid, raw if isinstance(raw, str) else None))
+    _signal_targets(targets, platform_compat.SIGTERM)
+    for _ in range(int(_KILL_WAIT_S / 0.1)):
+        if not any(proc_alive(pid) for pid, _ in targets):
+            return
+        sleep(0.1)
+    _signal_targets(targets, platform_compat.SIGKILL)
+
+
+def _signal_targets(targets: list[tuple[int, str | None]], sig: int) -> None:
+    for pid, expected in targets:
+        if not proc_alive(pid) or not identity_matches(pid, expected):
+            continue
+        try:
+            platform_compat.kill_process_tree(pid, sig)
+        except (ProcessLookupError, PermissionError, ValueError, OSError):
+            continue  # 死了 / 不是我们的 / 拒绝对组广播 —— 都无需再动
+
+
+def log_tail_lines(path: Path, lines: int, default: int = 50, cap: int = 500) -> list[str]:
+    """日志文件的尾巴若干行。读不到（还没写过）就是空列表，不是异常。"""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    all_lines = text.splitlines()
+    count = lines if isinstance(lines, int) and 0 < lines <= cap else default
+    return all_lines[-count:]
+
+
+def pick_two_ports(ports: Any, port_range: tuple[int, int], owner: str) -> tuple[int, int]:
+    """在 ``port_range`` 里找两个可用端口并 claim，回 (先申请的, 后申请的)。
+
+    「可用」= 能 bind 且 ``resreg check`` 空闲，两样都归 ``ports`` 这个接缝
+    （真版是 :class:`ResregPorts`）：bind 过了不 claim 就是往登记处写垃圾，
+    而 claim 之前不 bind 就是抢一个已被占用的端口。测试注入替身，一个真
+    socket 都不碰。
+    """
+    found: list[int] = []
+    for port in range(port_range[0], port_range[1] + 1):
+        if len(found) == 2:
+            break
+        try:
+            if not ports.free(port):
+                continue
+        except Exception as exc:
+            raise DevServerError(str(exc), "port_registry_unavailable", 503) from exc
+        found.append(port)
+    if len(found) < 2:
+        raise DevServerError(
+            f"{port_range[0]}~{port_range[1]} 里没有两个可用端口", "no_free_port", 503
+        )
+    for port in found:
+        try:
+            ports.claim(port, owner)
+        except Exception as exc:
+            raise DevServerError(str(exc), "port_registry_unavailable", 503) from exc
+    return found[0], found[1]
+
+
+def probe_status(url: str) -> int:
+    """GET 首页拿状态码，**不走代理**（挂了代理连自己的域名就是自寻死路）。"""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(url, timeout=5) as resp:
+            code = getattr(resp, "status", None)
+            return int(code) if code is not None else 200
+    except urllib.error.HTTPError as exc:
+        # 有状态码就如实报（502 = 网关通但上游没起，是「还没通」而不是异常）
+        return int(exc.code)
+    # 连接被拒 / DNS 还没生效 / 超时：调用方按「还没通」处理，异常往上抛即可
 
 
 class DevServer:
@@ -305,7 +499,7 @@ class DevServer:
         ports: Any | None = None,
         gateway: Any | None = None,
         installer: Callable[[Path, dict, Path], int] | None = None,
-        probe_timeout_s: float = _PROBE_TIMEOUT_S,
+        probe_timeout_s: float = PROBE_TIMEOUT_S,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.ws = Path(ws)
@@ -334,20 +528,10 @@ class DevServer:
         return self.ws / _STUDIO_DIR / _LOG_FILE
 
     def _read_state(self) -> dict[str, Any]:
-        try:
-            data = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        return data if isinstance(data, dict) else {}
+        return read_json_file(self.state_path)
 
     def _write_state(self, **fields: Any) -> dict[str, Any]:
-        merged = self._read_state()
-        merged.update(fields)
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.state_path.write_text(
-            json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
-        return merged
+        return merge_json_file(self.state_path, **fields)
 
     # -- 读 --------------------------------------------------------------
 
@@ -393,13 +577,7 @@ class DevServer:
         }
 
     def log_tail(self, lines: int = 50) -> list[str]:
-        try:
-            text = self.log_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return []
-        all_lines = text.splitlines()
-        count = lines if isinstance(lines, int) and 0 < lines <= 500 else 50
-        return all_lines[-count:]
+        return log_tail_lines(self.log_path, lines)
 
     # -- 启 --------------------------------------------------------------
 
@@ -423,7 +601,7 @@ class DevServer:
             pid=None,
             procs=[],
             ports={},
-            startedAt=_now_iso(),
+            startedAt=now_iso(),
         )
         self._busy_gen = generation
         try:
@@ -484,7 +662,7 @@ class DevServer:
                 except DevServerError as exc:
                     raise _StepError(step, str(exc)) from exc
             for one in spawned:
-                one["startTime"] = _proc_start_time(int(one["pid"]))
+                one["startTime"] = proc_start_time(int(one["pid"]))
             self._write_state(procs=spawned, pid=int(spawned[0]["pid"]))
             if self._abandoned(generation):
                 raise _Abandoned()
@@ -502,7 +680,7 @@ class DevServer:
             url = f"https://{domain}/"
             # 轮数而不是墙上时钟：注入 sleep 的测试里循环必须确定性走完，
             # 拿 monotonic 比时界会变成空转（真跑时 60 轮 × 2 秒 = 120 秒，等价）。
-            for _ in range(max(1, int(self._probe_timeout_s // _PROBE_INTERVAL_S))):
+            for _ in range(max(1, int(self._probe_timeout_s // PROBE_INTERVAL_S))):
                 if self._abandoned(generation):
                     raise _Abandoned()
                 if self._probe_ok(url):
@@ -510,7 +688,7 @@ class DevServer:
                         raise _StepError(STEP_PROBE, "进程已退出")
                     self._write_state(state="running", failedStep=None, message=None, url=url)
                     return
-                self._sleep(_PROBE_INTERVAL_S)
+                self._sleep(PROBE_INTERVAL_S)
             raise _StepError(STEP_PROBE, f"{self._probe_timeout_s:.0f} 秒内网址没通")
         except _Abandoned:
             self._rollback(spawned, claimed, conf_written, domain)
@@ -559,34 +737,9 @@ class DevServer:
             )
 
     def _pick_ports(self) -> tuple[int, int]:
-        """在 PORT_RANGE 里找两个可用端口并 claim。
-
-        「可用」= 能 bind 且 ``resreg check`` 空闲，两样都归 ``ports`` 这个接缝
-        （真版是 :class:`ResregPorts`）：bind 过了不 claim 就是往登记处写垃圾，
-        而 claim 之前不 bind 就是抢一个已被占用的端口。测试注入替身，一个真
-        socket 都不碰。
-        """
-        found: list[int] = []
-        for port in range(PORT_RANGE[0], PORT_RANGE[1] + 1):
-            if len(found) == 2:
-                break
-            try:
-                if not self.ports.free(port):
-                    continue
-            except Exception as exc:
-                raise DevServerError(str(exc), "port_registry_unavailable", 503) from exc
-            found.append(port)
-        if len(found) < 2:
-            raise DevServerError(
-                f"{PORT_RANGE[0]}~{PORT_RANGE[1]} 里没有两个可用端口", "no_free_port", 503
-            )
+        """在 :data:`PORT_RANGE` 里找两个可用端口并 claim（见 pick_two_ports）。"""
         owner = f"ai-studio-{self.project.get('id') or 'unknown'}"
-        for port in found:
-            try:
-                self.ports.claim(port, owner)
-            except Exception as exc:
-                raise DevServerError(str(exc), "port_registry_unavailable", 503) from exc
-        return found[0], found[1]
+        return pick_two_ports(self.ports, PORT_RANGE, owner)
 
     def _spawn(self, entry: dict) -> dict[str, Any]:
         runner = self._runner if self._runner is not None else self._real_runner
@@ -595,7 +748,7 @@ class DevServer:
             pid = runner(list(entry["cmd"]), self.ws, env, self.log_path)
         except Exception as exc:
             raise DevServerError(str(exc), "spawn_failed", 500) from exc
-        pid_int = _pos_int(pid)
+        pid_int = pos_int(pid)
         if pid_int is None:
             raise DevServerError(f"拿不到 pid：{pid!r}", "spawn_failed", 500)
         return {"name": entry.get("name"), "pid": pid_int}
@@ -617,25 +770,12 @@ class DevServer:
     def _probe_ok(self, url: str) -> bool:
         if not url:
             return False
-        prober = self._prober if self._prober is not None else self._real_prober
+        prober = self._prober if self._prober is not None else probe_status
         try:
             code = prober(url)
         except Exception:
             return False
         return code == 200
-
-    @staticmethod
-    def _real_prober(url: str) -> int:
-        """GET 首页拿状态码，**不走代理**（挂了代理连自己的域名就是自寻死路）。"""
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        try:
-            with opener.open(url, timeout=5) as resp:
-                code = getattr(resp, "status", None)
-                return int(code) if code is not None else 200
-        except urllib.error.HTTPError as exc:
-            # 有状态码就如实报（502 = 网关通但上游没起，是「还没通」而不是异常）
-            return int(exc.code)
-        # 连接被拒 / DNS 还没生效 / 超时：调用方按「还没通」处理，异常往上抛即可
 
     # -- 停与回滚 --------------------------------------------------------
 
@@ -709,57 +849,15 @@ class DevServer:
             self.ports.release(port)
 
     def _stored_ports(self, state: dict[str, Any]) -> list[int]:
-        raw = state.get("ports")
-        ports: dict[str, Any] = raw if isinstance(raw, dict) else {}
-        out: list[int] = []
-        for key in ("api", "web"):
-            value = _pos_int(ports.get(key))
-            if value is not None and value not in out:
-                out.append(value)
-        return out
+        return stored_ports(state)
 
     def _children_ok(self, state: dict[str, Any]) -> bool:
-        """两个进程都还在才算活着；状态文件只记了一个 pid 时只验那一个。"""
-        procs = _proc_entries(state)
-        if procs:
-            return all(_proc_alive(one.get("pid")) for one in procs)
-        return _proc_alive(state.get("pid"))
+        """两个进程都还在才算活着；只记了一个 pid 的旧文件就只验那一个。"""
+        return children_alive(state)
 
     def _kill_group(self, state: dict[str, Any]) -> None:
-        """SIGTERM 整组，5 秒后还活着就 SIGKILL。
-
-        子进程都是 ``start_new_session=True`` 的组长，杀组就覆盖它带起来的整棵子树
-        （pnpm → node → esbuild）。pid 可能已被回收，所以发信号前先比 ``startTime``
-        签名，身份不符就当它早不在了 —— 这是 platform_compat 对 os.kill 的硬教训
-        （Windows 上 os.kill(pid, 0) 是杀进程不是探活）。
-        """
-        entries = _proc_entries(state)
-        if not entries and _pos_int(state.get("pid")) is not None:
-            entries = [{"pid": state.get("pid"), "startTime": state.get("startTime")}]
-        targets: list[tuple[int, str | None]] = []
-        seen: set[int] = set()
-        for one in entries:
-            pid = _pos_int(one.get("pid"))
-            if pid is None or pid in seen:
-                continue
-            seen.add(pid)
-            raw = one.get("startTime")
-            targets.append((pid, raw if isinstance(raw, str) else None))
-        self._signal(targets, platform_compat.SIGTERM)
-        for _ in range(int(_KILL_WAIT_S / 0.1)):
-            if not any(_proc_alive(pid) for pid, _ in targets):
-                return
-            self._sleep(0.1)
-        self._signal(targets, platform_compat.SIGKILL)
-
-    def _signal(self, targets: list[tuple[int, str | None]], sig: int) -> None:
-        for pid, expected in targets:
-            if not _proc_alive(pid) or not _identity_matches(pid, expected):
-                continue
-            try:
-                platform_compat.kill_process_tree(pid, sig)
-            except (ProcessLookupError, PermissionError, ValueError, OSError):
-                continue  # 死了 / 不是我们的 / 拒绝对组广播 —— 都无需再动
+        """杀进程组（见 :func:`kill_group`），用本对象注入的 sleep 等 SIGTERM。"""
+        kill_group(state, self._sleep)
 
     def conf_path(self, domain: str) -> Path:
         return gateway_conf_dir() / f"{conf_stem(domain)}.conf"
@@ -840,9 +938,9 @@ class ResregPorts:
         except FileNotFoundError:
             return 0  # 没有登记处：不做声明，bind 检查已经够用
         except (OSError, subprocess.SubprocessError) as exc:
-            raise RuntimeError(f"resreg {argv[1]} 执行失败：{_tail(str(exc))}") from exc
+            raise RuntimeError(f"resreg {argv[1]} 执行失败：{tail_text(str(exc))}") from exc
         if proc.returncode != 0:
-            detail = _tail(proc.stderr or proc.stdout or "")
+            detail = tail_text(proc.stderr or proc.stdout or "")
             raise RuntimeError(f"resreg {argv[1]} 退出码 {proc.returncode}：{detail}")
         return proc.returncode
 
@@ -862,7 +960,7 @@ class ResregPorts:
                 check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            raise RuntimeError(f"resreg check 执行失败：{_tail(str(exc))}") from exc
+            raise RuntimeError(f"resreg check 执行失败：{tail_text(str(exc))}") from exc
         return proc.returncode == 0
 
     def claim(self, port: int, owner: str) -> None:
@@ -912,5 +1010,5 @@ class NginxGateway:
             raise RuntimeError(f"网关 reload 无法执行：{exc}") from exc
         if proc.returncode != 0:
             raise RuntimeError(
-                f"网关 reload 退出码 {proc.returncode}：{_tail(proc.stderr or proc.stdout)}"
+                f"网关 reload 退出码 {proc.returncode}：{tail_text(proc.stderr or proc.stdout)}"
             )

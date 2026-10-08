@@ -73,9 +73,31 @@ const studio = vi.hoisted(() => ({
   // to answer. It stays a fake key: a demo frame must not open a real session.
   ensureReqSession: vi.fn(async (id: string) => ({ slotKey: `ai-studio-req-${id}`, created: false })),
 }))
+// ACP-2085 S5: the top bar's production-server control is part of the same
+// shell R1~R4 render, and its api is its OWN export (prodServerApi — the
+// publishApi reason: the demo runtime implements StudioApi exactly and never
+// fakes a deploy), so the `studio` swap above does not reach it. Stubbed here
+// for the same reason as ensureReqSession: a demo frame must not read the host.
+const prod = vi.hoisted(() => ({
+  getProdServer: vi.fn(async () => ({
+    state: 'stopped',
+    url: '',
+    versionUrl: '',
+    version: '',
+    ports: { web: null, api: null },
+    step: null,
+    failedStep: null,
+    message: null,
+    deployedAt: null,
+    commit: '',
+  })),
+  deployProdServer: vi.fn(),
+  stopProdServer: vi.fn(),
+  getProdServerLog: vi.fn(async () => ({ lines: [] })),
+}))
 vi.mock('../studioApi', async () => {
   const actual = await vi.importActual<typeof import('../studioApi')>('../studioApi')
-  return { ...actual, publishApi: pub, studioApi: studio }
+  return { ...actual, publishApi: pub, studioApi: studio, prodServerApi: prod }
 })
 // the chat column is the one part of the workbench shell that is not the
 // snapshot's business: ChatPane opens its slot through the scoped api and
