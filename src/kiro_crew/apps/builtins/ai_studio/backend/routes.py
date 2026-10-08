@@ -26,6 +26,7 @@ from kiro_crew.apps.builtins.ai_studio.backend import (
     graph,
     projects,
     publish,
+    reqsession,
     requirements,
 )
 from kiro_crew.apps.manager import is_app_enabled
@@ -587,6 +588,35 @@ async def _handle_dev_server_log(request: web.Request) -> web.StreamResponse:
     return web.json_response({"lines": tail})
 
 
+async def _handle_req_session(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/req-session (RFC §9.3): hand the left column the
+    # workspace's 需求会话. Idempotent — the first call creates the slot, scopes it
+    # at the workspace and sends the opening prompt; every later call returns the
+    # same key and sends nothing. The frontend mounts ChatEmbed on the returned
+    # key instead of minting its own slot, which is the whole point: a slot the
+    # browser named has no `project`, so the assistant would write files into the
+    # gateway's directory instead of the workspace's.
+    project_id = request.match_info["project_id"]
+    record = await asyncio.to_thread(projects.get_project, project_id)
+    if record is None:
+        return _error("project not found", "project_not_found", 404)
+    state = request.app.get("state")
+    if state is None:  # pragma: no cover - the dashboard always sets it
+        return _error("dashboard state is unavailable", "state_unavailable", 503)
+    try:
+        # resolve_workspace runs in the thread with the read it depends on: a
+        # recorded workspaceDir that has since been deleted is a 409 there, and
+        # `ensure_req_session` never sees a directory it would write into the
+        # wrong place.
+        ws = await asyncio.to_thread(
+            reqsession.resolve_workspace, record, projects.projects_root() / project_id
+        )
+        result = await reqsession.ensure_req_session(state, record, ws)
+    except reqsession.ReqSessionError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(result)
+
+
 def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
@@ -617,6 +647,12 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/requirements/{{page}}",
         _require_enabled(_handle_requirement_page),
+    )
+    # RFC §9.3: the workspace's 需求会话. A literal segment, so it cannot collide
+    # with the ``requirements/{page}`` read above.
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/req-session",
+        _require_enabled(_handle_req_session),
     )
     # RFC §9.6: the dev-server control. ``dev-server/log`` and the bare
     # ``dev-server`` cannot collide — the log route carries a further segment.

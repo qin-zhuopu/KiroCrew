@@ -49,6 +49,11 @@ const api = vi.hoisted(() => ({
   // runs the requirement list read; this project has no graphs.
   listRequirements: vi.fn(async () => ({ pages: [] })),
   getRequirement: vi.fn(async () => { throw new Error('unused') }),
+  // ACP-2085 S2: the chat column opens its 需求会话 through this api before it
+  // mounts the embed, so every workbench mount calls it. The ordering contract
+  // is ChatPane.test's business; here the column is chrome and the session open
+  // answers with the backend's key shape.
+  ensureReqSession: vi.fn(async (id: string) => ({ slotKey: `ai-studio-req-${id}`, created: false })),
   // ACP-2060: the top bar's dev-server control reads on mount (and the project
   // cards read once each). Nothing here is running.
   getDevServer: vi.fn(async () => ({

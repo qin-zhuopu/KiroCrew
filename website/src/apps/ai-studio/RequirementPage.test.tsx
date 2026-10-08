@@ -6,7 +6,7 @@
 // UI strings assert the English catalog (tests pin i18next to en); the graph
 // names and the document content are Chinese by design and asserted as data.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const getRequirement = vi.hoisted(() => vi.fn())
@@ -119,5 +119,51 @@ describe('RequirementPage', () => {
       'Verdict service unavailable',
     )
     expect(screen.queryByTestId('req-doc')).not.toBeInTheDocument()
+  })
+
+  it('the graph moving under the page flips the bar within one poll (B4)', async () => {
+    // RFC §7 B4: the assistant writes the graph while the owner is looking at
+    // this page. The read is a subprocess (check + render), so 「生成中…」 is the
+    // literal state while the poll is in flight, and the verdict that lands is
+    // the NEW graph's — not the one the page opened on.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      getRequirement.mockResolvedValue(pageData())
+      renderStudio(<RequirementPage projectId="p1" page="设备清单" />)
+      const bar = await screen.findByTestId('req-verdict-bar', undefined, { timeout: 3000 })
+      expect(bar).toHaveTextContent('Requirements complete — ready to build')
+
+      // the assistant added a 待定 rule; only the file changed, nothing was clicked
+      getRequirement.mockResolvedValue(
+        pageData({
+          graphHash: 'ff'.repeat(8),
+          verdict: '不齐',
+          markdown: null,
+          missing: ['接口口径有待定'],
+        }),
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      await waitFor(
+        () => expect(bar).toHaveTextContent('Incomplete — not buildable yet'),
+        { timeout: 3000 },
+      )
+      // the document swap is part of the same refresh: an unqualified graph has
+      // no document, so the refusal panel replaces it
+      expect(await screen.findByTestId('req-no-markdown', undefined, { timeout: 3000 }))
+        .toHaveTextContent('接口口径有待定')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a stale document says 生成中… instead of re-reading an old verdict', async () => {
+    // R1: graph hash moved, document not regenerated yet. The bar must not
+    // repeat the readiness sentence it is holding — that verdict described the
+    // previous file.
+    getRequirement.mockResolvedValue(pageData({ stale: true }))
+    renderStudio(<RequirementPage projectId="p1" page="设备清单" />)
+    expect(await screen.findByTestId('req-verdict-bar')).toHaveTextContent('Regenerating…')
   })
 })

@@ -21,11 +21,13 @@ export default function RequirementsTool({ projectId, api = studioApi, onOpenTab
   api?: StudioApi
   onOpenTab: (tab: WorkTab) => void
 }) {
-  // No polling: the center page polls its own page every 5s, and this list
-  // refreshes on mount/focus, which is when a new page would be noticed.
+  // 每 5 秒重拉（ACP-2085 S2 / RFC §7 B4）：图谱是助手随时会写的文件，右栏的徽标
+  // 和「最近修改」必须跟着变——一个只在挂载时读一次的列表，在助手刚写完图谱的那
+  // 一刻恰恰是最会骗人的界面。hash 变了行就重绘（key 是页名，内容是数据）。
   const { data, error, isLoading } = useQuery({
     queryKey: ['ai-studio', 'requirements', projectId],
     queryFn: () => api.listRequirements(projectId).then((r) => r.pages),
+    refetchInterval: 5000,
   })
   const pages = data ?? []
 

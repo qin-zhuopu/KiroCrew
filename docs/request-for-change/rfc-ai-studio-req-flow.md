@@ -194,6 +194,14 @@ superseded-by: []
 2. **但它压在 Crew 自己的提示词下面**：Crew 的 9.4 万字符人格提示词（`You are Kiro 👻`）是作为**第一条 user 消息**下发的，agent 正文只在 CLI 的 system prompt 槽里，两者会抢。实测同一个会话里，Spec Builder 的种子提示那一轮**没**走 agent 格式（一题、无「X. 其它」、按 Requirements→Design→Tasks 走），下一轮才回到 agent 格式。所以 §9.3 的首条提示语**不要再教它怎么工作**（只报工作区路径与图谱目录，别写「先写 requirements.md」这类工序指令），否则等于给竞争加砝码。界面也不宜按「首轮是否选择题」判定专用模式——那个信号本身会抖。
 3. **工作区自带 `settings.local.json` 有两个副作用**：Crew 会**整份扣住 `mcpServers` 不发**（网关日志明写：该文件不是 Crew 写的，放行会绕过 `session/request_permission`），需求会话因此**拿不到 Crew 的 MCP 工具**；同时写文件要人在网页上点批准，无人应答 180 秒即自动拒绝（实测写 `.spec-state.json` 被这样拒掉）。§9.3 要写清这两条，或在 UI 上把「等待批准」显出来。
 
+**S2 落地（2026-10-08，ACP-2085-S2）**：`backend/reqsession.py` + `POST /projects/{id}/req-session`（200 `{slotKey, created}`；项目不存在 404；记录里的 `workspaceDir` 不存在 409 `workspace_missing`，**不退回项目目录** —— 退回去等于让助手去写一个不存在的工作区）。三条实现口径与 §9.3 的原文有出入，按实测改：
+
+1. **不设 agent 字段**。上面边界 1 的前提（工作区带 `settings.local.json`）已被边界 3 否决，新模板也不带那份文件；身份只走退路那条路——首条提示语让它先读 `.claude/agents/requirement-writer.md`，且按边界 2 **不教工序**。界面上因此不按「首轮是否选择题」判定专用模式。
+2. **`created` 的判据是项目记录里的 `reqSessionStarted`，不是「slot 是否本次新建」**：slot 可能被别的入口先建出来，那第一次走到这里仍然要发开场白。而**光有那个持久标记挡不住并发**——首屏 mount effect 会跑两遍（`main.tsx` 整个 app 包在 `<StrictMode>` 下），两个请求都读到「没标记」就各发一遍开场白，实测助手把同一个问题问了两遍；本模块因此另加一个进程内 in-flight 集合，「查 + 占」之间不放 `await`。
+3. **UI 直接新建的项目没有 `workspaceDir`**（`projects.create_project` 只落 id/name/description/createdAt，该字段由 §9.1 的模板复制那条路写）。这类项目的会话按 `requirements.workspace_dir` 的老规矩退回项目记录目录，不是 409；收紧与否是产品口径，未在本单改。
+
+`slot.project → CLI cwd` 这一跳（§9.3 V1 那三层进程链）在 S2 的会话里**实测是通的**，可以直接依赖：会话里助手用**相对路径**跑 `jc fe reqdoc check "docs/需求图谱/设备清单.json"`，返回的 `data.file` 是 `/home/jereh/repo/jc/webapp-template-wt-req-tpl/docs/需求图谱/设备清单.json`，即 cwd 就是 `slot.project`（transcript 的 `meta.input` 里能逐条核对）。首条提示语仍把绝对目录写出来，是为了让人和助手都不用猜，不是因为相对路径不可靠。
+
 ### 9.4 需求页
 
 | 方法 路径 | 做什么 | 关键响应/错误 |

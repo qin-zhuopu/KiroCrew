@@ -582,10 +582,12 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               allowedApiPaths={['/api/chat']}
               navigateFn={navigateFn}
             >
-              {/* one chat slot per project: the workbench context IS the
-                  project, so a second project's chat must not share this
-                  one's transcript (slots stay _app='ai-studio' either way) */}
-              <ChatPane slotKey={`ai-studio-${projectId}`} />
+              {/* one 需求会话 per project, opened by the BACKEND (ACP-2085 S2):
+                  the key, the workspace scope and the opening prompt are the
+                  backend's, so a second project can never share this one's
+                  transcript — and the assistant's writes land in THIS workspace
+                  instead of in the gateway's working directory */}
+              <ChatPane projectId={projectId} api={shownApi} />
             </AppScopedApiProvider>
           </aside>
         )}

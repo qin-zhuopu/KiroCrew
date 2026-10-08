@@ -46,6 +46,10 @@ const api = vi.hoisted(() => ({
   listDraftDocs: vi.fn(),
   listVersions: vi.fn(),
   listDraftVersions: vi.fn(),
+  // ACP-2085 S2: the chat column opens its 需求会话 through this api before it
+  // mounts the embed (which is stubbed below). The chat column is part of the
+  // chrome these frames assert on, so the open answers with the backend's key.
+  ensureReqSession: vi.fn(async (id: string) => ({ slotKey: `ai-studio-req-${id}`, created: false })),
 }))
 vi.mock('../studioApi', async () => {
   const actual = await vi.importActual('../studioApi')

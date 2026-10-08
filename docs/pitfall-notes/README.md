@@ -94,6 +94,16 @@
   且挂住的 `git-remote-https` 不会自退，会被误读成「还在推」。推前
   `timeout 8 curl https://github.com` 探一下，不通就 `ALL_PROXY=socks5://localhost:7777`，
   成功只认输出里的 `旧hash..新hash`。
+- [20261008-230527-wholesale-stub-suites-and-the-gate-that-false-reds.md](20261008-230527-wholesale-stub-suites-and-the-gate-that-false-reds.md) —
+  `StudioApi` 加一个成员红 62 个用例：六个套件整份塞假 api（结构类型只在运行时炸），
+  补成员要同法补 `createDemoApi`；从仓库根跑 `npx vitest`/`npx tsc` 解析到错版本错包
+  （假红，必须 `cd website`）；真跑时 Chrome 起不来（报「browser has been closed」）
+  是 swap 用满 + 102 个漏掉的 chrome 主进程，跟网关无关——门禁与浏览器真跑要串行；
+  开场白发两遍是「持久标记 + 中间有 await」挡不住并发（StrictMode 双跑），补进程内原子闸。
+- [20261008-235002-browser-sends-two-opens-and-no-frontend-test-could-see-it.md](20261008-235002-browser-sends-two-opens-and-no-frontend-test-could-see-it.md) —
+  同一个页面发两次「开需求会话」，两个请求都 200、两个会话都活着，前端 238 条用例全绿、
+  后端 13 条全绿：幂等标记落在项目记录里，而写它之前隔着一整个 agent turn 的 await；
+  只有 `git grep` 服务端那份 transcript 才发现开场白被发了两遍（前端测试的架构性盲区）
 - [20261008-185041-devserver-stop-409-leaks-live-ports.md](20261008-185041-devserver-stop-409-leaks-live-ports.md) —
   开发服务器启动失败后点〔停止〕回 409「没在运行」，而进程 / 端口 / 网关 conf 三样都还在：
   `stop()` 拿状态字符串当「有没有活要清」，而 `stopped` 只说明「网址没通」（vite 5.4 拦陌生

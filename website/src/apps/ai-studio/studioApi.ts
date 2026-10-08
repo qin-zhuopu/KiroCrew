@@ -365,6 +365,20 @@ export interface StudioRequirementPage {
 }
 
 // ---------------------------------------------------------------------------
+// requirement session (ACP-2085 S2, RFC rfc-ai-studio-req-flow §9.3): the left
+// column's chat is the workspace's 需求会话, so the SLOT IS THE BACKEND'S —
+// only it can scope the session at the workspace directory and send the opening
+// prompt. `created` says whether THIS call sent that prompt, which is why the
+// caller must not assume a slot it just opened is a fresh conversation.
+// ---------------------------------------------------------------------------
+
+/** One idempotent open of a workspace's requirement session. */
+export interface StudioReqSession {
+  slotKey: string
+  created: boolean
+}
+
+// ---------------------------------------------------------------------------
 // dev server (ACP-2060, RFC rfc-ai-studio-req-flow §9.6): one pnpm dev pair per
 // project, published on its rule domain. The state is recomputed by the backend
 // on every read (pid alive AND the URL answers 200), so polling it is honest.
@@ -514,6 +528,11 @@ export type StudioApi = {
   // ACP-2015 step 2: the workspace's requirement pages and one page's read.
   listRequirements: (id: string) => Promise<{ pages: StudioRequirementSummary[] }>
   getRequirement: (id: string, page: string) => Promise<StudioRequirementPage>
+  // ACP-2085 S2: open (idempotently) the workspace's 需求会话 and get the slot
+  // key to mount. The backend owns the key because only it can scope the slot
+  // at the workspace directory; a 409 `workspace_missing` means the recorded
+  // workspace directory is gone, which no retry can fix by itself.
+  ensureReqSession: (id: string) => Promise<StudioReqSession>
   // T7 step 4 (ACP-851): the four development phases run the BGDD gate
   // (bgdd repo tools/gate.ts, ACP-848) through the backend. startDevRun is
   // the whole run — it resolves once every phase that got to run has an
@@ -652,6 +671,13 @@ export const studioApi: StudioApi = {
     request<StudioRequirementPage>(
       `/projects/${encodeURIComponent(id)}/requirements/${encodeURIComponent(page)}`,
     ),
+  // ACP-2085 S2: idempotent — the backend sends the opening prompt only on the
+  // first call, so remounting the pane or reloading the page is free.
+  ensureReqSession: (id: string) =>
+    request<StudioReqSession>(`/projects/${encodeURIComponent(id)}/req-session`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
   startDevRun: (id: string, designVersion: string, releaseVersion?: string) =>
     request<{ run: StudioDevRun }>(
       `/projects/${encodeURIComponent(id)}/dev-runs`,

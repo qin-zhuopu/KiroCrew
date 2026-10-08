@@ -4,8 +4,12 @@
 // step 4, which is why 开始开发 ships DISABLED rather than absent (the owner
 // reads the workbench with the button in place).
 //
-// The read re-runs every 5s: the graph is a file another person edits, and the
-// owner's whole point is that the page says NOW what the graph says NOW.
+// The read re-runs every 5s: the graph is a file the assistant edits while the
+// owner is looking at this page, and the owner's whole point is that the page
+// says NOW what the graph says NOW (ACP-2085 S2 / RFC §7 B4). A new graphHash
+// therefore re-renders both the bar and the document, and while the backend is
+// still regenerating the document for the newest graph (`stale`) the bar says
+// 「生成中…」 instead of repeating a verdict that no longer describes the file.
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import MarkdownRenderer from '../../components/MarkdownRenderer'
@@ -32,11 +36,22 @@ export default function RequirementPage({ projectId, page, api = studioApi }: {
   const [gapsOpen, setGapsOpen] = useState(false)
   const [showGraph, setShowGraph] = useState(false)
 
-  const { data, error } = useQuery({
+  const { data, error, isFetching } = useQuery({
     queryKey: ['ai-studio', 'requirement', projectId, page],
     queryFn: () => api.getRequirement(projectId, page),
     refetchInterval: 5000,
   })
+
+  // 「生成中…」 is the bar's reading of a refresh in flight (RFC §7 B4), and it
+  // is literal, not decoration: one read runs `jc fe reqdoc check` + `render`
+  // over the graph file, so while this poll is running the verdict on screen IS
+  // the previous graph's answer and a new document is being computed. `stale`
+  // (R1: the graph's hash moved and the doc was not regenerated yet) is the
+  // durable version of the same sentence. The first read is excluded — nothing
+  // is being refreshed then, and the bar already refuses to paint a verdict.
+  // Only the WORDS change while regenerating; the bar keeps the colour of the
+  // verdict it is holding, so a poll does not read as the readiness flipping.
+  const generating = Boolean(data?.stale) || (isFetching && data !== undefined)
 
   // The verdict service missing is a STATE the bar renders, not a failure strip
   // — the page still has nothing to say about readiness, and saying so in the
@@ -66,9 +81,11 @@ export default function RequirementPage({ projectId, page, api = studioApi }: {
           >
             {unavailable
               ? i18nT('apps.aiStudio.req_service_unavailable')
-              : data
-                ? barText(data.verdict, gaps)
-                : i18nT('apps.aiStudio.req_loading')}
+              : generating
+                ? i18nT('apps.aiStudio.req_generating')
+                : data
+                  ? barText(data.verdict, gaps)
+                  : i18nT('apps.aiStudio.req_loading')}
             {data && groups.length > 0 && (
               <button
                 type="button"
@@ -124,12 +141,16 @@ export default function RequirementPage({ projectId, page, api = studioApi }: {
         </pre>
       ) : data.markdown === null ? (
         // v34 refuses to render an unqualified graph; the bar already says 不齐,
-        // and the reasons are the same list the gaps panel holds.
+        // and the reasons are the same lists the gaps panel holds. BOTH of them:
+        // a refused render is most often a 待定 rule (which lands in `missing`),
+        // not a shape error — showing only `errors` here would explain the
+        // refusal with an empty list, which is the one thing this panel exists
+        // to prevent.
         <div data-testid="req-no-markdown" className="text-[12px] text-muted">
           <div className="mb-1.5">{i18nT('apps.aiStudio.req_no_markdown')}</div>
-          {data.errors.length > 0 && (
+          {[...data.errors, ...data.missing].length > 0 && (
             <ul className="text-text list-disc pl-4">
-              {data.errors.map((e, i) => <li key={i}>{e}</li>)}
+              {[...data.errors, ...data.missing].map((e, i) => <li key={i}>{e}</li>)}
             </ul>
           )}
         </div>

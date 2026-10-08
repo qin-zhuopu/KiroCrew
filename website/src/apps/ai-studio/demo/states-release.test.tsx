@@ -68,6 +68,10 @@ const studio = vi.hoisted(() => ({
   saveDraft: vi.fn(async () => ({ ok: true })),
   listDraftVersions: vi.fn(async () => ({ versions: [] })),
   listVersions: vi.fn(async () => ({ versions: [] })),
+  // ACP-2085 S2: the chat column (part of the shell R1~R4 render) opens its
+  // 需求会话 through this api before mounting the stubbed embed, so the open has
+  // to answer. It stays a fake key: a demo frame must not open a real session.
+  ensureReqSession: vi.fn(async (id: string) => ({ slotKey: `ai-studio-req-${id}`, created: false })),
 }))
 vi.mock('../studioApi', async () => {
   const actual = await vi.importActual<typeof import('../studioApi')>('../studioApi')

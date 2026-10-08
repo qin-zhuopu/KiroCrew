@@ -67,6 +67,9 @@ const api = vi.hoisted(() => ({
   // runs the requirement list read; this fixture project has no graphs.
   listRequirements: vi.fn(async () => ({ pages: [] })),
   getRequirement: vi.fn(async () => { throw new Error('unused') }),
+  // ACP-2085 S2: every workbench mount opens the chat column's 需求会话 through
+  // this api; the ordering contract is ChatPane.test's, here it is chrome.
+  ensureReqSession: vi.fn(async (id: string) => ({ slotKey: `ai-studio-req-${id}`, created: false })),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')

@@ -204,6 +204,15 @@ export function createDemoApi(fixture: DemoFixture): StudioApi & {
     async getRequirement(): Promise<never> {
       throw new StudioApiError(400, 'demo_mode', 'demo mode has no workspace requirement pages')
     },
+    // ACP-2085 S2: the chat column IS part of the workbench chrome the demo
+    // renders (states-release asserts the embed mounts), so this hands back a
+    // synthetic key instead of refusing — the same stance as `getDevServer`'s
+    // synthetic `stopped` view. It opens no session, scopes no directory and
+    // writes nothing: a demo frame's chat is a picture of the column, and the
+    // transcript behind a demo key is none of its business.
+    async ensureReqSession(id: string) {
+      return { slotKey: `ai-studio-req-${id}`, created: false }
+    },
     // ACP-2060: a demo snapshot spawns no processes and owns no ports, so the
     // control reads as stopped (its grey dot renders) and every action that
     // would touch the host is refused like the other real-store reads.

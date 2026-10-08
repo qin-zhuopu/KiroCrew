@@ -22,6 +22,10 @@ const api = vi.hoisted(() => ({
   listRecords: vi.fn(),
   preview: vi.fn(),
   trigger: vi.fn(),
+  // ACP-2085 S2: the workbench's chat column opens its 需求会话 through this api
+  // before mounting the embed. The stub above already keeps ChatEmbed off the
+  // network; this only answers the open so the column resolves.
+  ensureReqSession: vi.fn(async (id: string) => ({ slotKey: `ai-studio-req-${id}`, created: false })),
 }))
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
