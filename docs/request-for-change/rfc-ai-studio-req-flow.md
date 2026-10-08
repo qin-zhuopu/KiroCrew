@@ -244,6 +244,10 @@ superseded-by: []
 - 端口：从 6800~6999 找两个空闲端口（能 bind 且 `resreg check` 空闲），`resreg claim --owner ai-studio-<id>`；停止时 release。`resreg` 命令不存在就只做 bind 检查。
 - 挂网址：在 `AI_STUDIO_GATEWAY_CONF_DIR`（默认 `~/docker/web-gateways/conf.d`）写 `ais-<代号>-<工号>.conf`（`server_name <域名>`，`proxy_pass http://<AI_STUDIO_GATEWAY_UPSTREAM，默认 10.244.2.1>:<前端端口>`，带 websocket 头），再跑 `AI_STUDIO_GATEWAY_RELOAD_CMD`（默认 `docker exec web-gateways nginx -s reload`）。停止时删该文件再 reload。网关已有正则规则接住所有 `*-dev.gb10.jereh-pe.cn`，不需要重建任何容器。
 - 检查：每 2 秒 GET `https://<域名>/`（不走代理），120 秒内 200 → running；超时 → failed（`failedStep=检查网址`），并把已起的进程停掉、端口退回。
+- **停止的判据是资源，不是状态**：`stop` 不许拿「`status()` 不是 running/starting」当「没在运行」。
+  `stopped` 的含义只是「网址没通」，而「进程活着 + 端口占着 + conf 挂着、只是网址不通」恰恰是
+  `stopped`（实测 vite 5.4 拦下陌生 Host 回 403）—— 那样停止会回 409，界面上一个按钮都清不掉它，
+  进程 / 端口 / conf 三样全泄漏。判据改成三件具体的事：有没有活进程、有没有记着的端口、有没有挂着的 conf。
 
 ## 10. 验收标准（每条可自动测，括号里是测法）
 

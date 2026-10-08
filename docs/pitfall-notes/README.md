@@ -94,3 +94,9 @@
   且挂住的 `git-remote-https` 不会自退，会被误读成「还在推」。推前
   `timeout 8 curl https://github.com` 探一下，不通就 `ALL_PROXY=socks5://localhost:7777`，
   成功只认输出里的 `旧hash..新hash`。
+- [20261008-185041-devserver-stop-409-leaks-live-ports.md](20261008-185041-devserver-stop-409-leaks-live-ports.md) —
+  开发服务器启动失败后点〔停止〕回 409「没在运行」，而进程 / 端口 / 网关 conf 三样都还在：
+  `stop()` 拿状态字符串当「有没有活要清」，而 `stopped` 只说明「网址没通」（vite 5.4 拦陌生
+  Host 回 403 恰好就是这个现场）。判据改成查三件资源；顺带 vite 5.4 没有
+  `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`、`.ai-studio/` 下放 vite 配置找不到 vite、
+  以及「停止后网址还 200」是网关默认 vhost 兜底（别拿网址当清理证据）。
