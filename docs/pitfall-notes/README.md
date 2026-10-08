@@ -86,4 +86,11 @@
   提交前门禁 6 红的分诊：`local-gate.py` 要用 `.venv/bin/python` 跑（系统 python3
   没 pytest）；worktree 的 venv 软链主仓、`pytest_split` 没装 → CI 专属插件用例
   本机必红；其余是存量文档目录债与并行 flake。用 `git worktree add --detach HEAD`
-  造干净对照自证归属（记得 `PYTHONPATH=$PWD/src`）。
+  造干净对照自证归属（记得 `PYTHONPATH=$PWD/src`）。前端半边同法：`src/test/` 里
+  9 个红在 HEAD 前一个提交的对照 worktree 上逐条同名同数（软链 node_modules 让
+  `server.fs.allow` 白名单失效 + 缺 `@shadcn/lint` + 存量断言债）。
+- [20261008-170235-github-push-hangs-silent-need-proxy.md](20261008-170235-github-push-hangs-silent-need-proxy.md) —
+  `git push` 到 GitHub 零输出挂死：直连不通而 git 在连接阶段不超时不报错，
+  且挂住的 `git-remote-https` 不会自退，会被误读成「还在推」。推前
+  `timeout 8 curl https://github.com` 探一下，不通就 `ALL_PROXY=socks5://localhost:7777`，
+  成功只认输出里的 `旧hash..新hash`。
