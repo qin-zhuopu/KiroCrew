@@ -24,10 +24,12 @@
 
 ```bash
 tmux new-window -t claude-kc-v1 -n gw
-tmux send-keys -t claude-kc-v1:gw 'cd /home/jereh/repo/github.com/kirodotdev/KiroCrew-wt-kc-v1 && eval "$(python3 -c "import json;e=json.load(open(\"/home/jereh/.claude/settings.jqw.json\"))[\"env\"];print(\" \".join(\"export %s=%s;\"%(k,json.dumps(str(v))) for k,v in e.items()))")" && KIROCREW_PORT=6790 KIROCREW_HOME=$PWD/.kirocrew-dev ./dev-backend.sh 2>&1 | tee .kirocrew-dev-gw.log' Enter
+tmux send-keys -t claude-kc-v1:gw 'cd /home/jereh/repo/github.com/kirodotdev/KiroCrew-wt-kc-v1 && eval "$(python3 -c "import json;e=json.load(open(\"/home/jereh/.claude/settings.jqw.json\"))[\"env\"];print(\" \".join(\"export %s=%s;\"%(k,json.dumps(str(v))) for k,v in e.items()))")" && PYTHONPATH=$PWD/src KIROCREW_PORT=6790 KIROCREW_HOME=$PWD/.kirocrew-dev KIROCREW_BIND=0.0.0.0 KIROCREW_ALLOWED_LOOPBACK_PORTS=6791 .venv/bin/kirocrew gateway --no-open --no-tunnel 2>&1 | tee .kirocrew-dev-gw.log' Enter
 ```
 
 （前面那段 `eval` 是把千问模型的接入配置放进网关进程的环境变量里，网关起的 Claude 会话才连得上模型。）
+
+**必须用 `.venv/bin/kirocrew` 启动，不要用 `dev-backend.sh` / `python -m kiro_crew`**：本机限制非特权用户命名空间，只有 `/etc/apparmor.d/kirocrew-launcher` 登记过的这个启动程序能起沙箱；换成 python 直接起会报 `SandboxUnavailableError`。`.venv` 是软链到主仓的，正好命中这份登记。不许设 `sandbox_allow_unsandboxed_exec`。
 
 **判据**：`curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6790/` 返回 200 或 401（401 也算起来了）。
 
