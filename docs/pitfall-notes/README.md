@@ -104,6 +104,11 @@
   同一个页面发两次「开需求会话」，两个请求都 200、两个会话都活着，前端 238 条用例全绿、
   后端 13 条全绿：幂等标记落在项目记录里，而写它之前隔着一整个 agent turn 的 await；
   只有 `git grep` 服务端那份 transcript 才发现开场白被发了两遍（前端测试的架构性盲区）
+- [20261009-001429-keepalive-ring-the-same-prompt-forever.md](20261009-001429-keepalive-ring-the-same-prompt-forever.md) —
+  单早交付了，同一条派工提示却重复到达十三次：crontab 里每分钟的 `jc agent keepalive tick`
+  只看会话忙不忙、不看做没做完，而「自己说做完了」不会自动摘牌，目标文本里那句
+  「不要停下来等我确认」把死结焊死。同一句话第二次原样到达就先查谁在发，
+  完工收尾要把 `keepalive remove` 当成和 Jira 流转同级必做项
 - [20261008-185041-devserver-stop-409-leaks-live-ports.md](20261008-185041-devserver-stop-409-leaks-live-ports.md) —
   开发服务器启动失败后点〔停止〕回 409「没在运行」，而进程 / 端口 / 网关 conf 三样都还在：
   `stop()` 拿状态字符串当「有没有活要清」，而 `stopped` 只说明「网址没通」（vite 5.4 拦陌生
