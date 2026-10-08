@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 import re
 import shutil
 import time
@@ -419,13 +420,25 @@ def list_versions(project_id: str, name: str) -> list[dict[str, Any]]:
     return list(reversed(out))
 
 
-def create_project(name: str, description: str) -> dict[str, Any]:
+def create_project(
+    name: str, description: str, code: str | None = None, template: str | None = None
+) -> dict[str, Any]:
     """Create a project directory with its identity file and seed docs.
 
     Id uniqueness: the timestamp suffix is what separates same-name projects
     (an id that collides raises the OS error, which the caller surfaces as a
     retryable 503 — the honest reading of "I just made that path" is a retry,
     not a data loss).
+
+    A ``code`` makes the project a WORKSPACE (ACP-2085, RFC §9.1): the code
+    becomes the id (the repo name and the dev URL are both built from it, so two
+    projects sharing one code would be two owners fighting over one directory —
+    hence the 409 rather than a suffix), the record starts at
+    ``status: "creating"`` with the four derive steps pending, and NO seed docs
+    are written: a workspace's documents come from the template repo it is
+    cloned from, so three hand-written files in front of it would be documents
+    the clone has to overwrite. Without a ``code`` nothing here changes — the id
+    keeps its timestamp shape and the three seed docs keep landing.
     """
     name = name.strip()
     if not name:
@@ -433,26 +446,40 @@ def create_project(name: str, description: str) -> dict[str, Any]:
     if len(name) > MAX_NAME_LEN:
         raise ProjectError("project name is too long", "name_too_long", 400)
     description = description.strip()[:MAX_DESCRIPTION_LEN]
-    fragment = _slug(name)
-    suffix = time.strftime("%y%m%d-%H%M%S")
-    project_id = f"{fragment + '-' if fragment else ''}p{suffix}"
     root = projects_root()
     root.mkdir(parents=True, exist_ok=True)
+
+    if code is not None:
+        from kiro_crew.apps.builtins.ai_studio.backend import workspace
+
+        code = workspace.check_code(code)
+        if any(p.get("code") == code for p in list_projects()):
+            raise ProjectError("代号已被占用", "code_taken", 409)
+        project_id = code
+    else:
+        fragment = _slug(name)
+        suffix = time.strftime("%y%m%d-%H%M%S")
+        project_id = f"{fragment + '-' if fragment else ''}p{suffix}"
+
     project_dir = root / project_id
-    docs_dir = project_dir / "docs"
-    docs_dir.mkdir(parents=True, exist_ok=False)
     try:
-        for doc_name, template in SEED_DOCS.items():
-            (docs_dir / doc_name).write_text(
-                template.replace("{name}", name).replace("{description}", description),
-                encoding="utf-8",
-            )
-        record = {
+        project_dir.mkdir(parents=True, exist_ok=False)
+        if code is None:
+            docs_dir = project_dir / "docs"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            for doc_name, seed in SEED_DOCS.items():
+                (docs_dir / doc_name).write_text(
+                    seed.replace("{name}", name).replace("{description}", description),
+                    encoding="utf-8",
+                )
+        record: dict[str, Any] = {
             "id": project_id,
             "name": name,
             "description": description,
             "createdAt": time.time(),
         }
+        if code is not None:
+            record.update(_workspace_fields(code, template))
         _project_json_path(project_dir).write_text(
             json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
@@ -461,10 +488,61 @@ def create_project(name: str, description: str) -> dict[str, Any]:
         # directory for the list to trip over (it would not appear anyway —
         # the identity file is what makes a project — but leaving litter in
         # the data home over a retryable failure is its own mess).
-        import shutil
-
         shutil.rmtree(project_dir, ignore_errors=True)
         raise
+    return record
+
+
+def _workspace_fields(code: str, template: str | None = None) -> dict[str, Any]:
+    """The fields that turn a plain project record into a workspace record.
+
+    Lives here (and reads :mod:`workspace` lazily, the same way
+    :func:`projects_root` reads ``config_dir``) because the two modules need
+    each other: the job writes through :func:`update_project`, and the create
+    path needs the step names — a top-level ``import workspace`` would be a
+    cycle. One function so a create and a later read cannot disagree about what
+    "nothing has run yet" looks like.
+    """
+    from kiro_crew.apps.builtins.ai_studio.backend import workspace
+
+    return {
+        "code": code,
+        "template": template or workspace.template_url(),
+        "status": workspace.STATUS_CREATING,
+        "failedStep": None,
+        "message": None,
+        "workspaceDir": None,
+        "repoUrl": None,
+        "steps": [
+            {"name": name, "state": workspace.STEP_PENDING, "message": None}
+            for name in workspace.STEPS
+        ],
+    }
+
+
+def update_project(project_id: str, **fields: Any) -> dict[str, Any]:
+    """Merge ``fields`` into one project record and write it back atomically.
+
+    The workspace job's only writer: it rewrites the record several times while
+    the dashboard polls the same file every 2 seconds, so the write is
+    temp-file + ``os.replace`` — a reader sees either the whole old record or the
+    whole new one. A torn write would read back as "not a project"
+    (:func:`_read_project` returns None on a ValueError), which at the route
+    layer is a 404 on a workspace that is very much alive.
+
+    ``fields`` is not a whitelist and this is not a security boundary: the
+    callers are this package's own background job and handlers, and reaching a
+    key takes a code change, not caller text.
+    """
+    project_dir = projects_root() / project_id
+    record = _read_project(project_dir)
+    if record is None:
+        raise ProjectError("project not found", "project_not_found", 404)
+    record.update(fields)
+    target = _project_json_path(project_dir)
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
     return record
 
 

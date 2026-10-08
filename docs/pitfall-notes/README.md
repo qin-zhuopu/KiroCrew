@@ -115,3 +115,14 @@
   Host 回 403 恰好就是这个现场）。判据改成查三件资源；顺带 vite 5.4 没有
   `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`、`.ai-studio/` 下放 vite 配置找不到 vite、
   以及「停止后网址还 200」是网关默认 vhost 兜底（别拿网址当清理证据）。
+- [20261008-211710-vitest-from-repo-root-runs-without-a-dom.md](20261008-211710-vitest-from-repo-root-runs-without-a-dom.md) —
+  前端测试 17 条全红、报错只提 testing-library（`document is not defined` +
+  `Symbol(Node prepared with document state workarounds)`）：根因是**从仓库根跑的**——
+  工作目录每次调用都重置，根目录没有 `vite.config.ts` 就没有 jsdom。同法假绿的还有
+  根目录 `tsc -p .`（solution tsconfig 一个文件都不查）。修法：`cd <绝对路径> && pwd && <命令>`
+- [20261008-213039-gate-failure-attribution-read-the-name-list.md](20261008-213039-gate-failure-attribution-read-the-name-list.md) —
+  `local-gate` 后端段 5 条红被我误当成自己的债：它说的「related」是改动面的传递闭包
+  （实测跑到近三万用例），红不代表红在相关处。`apps.md` 缺 `ai-studio` 目录行与数量
+  是 `bcc6240a7` 的账；判归属只认「失败测试涉及的文件在不在本单 diff 里」+ 断言报的是
+  整块缺失还是局部写错。另记：后端段一红 `local-gate` 就整体退出，前端两段根本不跑
+  一条写完。附 `[pseudolocale]` 要求 `en-XA.json` 随 `en.json` 一起重新生成提交。

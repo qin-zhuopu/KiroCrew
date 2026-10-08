@@ -1,51 +1,63 @@
 // The app's landing view: every AI Studio project as a card, newest first, and
-// the "new project" dialog. A project is a directory the backend created under
-// the data home (identity + three seeded docs); this page only names and lists
-// them — opening one is a route into the workbench, which loads the docs.
+// the 新建工作区 dialog. A project is a directory the backend created under the
+// data home; a WORKSPACE (ACP-2085) is one of those plus a Git repo derived from
+// the template, and the only difference this page renders is a status word and
+// what the card's click does.
 //
-// Data is React Query (the frontend rule): the list is a query, the create is a
-// mutation that invalidates it so the new card appears without a manual refetch.
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { Plus, X } from 'lucide-react'
+// Data is React Query (the frontend rule): the list is a query, the create lives
+// inside the dialog and invalidates this key so the new card appears without a
+// manual refetch.
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
+import { Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import Clickable from '../../components/Clickable'
 import ErrorNotice from '../../components/ErrorNotice'
-import { Btn, ContentSkeleton, EmptyState, Input, PageHeader } from '../../components/ui'
-import { useDialogFocusTrap } from '../../hooks/useDialogFocusTrap'
+import { Btn, ContentSkeleton, EmptyState, PageHeader } from '../../components/ui'
 import { fmtRelative } from '../../i18n/format'
 import { i18nT } from '../../i18n/t'
 import { DevServerBadge } from './DevServerControl'
-import { studioApi, StudioApiError, type StudioProject } from './studioApi'
+import NewWorkspaceDialog from './NewWorkspaceDialog'
+import { studioApi, type StudioProject } from './studioApi'
 
 export default function ProjectsListPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [creating, setCreating] = useState(false)
+  // The dialog doubles as the derive-progress view (ACP-2085, RFC §7 A3), so what
+  // opens it is a project id: null = the blank form, an id = that job's progress.
+  // 「点卡片可重新打开进度」 — a card whose job is creating/failed opens the same
+  // component seeded with its record, which is why one piece of state covers both.
+  const [openFor, setOpenFor] = useState<string | null>(null)
 
+  // The unwrapped array is this key's shape on purpose: `ProjectsList` in
+  // AiStudioPage.tsx observes the SAME key and reads `data[0]` off it for the
+  // demo button, so whoever wins the race has to answer the same shape. The 工号
+  // the dialog needs is therefore read by its own query (below), not by changing
+  // this one to return the whole `{projects, staffId}` body.
   const projectsQuery = useQuery({
     queryKey: ['ai-studio', 'projects'],
     queryFn: () => studioApi.listProjects().then((r) => r.projects),
   })
 
-  const createProject = useMutation({
-    mutationFn: ({ name, description }: { name: string; description: string }) =>
-      studioApi.createProject(name, description),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['ai-studio', 'projects'] })
-      setCreating(false)
-      navigate(`/workspaces/${encodeURIComponent(res.project.id)}/ai-studio`)
-    },
+  // Only read while the dialog is open, and only so long: one list GET per open,
+  // which is what the 工号 display (RFC §7 A2: it comes from the login, the user
+  // cannot type it) costs.
+  const staffQuery = useQuery({
+    queryKey: ['ai-studio', 'staff-id'],
+    queryFn: () => studioApi.listProjects().then((r) => r.staffId ?? ''),
+    enabled: openFor !== null,
   })
+
+  const onCreated = () => queryClient.invalidateQueries({ queryKey: ['ai-studio', 'projects'] })
 
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="ai-studio-projects">
       <PageHeader
         title={i18nT('apps.aiStudio.projects_title')}
         actions={
-          <Btn primary onClick={() => setCreating(true)}>
-            <Plus size={14} className="lucide-inline" /> {i18nT('apps.aiStudio.new_project')}
+          <Btn primary data-testid="new-ws-open" onClick={() => setOpenFor('')}>
+            <Plus size={14} className="lucide-inline" /> {i18nT('apps.aiStudio.newWorkspace.title')}
           </Btn>
         }
       />
@@ -60,8 +72,8 @@ export default function ProjectsListPage() {
             title={i18nT('apps.aiStudio.projects_empty_title')}
             subtitle={i18nT('apps.aiStudio.projects_empty_hint')}
             action={
-              <Btn primary onClick={() => setCreating(true)}>
-                {i18nT('apps.aiStudio.new_project')}
+              <Btn primary data-testid="new-ws-open" onClick={() => setOpenFor('')}>
+                {i18nT('apps.aiStudio.newWorkspace.title')}
               </Btn>
             }
           />
@@ -71,7 +83,14 @@ export default function ProjectsListPage() {
               <ProjectCard
                 key={p.id}
                 project={p}
-                onOpen={() => navigate(`/workspaces/${encodeURIComponent(p.id)}/ai-studio`)}
+                // a workspace that never finished deriving has nothing to open:
+                // its workbench would show no docs and no repo. The progress is
+                // the useful view, so the card reopens the dialog instead.
+                onOpen={() =>
+                  p.code && p.status !== 'ready'
+                    ? setOpenFor(p.id)
+                    : navigate(`/workspaces/${encodeURIComponent(p.id)}/ai-studio`)
+                }
               />
             ))}
           </div>
@@ -79,12 +98,12 @@ export default function ProjectsListPage() {
       </div>
 
       <AnimatePresence>
-        {creating && (
-          <NewProjectDialog
-            pending={createProject.isPending}
-            error={createProject.error ? apiErrorMessage(createProject.error) : null}
-            onCancel={() => setCreating(false)}
-            onSubmit={(name, description) => createProject.mutate({ name, description })}
+        {openFor !== null && (
+          <NewWorkspaceDialog
+            initialProjectId={openFor || null}
+            staffId={staffQuery.data ?? ''}
+            onClose={() => setOpenFor(null)}
+            onCreated={onCreated}
           />
         )}
       </AnimatePresence>
@@ -96,117 +115,34 @@ function ProjectCard({ project, onOpen }: { project: StudioProject; onOpen: () =
   return (
     <Clickable
       onClick={onOpen}
+      data-testid={`project-card-${project.id}`}
       className="text-left rounded-xl border border-border bg-card px-4 py-3.5 cursor-pointer transition-colors hover:border-accent"
     >
       <div className="text-[13px] font-semibold text-text-strong truncate">{project.name}</div>
       {project.description && (
         <div className="text-[12px] text-muted mt-1 line-clamp-2 min-h-[2em]">{project.description}</div>
       )}
-      {/* the footer row carries the when and, ACP-2060, the live dev-server URL.
-          The badge renders nothing at all unless that project's server answers
-          `running`, so a stopped project's card is byte-identical to before. */}
+      {/* the footer row carries the when, the workspace's derive status
+          (ACP-2085) and, ACP-2060, the live dev-server URL. The badge renders
+          nothing at all unless that project's server answers `running`, and a
+          non-workspace project has no `status`, so an ordinary project's card is
+          byte-identical to before. */}
       <div className="flex items-center justify-between gap-2 mt-2 min-w-0">
-        <span className="text-[11px] text-muted shrink-0">{fmtRelative(project.createdAt * 1000)}</span>
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-[11px] text-muted shrink-0">{fmtRelative(project.createdAt * 1000)}</span>
+          {project.status === 'creating' && (
+            <span className="text-[11px] text-warn shrink-0" data-testid={`project-status-${project.id}`}>
+              {i18nT('apps.aiStudio.newWorkspace.status_creating')}
+            </span>
+          )}
+          {project.status === 'failed' && (
+            <span className="text-[11px] text-err shrink-0" data-testid={`project-status-${project.id}`}>
+              {i18nT('apps.aiStudio.newWorkspace.status_failed')}
+            </span>
+          )}
+        </span>
         <DevServerBadge projectId={project.id} />
       </div>
     </Clickable>
   )
-}
-
-function NewProjectDialog({
-  pending,
-  error,
-  onCancel,
-  onSubmit,
-}: {
-  pending: boolean
-  error: string | null
-  onCancel: () => void
-  onSubmit: (name: string, description: string) => void
-}) {
-  const dialogRef = useRef<HTMLDivElement>(null)
-  useDialogFocusTrap(dialogRef, onCancel)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const canSubmit = name.trim().length > 0 && !pending
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
-      <Clickable className="absolute inset-0 bg-bg/50 backdrop-blur-xs" onClick={onCancel} aria-label={i18nT('apps.aiStudio.cancel')} />
-      <motion.div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={i18nT('apps.aiStudio.new_project')}
-        tabIndex={-1}
-        initial={{ opacity: 0, y: 8, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 8, scale: 0.98 }}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
-        className="relative w-full max-w-[440px] border border-border rounded-[14px] bg-card p-6 shadow-2xl outline-hidden"
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={pending}
-          aria-label={i18nT('apps.aiStudio.cancel')}
-          className="absolute top-3 right-3 p-1.5 rounded-md text-muted hover:text-text hover:bg-bg-hover cursor-pointer bg-transparent border-0 disabled:opacity-30 disabled:cursor-default"
-        >
-          <X size={16} />
-        </button>
-        <div className="text-[15px] font-semibold text-text-strong mb-4">{i18nT('apps.aiStudio.new_project')}</div>
-        <form
-          className="flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (canSubmit) onSubmit(name.trim(), description.trim())
-          }}
-        >
-          <label className="flex flex-col gap-1 text-[12px] text-muted">
-            {i18nT('apps.aiStudio.project_name')}
-            <Input
-              autoFocus
-              value={name}
-              maxLength={120}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={i18nT('apps.aiStudio.project_name_placeholder')}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[12px] text-muted">
-            {i18nT('apps.aiStudio.project_description')}
-            <textarea
-              value={description}
-              maxLength={2000}
-              rows={3}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={i18nT('apps.aiStudio.project_description_placeholder')}
-              className="w-full resize-none rounded-md border border-border bg-bg px-2.5 py-2 text-[13px] text-text outline-none focus:border-accent"
-            />
-          </label>
-          {error && <ErrorNotice message={error} askAgent={false} />}
-          <div className="flex justify-end gap-2 mt-1">
-            <Btn type="button" onClick={onCancel} disabled={pending}>
-              {i18nT('apps.aiStudio.cancel')}
-            </Btn>
-            <Btn type="submit" primary disabled={!canSubmit}>
-              {i18nT('apps.aiStudio.create_project')}
-            </Btn>
-          </div>
-        </form>
-      </motion.div>
-    </div>
-  )
-}
-
-// The backend's error body carries a machine code; the user sees a sentence.
-// app_disabled in particular must not read as "network" — it means the app was
-// switched off in Settings while this tab sat open.
-function apiErrorMessage(err: unknown): string {
-  if (err instanceof StudioApiError) {
-    if (err.code === 'app_disabled') return i18nT('apps.aiStudio.err_app_disabled')
-    if (err.code === 'name_required') return i18nT('apps.aiStudio.err_name_required')
-    return err.message
-  }
-  return err instanceof Error ? err.message : String(err)
 }

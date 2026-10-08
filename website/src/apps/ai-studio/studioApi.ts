@@ -13,11 +13,38 @@
 
 const API = '/api/apps/ai-studio'
 
+/** One step of the derive job (ACP-2085). `name` is the backend's Chinese
+ * step label — it is data, so it is rendered verbatim and never re-labelled
+ * here (the dialog's row order is the backend's array order). */
+export interface StudioWorkspaceStep {
+  name: string
+  state: StudioWorkspaceStepState
+  /** set only while this step is the one that failed */
+  message: string | null
+}
+
+export type StudioWorkspaceStepState = 'pending' | 'running' | 'done' | 'failed'
+
 export interface StudioProject {
   id: string
   name: string
   description: string
   createdAt: number
+  // --- workspace fields (ACP-2085) -------------------------------------------
+  // OPTIONAL on the wire on purpose: a project created before this change — and
+  // a plain non-workspace project created after it — carries none of them, and
+  // the whole UI branches on `code` being there rather than on a status a
+  // missing field would have to fake. `status` is `creating` until every derive
+  // step is done, `failed` alongside `failedStep`/`message` while one is broken.
+  code?: string | null
+  template?: string | null
+  status?: 'creating' | 'ready' | 'failed' | null
+  failedStep?: string | null
+  /** verbatim tail of the failing step's output — shown as written */
+  message?: string | null
+  workspaceDir?: string | null
+  repoUrl?: string | null
+  steps?: StudioWorkspaceStep[]
 }
 
 export interface StudioDoc {
@@ -502,8 +529,21 @@ export class StudioApiError extends Error {
  * snapshot-backed stand-in (website/src/apps/ai-studio/demo/runtime.ts)
  * without a type fork at every call site. */
 export type StudioApi = {
-  listProjects: () => Promise<{ projects: StudioProject[] }>
-  createProject: (name: string, description: string) => Promise<{ project: StudioProject }>
+  /** `staffId` is the gateway's `KIROCREW_STAFF_ID` (the 工号 the new-workspace
+   * dialog shows read-only and the dev domain is built from). Optional on the
+   * type because the demo snapshot has no login to report — the dialog shows an
+   * empty field rather than inventing one. */
+  listProjects: () => Promise<{ projects: StudioProject[]; staffId?: string }>
+  /** A `code` in `opts` is what makes this a WORKSPACE create (ACP-2085): the
+   * backend then answers `status: "creating"` and derives the repo in the
+   * background, so the caller opens the progress dialog instead of navigating.
+   * Without a `code` nothing changes — including the 2-argument call shape,
+   * which is what a plain project create still sends. */
+  createProject: (
+    name: string,
+    description: string,
+    opts?: { code?: string; template?: string },
+  ) => Promise<{ project: StudioProject }>
   getProject: (id: string) => Promise<{ project: StudioProject; docs: StudioDoc[] }>
   saveDoc: (id: string, name: string, content: string) => Promise<{ doc: StudioDoc }>
   listDraftDocs: (id: string) => Promise<{ drafts: StudioDraftDoc[] }>
@@ -551,6 +591,21 @@ export type StudioApi = {
   startDevServer: (id: string) => Promise<StudioDevServer>
   stopDevServer: (id: string) => Promise<StudioDevServer>
   getDevServerLog: (id: string, lines?: number) => Promise<{ lines: string[] }>
+}
+
+/** The derive job's two reads (ACP-2085). A separate client object, the
+ * `publishApi` precedent and for the same reason: the demo runtime implements
+ * `StudioApi` exactly, and a snapshot fakes no clone, no repo and no push — so
+ * these calls are real-store only and never belong on that type. */
+export type StudioWorkspaceApi = {
+  /** Re-run the FAILED step in the background. 202 with the fresh record; a 409
+   * `not_failed` when the job is not failed, which the dialog shows rather than
+   * swallows (it means someone else already retried, or the job moved on). */
+  retryWorkspace: (id: string) => Promise<{ project: StudioProject }>
+  /** Tail the derive command's merged output. The backend keeps the file next to
+   * `project.json`, not in the workspace, so this answers after a failed clone —
+   * which is exactly when it is the only evidence left. */
+  getWorkspaceLog: (id: string, lines?: number) => Promise<{ lines: string[] }>
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -604,11 +659,13 @@ export const publishApi: StudioPublishApi = {
 }
 
 export const studioApi: StudioApi = {
-  listProjects: () => request<{ projects: StudioProject[] }>('/projects'),
-  createProject: (name: string, description: string) =>
+  listProjects: () => request<{ projects: StudioProject[]; staffId?: string }>('/projects'),
+  createProject: (name, description, opts) =>
     request<{ project: StudioProject }>('/projects', {
       method: 'POST',
-      body: JSON.stringify({ name, description }),
+      // `{ ...undefined }` spreads to nothing, so a plain create posts exactly
+      // the two keys it always did
+      body: JSON.stringify({ name, description, ...opts }),
     }),
   getProject: (id: string) =>
     request<{ project: StudioProject; docs: StudioDoc[] }>(
@@ -702,5 +759,19 @@ export const studioApi: StudioApi = {
   getDevServerLog: (id: string, lines = 50) =>
     request<{ lines: string[] }>(
       `/projects/${encodeURIComponent(id)}/dev-server/log?lines=${encodeURIComponent(String(lines))}`,
+    ),
+}
+
+export const workspaceApi: StudioWorkspaceApi = {
+  retryWorkspace: (id: string) =>
+    request<{ project: StudioProject }>(`/projects/${encodeURIComponent(id)}/retry`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  // 80 lines matches the backend's own default: the file is a command's merged
+  // output, and the interesting part is the end of it.
+  getWorkspaceLog: (id: string, lines = 80) =>
+    request<{ lines: string[] }>(
+      `/projects/${encodeURIComponent(id)}/workspace-log?lines=${encodeURIComponent(String(lines))}`,
     ),
 }

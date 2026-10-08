@@ -28,6 +28,7 @@ from kiro_crew.apps.builtins.ai_studio.backend import (
     publish,
     reqsession,
     requirements,
+    workspace,
 )
 from kiro_crew.apps.manager import is_app_enabled
 
@@ -77,8 +78,12 @@ async def _body(request: web.Request) -> dict[str, Any]:
 
 
 async def _handle_projects_list(request: web.Request) -> web.StreamResponse:
+    # The 工号 rides along because the new-workspace dialog shows it read-only
+    # (RFC §7 A2: it comes from the login, the user cannot type it) and it is
+    # also what the dev domain will be built from — showing it before the create
+    # is the only way an operator can see the URL they are about to get.
     records = await asyncio.to_thread(projects.list_projects)
-    return web.json_response({"projects": records})
+    return web.json_response({"projects": records, "staffId": devserver.staff_id()})
 
 
 async def _handle_project_get(request: web.Request) -> web.StreamResponse:
@@ -96,9 +101,21 @@ async def _handle_project_create(request: web.Request) -> web.StreamResponse:
     description = body.get("description")
     if not isinstance(name, str) or not isinstance(description, str):
         return _error("name and description are required", "name_required", 400)
+    # A `code` in the body is what makes this a WORKSPACE create (ACP-2085):
+    # the record is written synchronously so the caller has an id to poll, and
+    # the four derive steps (clone → personal repo → push → dev server) run in a
+    # background thread. Returning 201 with `status: "creating"` is the whole
+    # contract — a clone of a monorepo is minutes long and no HTTP handler may
+    # wait for it, and the dialog's progress bar reads the record, not this body.
+    code = body.get("code")
+    template = body.get("template")
+    if code is not None and not isinstance(code, str):
+        return _error("code must be a string", "bad_code", 400)
+    if template is not None and not isinstance(template, str):
+        return _error("template must be a string", "bad_template", 400)
     try:
-        record = await asyncio.to_thread(projects.create_project, name, description)
-    except projects.ProjectError as exc:
+        record = await asyncio.to_thread(projects.create_project, name, description, code, template)
+    except (projects.ProjectError, workspace.WorkspaceError) as exc:
         return _error(str(exc), exc.code, exc.status)
     except FileExistsError:
         # The id timestamp collided inside the same second; retrying is right.
@@ -106,7 +123,42 @@ async def _handle_project_create(request: web.Request) -> web.StreamResponse:
     except OSError:
         logger.exception("ai-studio project create failed")
         return _error("could not write the project", "store_write_failed", 503)
+    if code is not None:
+        workspace.start_job(record["id"])
     return web.json_response({"project": record}, status=201)
+
+
+async def _handle_workspace_retry(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/retry: re-run the failed step in the background. The
+    # 409 is decided here, from the record, BEFORE the thread starts — answering
+    # 202 and then discovering "not failed" inside the thread would leave the
+    # dialog watching a job that was never started. WorkspaceJob.retry re-checks
+    # the same predicate for its own safety (a caller that skipped this route).
+    project_id = request.match_info["project_id"]
+    record = await asyncio.to_thread(projects.get_project, project_id)
+    if record is None:
+        return _error("project not found", "project_not_found", 404)
+    if record.get("status") != workspace.STATUS_FAILED:
+        return _error("当前不是失败状态", "not_failed", 409)
+    workspace.start_job(project_id, retry=True)
+    return web.json_response({"project": record}, status=202)
+
+
+async def _handle_workspace_log(request: web.Request) -> web.StreamResponse:
+    # GET /projects/{id}/workspace-log?lines=80: the tail of the derive command's
+    # merged output. It lives next to project.json and NOT in the workspace,
+    # because the moment it matters most is a failed clone — when the workspace
+    # directory may not exist at all.
+    project_id = request.match_info["project_id"]
+    if await asyncio.to_thread(projects.get_project, project_id) is None:
+        return _error("project not found", "project_not_found", 404)
+    raw = request.query.get("lines", "80")
+    try:
+        lines = int(raw)
+    except ValueError:
+        lines = 80
+    tail = await asyncio.to_thread(workspace.log_tail, project_id, lines)
+    return web.json_response({"lines": tail})
 
 
 async def _handle_doc_save(request: web.Request) -> web.StreamResponse:
@@ -621,6 +673,13 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
     app.router.add_get(f"{_BASE}/projects/{{project_id}}", _require_enabled(_handle_project_get))
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/retry", _require_enabled(_handle_workspace_retry)
+    )
+    app.router.add_get(
+        f"{_BASE}/projects/{{project_id}}/workspace-log",
+        _require_enabled(_handle_workspace_log),
+    )
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/drafts",
         _require_enabled(_handle_project_drafts),
