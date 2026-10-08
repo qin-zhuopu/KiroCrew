@@ -210,6 +210,41 @@ superseded-by: []
 ### 9.5 顺手修
 - 注册 `GET /publish/versions`（前端已在调，main 上缺），或从前端移除调用；二选一，以能列出工作区 Git 标签为准。
 
+### 9.6 开发服务器启停（ACP-2060，2026-10-08 用户提出，先于 §13 第 5 步单独做）
+
+用户原话：「每个项目创建好之后，引导你一个按钮，用来控制启动或者停止DEV服务器。这个DEV服务器要套上域名，域名要符合规则。」
+
+**旅程**
+1. 进入项目页 `/workspaces/<id>/ai-studio`，顶栏右侧有 **〔启动开发服务器〕**（状态「已停止」，灰点）。
+2. 点击 → 按钮变「启动中…」（黄点，禁用）。后台：没装依赖先装依赖 → 申请两个端口 → 起后端、起前端 → 挂网址 → 打开网址检查。
+3. 检查通过 → 绿点「运行中」，旁边出现网址（可点，新标签打开；带〔复制〕），按钮变 **〔停止开发服务器〕**。
+4. 点〔停止开发服务器〕→ 两个进程都停、网址摘掉、端口退回 → 回到第 1 步的样子。
+5. 任一步失败 → 红点「启动失败」，显示「<步骤名>失败：<错误原文>」和 **〔查看日志〕**（展开最后 50 行），按钮变回〔启动开发服务器〕可重试。
+6. 刷新页面、换浏览器、网关重启后再打开：显示的是真实状态（进程活着且网址能打开才算「运行中」）。
+7. `/workspaces` 列表卡片：运行中的项目显示绿点 + 网址。
+
+**域名规则**：`<代号>-<工号>-dev.gb10.jereh-pe.cn`
+- 代号 = `project.json` 的 `code`；没有就用项目 id（如 `p261008-151745`）。必须匹配 `^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`，不合规（含大写先转小写，其余字符）→ 启动直接失败「代号不合规：<值>」。
+- 工号 = 环境变量 `KIROCREW_STAFF_ID`；没设 → 启动失败「没有工号：请设置 KIROCREW_STAFF_ID」。只许数字或小写字母。
+- 后缀可配 `AI_STUDIO_DEV_DOMAIN_SUFFIX`，默认 `-dev.gb10.jereh-pe.cn`。
+
+**接口**（前缀 `/api/apps/ai-studio`，替代 §9.1 里的 `dev-instance` 那行）
+
+| 方法 路径 | 做什么 | 响应 |
+|---|---|---|
+| `GET /projects/{id}/dev-server` | 查状态 | `{state: stopped|starting|running|failed, url, ports:{web,api}, failedStep, message, startedAt}` |
+| `POST /projects/{id}/dev-server/start` | 启动（后台跑，立即返回 `starting`） | 409 `already_running`；400 `bad_code` / `no_staff_id` |
+| `POST /projects/{id}/dev-server/stop` | 停止 | 409 `not_running` |
+| `GET /projects/{id}/dev-server/log?lines=50` | 日志尾巴 | `{lines:[...]}` |
+
+**实现约定**
+- 状态存 `<工作区>/.ai-studio/dev-server.json`（pid、端口、网址、状态），日志 `<工作区>/.ai-studio/dev-server.log`。状态查询时按「pid 活着 + 网址 200」重算，文件只是缓存。
+- 启动命令可配：`.ai-studio/workspace.json`（§9.2）有就照它；没有就用默认（webapp-template）：后端 `pnpm --filter @webapp-template/api dev`（env `PORT`、`DWS_BIN_PATH=<工作区>/e2e/dws-mock/dws`），前端 `pnpm --filter @webapp-template/web dev`（env `PORT`、`VITE_PROXY_TARGET=http://127.0.0.1:<api端口>`、`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<域名>`）。工作区没有 `node_modules` 先跑 `pnpm install`（去掉 HTTP(S)_PROXY 环境变量）。不用模板根的 `dev:web`/`dev:api`（端口写死）。
+- 子进程：`start_new_session=True`，停止时杀整个进程组；环境里去掉网关自己的模型/密钥类变量（`ANTHROPIC_*`、`KIROCREW_*`、`CLAUDE_*`）。
+- 端口：从 6800~6999 找两个空闲端口（能 bind 且 `resreg check` 空闲），`resreg claim --owner ai-studio-<id>`；停止时 release。`resreg` 命令不存在就只做 bind 检查。
+- 挂网址：在 `AI_STUDIO_GATEWAY_CONF_DIR`（默认 `~/docker/web-gateways/conf.d`）写 `ais-<代号>-<工号>.conf`（`server_name <域名>`，`proxy_pass http://<AI_STUDIO_GATEWAY_UPSTREAM，默认 10.244.2.1>:<前端端口>`，带 websocket 头），再跑 `AI_STUDIO_GATEWAY_RELOAD_CMD`（默认 `docker exec web-gateways nginx -s reload`）。停止时删该文件再 reload。网关已有正则规则接住所有 `*-dev.gb10.jereh-pe.cn`，不需要重建任何容器。
+- 检查：每 2 秒 GET `https://<域名>/`（不走代理），120 秒内 200 → running；超时 → failed（`failedStep=检查网址`），并把已起的进程停掉、端口退回。
+
 ## 10. 验收标准（每条可自动测，括号里是测法）
 
 1. 新建工作区「设备管理」代号 `eqp`：列表出现、进度五步全 ✓；工作区目录是 Git 仓，`git remote get-url origin` 指向个人仓，`git log origin/develop -1` 有提交。（后端集成测：用本地裸仓当模板和个人远端）
@@ -226,6 +261,11 @@ superseded-by: []
 12. 开工后再改图谱 → `devState` 回到 `editing`，显示「需求改了，要重新点开始开发」。（集成测）
 13. 判定命令不可用 → 503 `reqdoc_cmd_unavailable`，判定条「判定服务不可用」，按钮置灰。（集成测，PATH 去掉命令）
 14. 任一工作区生成的需求文档里搜不到「原页面」「旧页面」「.vue」「原接口」。（集成测扫 `docs/需求图谱/*.md`）
+15. 开发服务器：演示项目点〔启动开发服务器〕→ 120 秒内绿点「运行中」，网址 = `<代号>-14409-dev.gb10.jereh-pe.cn`，浏览器打开 200 且是模板首页。（e2e，真起）
+16. 点〔停止开发服务器〕→ 两个进程不在了（`ps` 查 pid）、网关里那份 conf 删了、两个端口 `resreg check` 空闲、网址不再 200。（e2e）
+17. 代号不合规 / 没设工号 → 400，界面显示对应原文，不起任何进程。（后端单测）
+18. 启动命令故意失败（替身命令退出 1）→ `failed`、`failedStep` 正确、日志接口能看到报错原文、端口已退回、conf 已删。（后端单测，替身启动器）
+19. 运行中重启网关后 `GET dev-server` 仍是 `running`；手动 kill 前端进程后变 `failed` 或 `stopped`，不再显示「运行中」。（集成测）
 
 ## 11. 与已有设计的关系
 
@@ -259,6 +299,7 @@ superseded-by: []
 3. **需求会话**：`req-session` + ChatPane 改造 + 图谱变化检测。验收 5、6、7、8。
 4. **直改与开始开发**：`direct-edit`、`start`、开工请求记录。验收 9~12。
 5. **工作区派生与运行实例**：`POST /projects` 改造、`retry`、devinstance、顶栏。依赖模板仓改端口契约。验收 1~3。
+   - **5a（ACP-2060，先做）开发服务器启停按钮 + 规则域名**：§9.6，验收 15~19。不依赖模板仓改动（端口用环境变量覆盖、Host 用 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 放行）。
 6. 顺手修 `GET /publish/versions`。
 
 先做 2~4 是因为它们只依赖已有的 jereh-cli 命令和一个已有目录，能最快在界面里把「聊需求 → 判齐 → 开始开发」跑一遍；5 依赖模板仓改动。
