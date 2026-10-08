@@ -24,6 +24,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from kiro_crew.apps.builtins.ai_studio.backend import (
     devdag,
     devplan,
+    jirasync,
     projects,
     requirements,
     routes,
@@ -147,6 +148,350 @@ class Harness:
 def h(ws: Path, monkeypatch) -> Harness:
     monkeypatch.delenv(devdag.TRUST_ENV, raising=False)
     return Harness(ws)
+
+
+# ── ACP-2085-S6：先拆任务、后开发，Jira 跟着流转 ───────────────────────────
+#
+# The scheduler's half of the Jira story. A real :mod:`jirasync` call is a
+# subprocess against an internal Jira, so the seam is the module's own functions
+# (:meth:`DevRun._jira` looks them up by name on the module at call time, which
+# is exactly what makes monkeypatching them the test's whole lever here).
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_jira(monkeypatch):
+    """Never let the deployment's own ``AI_STUDIO_JIRA_*`` settings reach a test.
+
+    A gateway host that syncs Jira has these set, and an unset-vs-set reading
+    here is the difference between a test that plans 4 nodes and one that forks
+    a real ``jc`` and files real issues (testing-conventions: a test may not
+    touch the host or spawn a real child).
+    """
+    for name in (
+        "AI_STUDIO_JIRA_CMD",
+        "AI_STUDIO_JIRA_PROJECT",
+        "AI_STUDIO_JIRA_BROWSE",
+        "AI_STUDIO_JIRA_DOING",
+        "AI_STUDIO_JIRA_DONE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+class JiraSpy:
+    """The five command-shaped functions of :mod:`jirasync`, recorded.
+
+    ``fail`` switches every call to the "command broke" answer (``(None, text)``
+    / a non-empty error) without touching the scheduler: that is scenario 8,
+    where the round must still run to completion and only the node's
+    ``jiraError`` carries the reason.
+    """
+
+    def __init__(self) -> None:
+        self.parent_calls = 0
+        self.created: list[tuple[str, str, str]] = []
+        self.transitions: list[tuple[str, str]] = []
+        self.comments: list[tuple[str, str]] = []
+        self.fail = False
+        self._next = 9001
+
+    def install(self, monkeypatch) -> "JiraSpy":
+        monkeypatch.setattr(jirasync, "ensure_parent_checked", self._parent)
+        monkeypatch.setattr(jirasync, "create_task_checked", self._create)
+        monkeypatch.setattr(jirasync, "transition_checked", self._transition)
+        monkeypatch.setattr(jirasync, "comment_checked", self._comment)
+        return self
+
+    def _parent(self, _project: dict[str, Any]) -> tuple[str | None, str]:
+        self.parent_calls += 1
+        if self.fail:
+            return None, "jc 连不上 jira"
+        return "ACP-8000", ""
+
+    def _create(self, parent: str, title: str, code: str) -> tuple[str | None, str]:
+        self.created.append((parent, title, code))
+        if self.fail:
+            return None, "建单失败"
+        self._next += 1
+        return f"ACP-{self._next}", ""
+
+    def _transition(self, key: str, to: str) -> str:
+        self.transitions.append((key, to))
+        return "流转不动" if self.fail else ""
+
+    def _comment(self, key: str, text: str) -> str:
+        self.comments.append((key, text))
+        return "评论失败" if self.fail else ""
+
+
+@pytest.fixture()
+def jira(monkeypatch) -> JiraSpy:
+    """A spying Jira behind the run (env stays unset: the spy replaces the
+    functions themselves, so nothing here can fork a subprocess)."""
+    spy = JiraSpy().install(monkeypatch)
+    monkeypatch.delenv(devdag.TRUST_ENV, raising=False)
+    return spy
+
+
+def _nodes_by_key(dag: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(n["jiraKey"]): n for n in dag["nodes"]}
+
+
+@pytest.mark.asyncio
+async def test_plan_creates_one_issue_per_task_and_runs_nothing(ws: Path, jira: JiraSpy):
+    """5：plan → runState=planned、四个节点都有 Jira 号和链接，且一个节点都没跑。
+
+    「没开始跑」断的是 dispatcher 一次没被调 + 状态文件里没有 running：拆任务和
+    开工必须两件事，否则这个按钮就只是〔开始开发〕换了个名字。
+    """
+    h = Harness(ws)
+    dag = await h.run.plan(PAGES)
+
+    assert dag["runState"] == "planned"
+    assert [n["jiraKey"] for n in dag["nodes"]] == IDS
+    for node in dag["nodes"]:
+        assert node["state"] == "queued"
+        assert node["jira"]
+        assert node["jira"] not in (node["jiraKey"], None)
+        assert node["jiraUrl"] == f"https://jira.jereh.cn/browse/{node['jira']}"
+        assert node.get("jiraError", "") == ""
+    assert dag["jiraParent"] == "ACP-8000"
+    assert dag["jiraParentUrl"] == "https://jira.jereh.cn/browse/ACP-8000"
+    # 父单一次，子单四个，标题就是任务标题
+    assert jira.parent_calls == 1
+    assert [t for _p, t, _c in jira.created] == [
+        devplan.task_title(p, k) for p in PAGES for k in ("api", "web")
+    ]
+    assert {c for *_x, c in jira.created} == {"p0101"}
+    # 没派活：没有会话，看板上一行都没动
+    assert h.calls == []
+    assert h.state._slots == {}
+    assert h.run.get()["runState"] == "planned"
+
+
+@pytest.mark.asyncio
+async def test_plan_twice_with_the_same_pages_creates_no_second_batch(ws: Path, jira: JiraSpy):
+    """页面集合没变 = 原样返回：再点〔拆分任务〕不长出第二套 Jira 子单。"""
+    h = Harness(ws)
+    first = await h.run.plan(PAGES)
+    created = list(jira.created)
+    again = await h.run.plan(PAGES)
+
+    assert [n["jira"] for n in again["nodes"]] == [n["jira"] for n in first["nodes"]]
+    assert jira.created == created
+    assert jira.parent_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_with_new_pages_keeps_done_work_and_voids_the_rest(ws: Path, jira: JiraSpy):
+    """页面集合变了：done 的节点连号带提交一起留下，被挤掉的没做完的老单作废。
+
+    「作废」是评论 + 置完成两件事，都断：只评论 = 单子还挂在待办里；只流转 = Jira
+    里没人知道它为什么完成了。方向是**减页**（加页不会挤掉任何任务，也就没有作废）。
+    """
+    h = Harness(ws)
+    await h.run.plan(PAGES)
+    old_keys = [n["jira"] for n in h.run.get()["nodes"]]
+    # 手动记两行已交付（真跑一轮要 40 分钟，这里要验的是搬不搬、作废谁）：
+    # 第一页的 api 还在新计划里，第二页的 api 会随页一起掉出去。
+    stored = h.run._data()
+    for index in (0, 2):
+        stored["nodes"][index]["state"] = "done"
+        stored["nodes"][index]["endCommit"] = f"abc{index}234567890"
+    h.run._save(stored)
+
+    dag = await h.run.plan([PAGES[0]])
+
+    by_key = _nodes_by_key(dag)
+    assert by_key[IDS[0]]["state"] == "done"
+    assert by_key[IDS[0]]["endCommit"] == "abc0234567890"
+    assert by_key[IDS[0]]["jira"] == old_keys[0], "已交付的任务不许重开单"
+    # 掉出去的那一页：交付过的行留在看板上（代码已经提交在工作区里了）
+    assert by_key[IDS[2]]["state"] == "done"
+    assert by_key[IDS[2]]["jira"] == old_keys[2]
+    # 没交付又不要了的那一张（第二页 web）：评论 + 置完成
+    assert jira.comments == [(old_keys[3], "计划已重做，此单作废")]
+    assert jira.transitions == [(old_keys[3], jirasync.done_state())]
+    # 一次都不重开单：留下的行用的还是原来的号（作废那一张已从看板移除）
+    assert sorted(n["jira"] for n in dag["nodes"]) == sorted(old_keys[:3])
+    assert [n["jiraKey"] for n in dag["nodes"]] == [IDS[0], IDS[1], IDS[2]]
+
+
+@pytest.mark.asyncio
+async def test_planned_survives_a_restart_unlike_running(ws: Path, jira: JiraSpy):
+    """网关重启后 ``planned`` 不许被孤儿判断判成失败（planned 不是在跑）。"""
+    h = Harness(ws)
+    await h.run.plan(PAGES)
+    assert h.run._loop_task is None  # plan 不起循环，这就是「重启后」的形态
+
+    fresh = devdag.DevRun(FakeState(), {"id": "p0101"}, ws, git=lambda: "c")
+    dag = fresh.get()
+    assert dag["runState"] == "planned"
+    assert [n["state"] for n in dag["nodes"]] == ["queued"] * 4
+    # 父单链接是读的时候算的：一个新 DevRun、连项目记录都没带，照样给得出
+    assert dag["jiraParentUrl"] == "https://jira.jereh.cn/browse/ACP-8000"
+
+
+@pytest.mark.asyncio
+async def test_start_after_plan_runs_the_planned_nodes_and_transitions_jira(
+    ws: Path, jira: JiraSpy
+):
+    """6：plan 后 start → 节点依次 running/done，transition 依次被调，done 有评论。
+
+    每个节点都是「先流转到进行中、干完再流转到完成 + 评论提交号」，所以顺序是这一
+    条测试的全部内容 —— 反过来（先评论后流转）在 Jira 里看不出这一条何时开工。
+    """
+    h = Harness(ws)
+    await h.run.plan(PAGES)
+    keys = [n["jira"] for n in h.run.get()["nodes"]]
+    jira.transitions.clear()
+
+    await h.run.start(PAGES)
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert [n["state"] for n in dag["nodes"]] == ["done"] * 4
+    # 一次没重建：跑的是拆好的那份计划
+    assert [n["jira"] for n in dag["nodes"]] == keys
+    assert len(jira.created) == 4
+    doing, done = jirasync.doing_state(), jirasync.done_state()
+    expected: list[tuple[str, str]] = []
+    for key in keys:
+        expected += [(key, doing), (key, done)]
+    assert jira.transitions == expected
+    # done 的评论带自己那一节点的提交号（FakeGit 每提交一次头前进一步：c1…c4）
+    assert [t for _k, t in jira.comments] == [f"完成，提交 c{i + 1}" for i in range(4)]
+    assert [k for k, _t in jira.comments] == keys
+    # 跑完照样带得上父单链接
+    assert dag["jiraParentUrl"] == "https://jira.jereh.cn/browse/ACP-8000"
+
+
+@pytest.mark.asyncio
+async def test_start_without_a_plan_still_runs_the_old_way(ws: Path, jira: JiraSpy):
+    """老行为不变：没有计划直接 start = 自动 plan 一次再跑完。"""
+    h = Harness(ws)
+    await h.run.start(PAGES)
+    await h.finish()
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert [n["state"] for n in dag["nodes"]] == ["done"] * 4
+    assert len(jira.created) == 4
+    assert h.calls and [k for k, _ in h.calls] == SLOT_NAMES
+
+
+@pytest.mark.asyncio
+async def test_a_failed_node_is_commented_never_closed(ws: Path, jira: JiraSpy):
+    """7：失败节点评论「失败：…」，但状态没被流转成完成。
+
+    Jira 里它就该还挂在「进行中」—— 这条活确实没干完。把失败流转成完成会让 Jira
+    的看板比这块板更假，而后者才是那一轮实际跑了什么的记录。
+    """
+    h = Harness(ws)
+    h.replies["开发：设备点检记录：前端页面"] = "我先看一下\n失败：单测没过"
+    await h.run.plan(PAGES)
+    keys = [n["jira"] for n in h.run.get()["nodes"]]
+    jira.comments.clear()
+    jira.transitions.clear()
+
+    await h.run.start(PAGES)
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "failed"
+    by_key = _nodes_by_key(dag)
+    failed_key = keys[1]
+    assert by_key[IDS[1]]["state"] == "failed"
+    # 失败节点的评论：原文一句话，挂在它自己那张单上
+    fails = [(k, c) for k, c in jira.comments if c.startswith("失败：")]
+    assert fails == [(failed_key, "失败：单测没过")]
+    # 失败的那一张：只有「进行中」，从来没有「完成」
+    assert (failed_key, jirasync.doing_state()) in jira.transitions
+    assert (failed_key, jirasync.done_state()) not in jira.transitions
+    # 它前面那一张是完整的：进行中 + 完成 + 一条提交号评论
+    assert (keys[0], jirasync.done_state()) in jira.transitions
+    assert [k for k, c in jira.comments if c.startswith("完成，提交")] == [keys[0]]
+    # 后继一个都没派，也就一张单都没流转
+    assert not any(k == keys[2] for k, _ in jira.transitions)
+    assert by_key[IDS[2]]["state"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_the_run_completes_when_every_jira_call_fails(ws: Path, jira: JiraSpy):
+    """8：Jira 命令全失败，开发照样跑完；每个节点带上错误原文。
+
+    这是整层「失败不抛」的收口测试：Jira 只是记账，记账坏了却把开发停住，是本末
+    倒置。断言的是**跑完**（4 个节点全 done、循环正常收口）+ 原因在 ``jiraError``
+    上看得见，而不是「没报错」。
+    """
+    h = Harness(ws)
+    jira.fail = True
+    plan = await h.run.plan(PAGES)
+    assert plan["runState"] == "planned"
+    for node in plan["nodes"]:
+        assert node["jira"] == ""
+        assert node["jiraError"] == "建单失败" or node["jiraError"] == "jc 连不上 jira"
+
+    await h.run.start(PAGES)
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert [n["state"] for n in dag["nodes"]] == ["done"] * 4
+    # 没号就别去调流转/评论：那只会往 jiraError 上再糊几条看不懂的报错
+    assert jira.transitions == []
+    assert jira.comments == []
+
+
+@pytest.mark.asyncio
+async def test_a_jira_error_on_a_later_call_lands_on_the_node(ws: Path, jira: JiraSpy):
+    """建单成了、流转坏了：号还在（链接照样点得开），原因记到节点上。"""
+    h = Harness(ws)
+    await h.run.plan(PAGES)
+    keys = [n["jira"] for n in h.run.get()["nodes"]]
+    jira.fail = True
+
+    await h.run.start(PAGES)
+    await h.finish()
+
+    dag = h.run.get()
+    assert [n["state"] for n in dag["nodes"]] == ["done"] * 4
+    for index, node in enumerate(dag["nodes"]):
+        assert node["jira"] == keys[index]
+        assert node["jiraError"] == "流转不动"
+
+
+@pytest.mark.asyncio
+async def test_plan_while_running_is_refused_with_409(ws: Path, jira: JiraSpy):
+    """9：running 时 plan → 409 run_active，且一份在跑的计划没被改写。"""
+    h = Harness(ws)
+    h.dispatcher_block = asyncio.Event()
+    await h.run.start(PAGES)
+    with pytest.raises(devdag.DevDagError) as exc:
+        await h.run.plan(PAGES)
+    assert (exc.value.code, exc.value.status) == ("run_active", 409)
+    assert h.run.get()["runState"] == "running"
+    h.dispatcher_block.set()
+    await h.finish()
+    assert h.run.get()["runState"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_unset_jira_leaves_the_board_clean(ws: Path, monkeypatch):
+    """没配 Jira（``AI_STUDIO_JIRA_CMD`` 没设）：节点上没有 jiraError 灰字。
+
+    autouse 的 ``no_ambient_jira`` 已经把环境清干净了，所以这一条走的就是真函数
+    ——「可选配置没开」和「配置坏了」在看板上必须是两种长相，否则每个没接 Jira 的
+    部署都会看见四个节点挂着一行报错。
+    """
+    monkeypatch.delenv("AI_STUDIO_JIRA_CMD", raising=False)
+    h = Harness(ws)
+    dag = await h.run.plan(PAGES)
+    assert dag["runState"] == "planned"
+    for node in dag["nodes"]:
+        assert node["jira"] == ""
+        assert node["jiraUrl"] == ""
+        assert "jiraError" not in node or node["jiraError"] == ""
+    assert "jiraParent" not in dag
 
 
 @pytest.mark.asyncio
@@ -447,6 +792,7 @@ class FakeRun:
         self._state = {"runState": "idle", "nodes": []} if state is None else state
         self.error = error
         self.started: list[list[str]] = []
+        self.planned: list[list[str]] = []
         self.log_requests: list[int] = []
 
     def get(self) -> dict[str, Any]:
@@ -457,6 +803,12 @@ class FakeRun:
         if self.error is not None:
             raise self.error
         return {"runId": "dev-1", "phase": "full"}
+
+    async def plan(self, pages: list[str]) -> dict[str, Any]:
+        self.planned.append(pages)
+        if self.error is not None:
+            raise self.error
+        return {"runState": "planned", "nodes": [], "jiraParent": "ACP-8000"}
 
     def log_lines(self, lines: int) -> list[str]:
         self.log_requests.append(lines)
@@ -621,9 +973,107 @@ async def test_dev_dag_and_log_routes_pass_state_and_log_through(route_env, monk
 
 
 @pytest.mark.asyncio
+async def test_dev_plan_route_splits_the_same_pages_the_verdicts_allow(route_env, monkeypatch):
+    """POST dev/plan：页规则与 dev/start 完全一致，且不碰 start（拆 ≠ 跑）。"""
+    pid, _ws, app = route_env
+    monkeypatch.setattr(
+        requirements,
+        "list_pages",
+        lambda _ws: verdicts(("设备点检记录", "全齐"), ("备件台账", "不齐")),
+    )
+    fake = FakeRun()
+    monkeypatch.setattr(routes, "_dev_run_for", lambda *a, **k: fake)
+    async with TestClient(TestServer(app)) as client:
+        r = await client.post(f"/api/apps/ai-studio/projects/{pid}/dev/plan", json={})
+        assert r.status == 201
+        body = await r.json()
+        # 返回的就是 plan 自己那份状态：看板拿它直接画，不用猜形状
+        assert body["runState"] == "planned"
+        assert body["jiraParent"] == "ACP-8000"
+
+        r = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/dev/plan", json={"pages": ["设备点检记录"]}
+        )
+        assert r.status == 201
+
+        # 指名一个不齐的页 = 422，并把页名说全（和 dev/start 同一条判定）
+        r = await client.post(
+            f"/api/apps/ai-studio/projects/{pid}/dev/plan",
+            json={"pages": ["设备点检记录", "备件台账"]},
+        )
+        assert r.status == 422
+        assert (await r.json())["code"] == "not_ready"
+
+        r = await client.post(f"/api/apps/ai-studio/projects/{pid}/dev/plan", json={})
+        assert r.status == 201
+
+    # 三次都只拆到那一页（省略 pages = 判定允许的页；不齐的页永远进不来）
+    assert fake.planned == [["设备点检记录"]] * 3
+    # 拆任务不启动任何一轮：这一条是「先拆后开」在路由层的边界
+    assert fake.started == []
+
+
+@pytest.mark.asyncio
+async def test_dev_plan_route_maps_a_running_refusal_and_an_empty_workspace(route_env, monkeypatch):
+    pid, _ws, app = route_env
+    monkeypatch.setattr(requirements, "list_pages", lambda _ws: verdicts(("设备点检记录", "全齐")))
+    monkeypatch.setattr(
+        routes,
+        "_dev_run_for",
+        lambda *a, **k: FakeRun(error=devdag.DevDagError("already running", "run_active", 409)),
+    )
+    async with TestClient(TestServer(app)) as client:
+        r = await client.post(f"/api/apps/ai-studio/projects/{pid}/dev/plan", json={})
+        assert r.status == 409
+        assert await r.json() == {"error": "already running", "code": "run_active"}
+
+        # 一个能开工的页都没有：拆不出任务，201 + 空列表是假成功
+        monkeypatch.setattr(requirements, "list_pages", lambda _ws: [])
+        fake = FakeRun()
+        monkeypatch.setattr(routes, "_dev_run_for", lambda *a, **k: fake)
+        r = await client.post(f"/api/apps/ai-studio/projects/{pid}/dev/plan", json={})
+        assert r.status == 422
+        assert (await r.json())["code"] == "no_pages"
+    assert fake.planned == []
+
+
+@pytest.mark.asyncio
+async def test_dev_dag_route_adds_the_parent_link_from_the_record(route_env, monkeypatch):
+    """GET dev/dag 带得上 jiraParent／jiraParentUrl，哪怕状态文件里还没有。
+
+    ``ensure_parent`` 是把号写进 ``project.json`` 的那个人，而 ``DevRun`` 对象在网关
+    里活得更久 —— 所以路由是从**新读的记录**里补这个字段的，不是从缓存的那份。
+    """
+    pid, _ws, app = route_env
+    record_path = projects.projects_root() / pid / "project.json"
+    data = json.loads(record_path.read_text(encoding="utf-8"))
+    data["jiraParent"] = "ACP-7777"
+    record_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(routes, "_dev_run_for", lambda *a, **k: FakeRun())
+    async with TestClient(TestServer(app)) as client:
+        r = await client.get(f"/api/apps/ai-studio/projects/{pid}/dev/dag")
+        assert r.status == 200
+        body = await r.json()
+        assert body["jiraParent"] == "ACP-7777"
+        assert body["jiraParentUrl"] == "https://jira.jereh.cn/browse/ACP-7777"
+
+        # 状态文件自己带的号优先（那一轮实际用的就是它）
+        monkeypatch.setattr(
+            routes,
+            "_dev_run_for",
+            lambda *a, **k: FakeRun({"runState": "planned", "nodes": [], "jiraParent": "ACP-1"}),
+        )
+        r = await client.get(f"/api/apps/ai-studio/projects/{pid}/dev/dag")
+        body = await r.json()
+        assert body["jiraParent"] == "ACP-1"
+        assert body["jiraParentUrl"] == "https://jira.jereh.cn/browse/ACP-1"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "m,path",
     [
+        ("post", "/dev/plan"),
         ("post", "/dev/start"),
         ("get", "/dev/dag"),
         ("get", "/dev/log"),

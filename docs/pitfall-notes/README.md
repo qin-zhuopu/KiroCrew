@@ -124,6 +124,16 @@
   Host 回 403 恰好就是这个现场）。判据改成查三件资源；顺带 vite 5.4 没有
   `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`、`.ai-studio/` 下放 vite 配置找不到 vite、
   以及「停止后网址还 200」是网关默认 vhost 兜底（别拿网址当清理证据）。
+- [20261009-064853-judgement-that-never-ran-empty-log-and-arity.md](20261009-064853-judgement-that-never-ran-empty-log-and-arity.md) —
+  四条「看着像结论其实没发生过」：仓库根跑 vitest 时路径过滤匹配不到文件（139 条红全是别人的，
+  我改的那个压根没跑）；后台任务被会话退出打断 → 日志只剩 592 字节，「grep 没命中」被当成全绿；
+  `toHaveBeenCalledWith('p1')` 对 `('p1', undefined)` 是失败的（比较完整实参列表）；
+  断「某状态下按钮不存在」却等的是首帧（状态块首帧就渲染成 idle，正是提供按钮那一支）
+- [20261009-064900-injected-reactnode-receives-context-not-events.md](20261009-064900-injected-reactnode-receives-context-not-events.md) —
+  〔开始开发〕的 `window` 事件「没人接」：接的 `DevDagPanel` 是注入节点，只在开发页签渲染，
+  事件到达时它压根没挂载，`useEffect` 里的 `addEventListener` 从未执行；prop 又被创建方定死、
+  克隆元素是把结构问题伪装成一行代码。正解是「切页签归页签的主人 + Context 按树中位置读取」，
+  再用 `seq` + `served()` 挡住板子每次重渲染重放同一个请求（模块级队列那版已删）
 - [20261008-211710-vitest-from-repo-root-runs-without-a-dom.md](20261008-211710-vitest-from-repo-root-runs-without-a-dom.md) —
   前端测试 17 条全红、报错只提 testing-library（`document is not defined` +
   `Symbol(Node prepared with document state workarounds)`）：根因是**从仓库根跑的**——

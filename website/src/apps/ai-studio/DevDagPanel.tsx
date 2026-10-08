@@ -21,9 +21,9 @@
 // consequence worth one click, and the button's label changes to name it while
 // the click is live (「从失败处继续」 after a failed round), because continuing is
 // a different decision from starting.
-import { useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Hammer } from 'lucide-react'
+import { Hammer, Scissors } from 'lucide-react'
 import { Btn } from '../../components/ui'
 import Clickable from '../../components/Clickable'
 import { i18nT } from '../../i18n/t'
@@ -80,13 +80,63 @@ const NODE_STATE_CLASS: Record<StudioDevNodeState, string> = {
 }
 
 /** The run's own one-line status. `idle` is 「空闲」 — no run has ever started,
- * which is a state of the board, not an error. */
+ * which is a state of the board, not an error. `planned` is 「已拆任务」: the
+ * tasks and their Jira issues exist and nothing has been dispatched yet, so the
+ * next click is 开始开发 rather than 继续 (ACP-2085-S6). */
 const RUN_STATE_KEY: Record<StudioDevRunState, string> = {
   idle: 'apps.aiStudio.devDag.run_idle',
+  planned: 'apps.aiStudio.devDag.run_planned',
   running: 'apps.aiStudio.devDag.run_running',
   done: 'apps.aiStudio.devDag.run_done',
   failed: 'apps.aiStudio.devDag.run_failed',
 }
+
+/** The two refresh cadences the ticket names. A running round moves on a file
+ * the gateway writes every few seconds; anything else only moves when SOMEONE
+ * else moves it — another tab, another agent session, a Jira round-trip — and
+ * 10s is what the board needs to look alive without becoming a poll storm on a
+ * personal server that also serves the chat. */
+export const REFRESH_FAST_MS = 3000
+export const REFRESH_SLOW_MS = 10000
+
+/** What the 需求 tab fires when its 〔开始开发〕 succeeds (ACP-2150: the event
+ * existed and no one listened). */
+export const START_DEV_EVENT = 'ai-studio:start-dev'
+
+/** One 开始开发 the 需求 tab asked for and the 开发 tab has not served yet. */
+export interface StartDevRequest {
+  projectId: string
+  /** the one page the click was about, omitted = every page that is ready */
+  pages?: string[]
+  /** identity, so a board can tell a new request from the one it already served */
+  seq: number
+}
+
+/** The channel that carries it from the tab's owner down to the board.
+ *
+ * WHY A CONTEXT AND NOT A LISTENER ON THE BOARD
+ *
+ * The two parties that must act on the event are mounted at different times.
+ * ToolSidebar owns the tab state and is on screen the whole time, so it can
+ * switch to 开发 and it holds the request in its own state. The board that does
+ * the splitting is `devBoard`, an injected node that EXISTS ONLY while the 开发
+ * tab is open — so at the moment RequirementPage fires the event it is usually
+ * not mounted, and a listener on it would be a listener that is not there. That
+ * is ACP-2150: the event existed, nothing received it.
+ *
+ * Context reaches an injected node because it is read at the node's POSITION IN
+ * THE TREE, not where the element was created — the page creates `devBoard` but
+ * the sidebar renders it, inside this provider. A board mounted later reads the
+ * pending request on its first render; a board already on screen reads it the
+ * moment the state changes. No module-level queue: the request lives in the
+ * sidebar's state and dies with it. */
+export interface StartDevChannel {
+  request: StartDevRequest | null
+  /** tell the holder this `seq` has been served, so it stops asking */
+  served: (seq: number) => void
+}
+
+export const StartDevContext = createContext<StartDevChannel | null>(null)
 
 export default function DevDagPanel({ projectId, api = devBoardApi }: {
   projectId: string
@@ -96,6 +146,7 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
   const queryClient = useQueryClient()
   const [confirming, setConfirming] = useState(false)
   const [starting, setStarting] = useState(false)
+  const [splitting, setSplitting] = useState(false)
   const [notice, setNotice] = useState('')
   const [showLog, setShowLog] = useState(false)
   const [accepting, setAccepting] = useState(false)
@@ -103,10 +154,12 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
   const dagQuery = useQuery({
     queryKey: ['ai-studio', 'dev-dag', projectId],
     queryFn: () => api.getDevDag(projectId),
-    // Only a running round changes on its own, and it changes on a file the
-    // gateway writes — 3s is the ticket's cadence, and it stops the moment the
-    // run reaches a terminal state so a finished board costs no requests.
-    refetchInterval: (query) => (query.state.data?.runState === 'running' ? 3000 : false),
+    // Both branches poll, which is the point of the change: the board is no
+    // longer only about THIS tab's click. A planned run turns into a running
+    // one elsewhere, a node's Jira number appears when a round trip lands, and
+    // a finished board must still show what the last round did.
+    refetchInterval: (query) =>
+      query.state.data?.runState === 'running' ? REFRESH_FAST_MS : REFRESH_SLOW_MS,
   })
   const recordsQuery = useQuery({
     queryKey: ['ai-studio', 'accept-records', projectId],
@@ -129,10 +182,59 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
   // the done nodes done and re-queues the rest, so this click does not redo work
   // that already committed.
   const resume = runState === 'failed'
+  // 〔拆分任务〕 shows where the ticket puts it — an idle board, or a board with
+  // no plan. Once tasks are listed they ARE the plan (planned, running, or the
+  // residue of a round), and offering to rebuild it next to 开始开发 would offer
+  // to void Jira issues somebody may already be working on.
+  const splitBtn = runState === 'idle' || nodes.length === 0
+  // key AND url come from the same read: a board whose header names ACP-1 must
+  // not link somewhere else. The backend pairs them, and an empty key means
+  // there is no parent issue, which renders no row at all.
+  const parentLink = String(dag?.jiraParentUrl ?? '')
   const latest: StudioAcceptRecord | undefined = recordsQuery.data?.records[0]
 
-  const refreshDag = () =>
-    queryClient.invalidateQueries({ queryKey: ['ai-studio', 'dev-dag', projectId] })
+  const refreshDag = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['ai-studio', 'dev-dag', projectId] }),
+    [queryClient, projectId],
+  )
+
+  /** 〔拆分任务〕: build the node list AND its Jira sub-issues without starting
+   * anything (ACP-2085-S6). `pages` is omitted for the button (every page whose
+   * verdict allows it) and named for the 需求 tab's 开始开发 event, which asks
+   * for one page. Splitting is idempotent server-side — the same page set
+   * returns the same plan and creates no second batch of issues — so re-received
+   * events are harmless. */
+  const splitTasks = useCallback(
+    async (pages?: string[]) => {
+      setNotice('')
+      setSplitting(true)
+      try {
+        await api.planDev(projectId, pages)
+      } catch (e) {
+        setNotice(noticeText(e))
+      } finally {
+        setSplitting(false)
+        await refreshDag()
+      }
+    },
+    [projectId, api, refreshDag],
+  )
+
+  // The 开始开发 the 需求 tab asked for, handed down by whoever owns the tab
+  // state (ToolSidebar in the workbench, the test that mounts a bare board).
+  // `splitTasks` is stable, so this effect re-runs only when a NEW request
+  // arrives — and a mounted board is exactly when a pending one gets served,
+  // which is the case a listener on this component would have missed.
+  const startDev = useContext(StartDevContext)
+  const servedRef = useRef(0)
+  useEffect(() => {
+    const req = startDev?.request
+    if (!startDev || !req || req.projectId !== projectId) return
+    if (req.seq <= servedRef.current) return
+    servedRef.current = req.seq
+    startDev.served(req.seq)
+    void splitTasks(req.pages)
+  }, [startDev, projectId, splitTasks])
 
   async function confirmStart() {
     setConfirming(false)
@@ -182,6 +284,20 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
   return (
     <div className="flex flex-col gap-2" data-testid="ai-studio-dev-dag-panel">
       <div className="flex items-center gap-2">
+        {splitBtn && (
+          // 先拆任务、后开发 (ACP-2085-S6): the split is its own decision, taken
+          // before any code is written, because that is when the Jira issues get
+          // filed and when the operator can still see what the round will do.
+          <Btn
+            onClick={() => void splitTasks()}
+            disabled={running || splitting}
+            data-testid="ai-studio-dev-plan-btn"
+            className="shrink-0"
+          >
+            <Scissors size={13} className="lucide-inline" />
+            {i18nT('apps.aiStudio.devDag.plan')}
+          </Btn>
+        )}
         <Btn
           onClick={() => setConfirming(true)}
           disabled={running || starting}
@@ -197,6 +313,10 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
         >
           {i18nT(RUN_STATE_KEY[runState])}
         </span>
+      </div>
+
+      <div className="text-[10.5px] text-muted" data-testid="ai-studio-dev-refresh-hint">
+        {i18nT(running ? 'apps.aiStudio.devDag.refresh_fast' : 'apps.aiStudio.devDag.refresh_slow')}
       </div>
 
       {confirming && (
@@ -226,10 +346,29 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
         </div>
       )}
 
+      {parentLink && (
+        // One line above the tasks: the campaign's parent issue, so the board
+        // says which Jira issue all of these hang under. Absent when the project
+        // never got one (no Jira configured, or the create failed — the reason
+        // then sits on the individual rows, where the build failed).
+        <div className="text-[11px] text-muted" data-testid="ai-studio-dev-dag-jira-parent-row">
+          {i18nT('apps.aiStudio.devDag.jira_parent')}{' '}
+          <a
+            href={parentLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="ai-studio-dev-dag-jira-parent"
+            className="text-accent hover:underline"
+          >
+            {dag?.jiraParent ?? ''}
+          </a>
+        </div>
+      )}
+
       <div className="flex flex-col" data-testid="ai-studio-dev-dag">
         {nodes.length === 0 && (
           <div className="text-[11px] text-muted px-0.5" data-testid="ai-studio-dev-dag-empty">
-            {i18nT('apps.aiStudio.devDag.no_nodes')}
+            {i18nT(splitBtn ? 'apps.aiStudio.devDag.no_nodes_plan' : 'apps.aiStudio.devDag.no_nodes')}
           </div>
         )}
         {nodes.map((node) => (
@@ -252,6 +391,28 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
                 {node.message}
               </div>
             )}
+            {node.jira ? (
+              <a
+                href={node.jiraUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={`ai-studio-dev-dag-node-jira-${node.jiraKey}`}
+                title={node.jiraUrl}
+                className="block min-w-0 truncate pl-2 pb-1 text-[11px] text-accent hover:underline"
+              >
+                {node.jira}
+              </a>
+            ) : node.jiraError ? (
+              // The build's own failure line, verbatim, prefixed by why the board
+              // is showing it. A row with no number and no reason would read as
+              // a bug in this panel instead of a broken Jira command.
+              <div
+                className="pl-2 pb-1 text-[11px] text-muted whitespace-pre-wrap break-all"
+                data-testid={`ai-studio-dev-dag-node-jira-missing-${node.jiraKey}`}
+              >
+                {i18nT('apps.aiStudio.devDag.jira_missing', { reason: node.jiraError })}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
