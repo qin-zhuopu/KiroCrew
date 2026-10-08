@@ -180,6 +180,20 @@ superseded-by: []
 - `ChatPane` 改为先调这个接口拿 slotKey，再挂 ChatEmbed（不再自己 `POST /api/chat/slots`）。
 - **要先验证的技术点（V1）**：Claude ACP 适配器下，会话是否加载工作区里的 `.claude/agents/requirement-writer.md` 并以它为主 agent（命令行下靠 `.claude/settings.local.json` 的 `"agent"` 生效，已实测）。验证不过的退路：首条提示语里让会话先读该 agent 文件并照做，界面显示「助手未以专用模式启动」。
 
+**V1 结论（2026-10-08，ACP-2015-V1）**：通过（有条件——机制通了，但身份会与 Crew 人格竞争，不能当作已稳）
+- 环境：网关 6790、vite 6791，`agent.acp_backend=claude`，模型来自 settings.jqw.json（会话实际解析到的模型 `Jereh-Qwen3.8-Flash-Next`）
+- 做法：Spec Builder 建规格，working_dir=`/home/jereh/repo/jc/webapp-template-wt-kc-v1-probe`
+- Claude 进程 cwd：`/home/jereh/repo/jc/webapp-template-wt-kc-v1-probe`（沙箱包装进程 3827563 → `claude-agent-acp` 3827575 → `claude` 子进程 3827701，三层 cwd 全是该目录）
+- 首轮回复是否为 ≤5 道选择题：**是（就 §5.3 那句话而言）**，回复开头原文：「明白，做「设备点检记录」页。第一轮先问 4 件大的，每题最后一项都是「X. 其它」，可以直接文字回。 **问题 1：这页主要给谁用、拿来干什么？** - A. 车间班组长：现场填当天的设备点检情况 -」
+- 退路（让会话先读 agent 文件）：未试（不需要——首轮即按 agent 规则说话）
+- 结论对实现的影响：§9.3 不必再加退路，但**必须把 agent 身份当作可被覆盖的软约束**——见下三条实测边界
+
+实测边界（三条，都影响 §9.3 的实现）：
+
+1. **加载是真的**：`claude-agent-acp` 会把工作区 `.claude/settings.local.json` 的 `"agent"` 键透给 Claude CLI，内层 transcript 里能看到 `{"type":"agent-setting","agentSetting":"requirement-writer"}`（会话第 0 行，早于任何工具调用）与 `prompt_snapshot.systemPrompt` = 该 agent 文件正文。所以 §9.3「设 agent = requirement-writer」这条**不需要新接口**，靠工作区里那份 `settings.local.json` 就到位。
+2. **但它压在 Crew 自己的提示词下面**：Crew 的 9.4 万字符人格提示词（`You are Kiro 👻`）是作为**第一条 user 消息**下发的，agent 正文只在 CLI 的 system prompt 槽里，两者会抢。实测同一个会话里，Spec Builder 的种子提示那一轮**没**走 agent 格式（一题、无「X. 其它」、按 Requirements→Design→Tasks 走），下一轮才回到 agent 格式。所以 §9.3 的首条提示语**不要再教它怎么工作**（只报工作区路径与图谱目录，别写「先写 requirements.md」这类工序指令），否则等于给竞争加砝码。界面也不宜按「首轮是否选择题」判定专用模式——那个信号本身会抖。
+3. **工作区自带 `settings.local.json` 有两个副作用**：Crew 会**整份扣住 `mcpServers` 不发**（网关日志明写：该文件不是 Crew 写的，放行会绕过 `session/request_permission`），需求会话因此**拿不到 Crew 的 MCP 工具**；同时写文件要人在网页上点批准，无人应答 180 秒即自动拒绝（实测写 `.spec-state.json` 被这样拒掉）。§9.3 要写清这两条，或在 UI 上把「等待批准」显出来。
+
 ### 9.4 需求页
 
 | 方法 路径 | 做什么 | 关键响应/错误 |
