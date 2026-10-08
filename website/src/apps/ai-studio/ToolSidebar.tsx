@@ -150,6 +150,15 @@ export interface ToolSidebarProps {
   // injection outranks it — a frame's run is snapshot data.
   /** the 开发 tab's real gate-driven run row (real workbench only) */
   devLoop?: ReactNode
+  // ACP-2085-S4 adds the 开发 tab's development BOARD on the same injection
+  // footing (design 07 §〇-1: the tab is the board's home, the center column is
+  // not). It outranks devLoop because it is the tab's own read of the scheduler's
+  // state file, but it is an injection rather than a default for the same reason
+  // every seam above is one: a demo frame hands in snapshot data and must never
+  // reach the network, and the workbench page is the only place that knows
+  // whether these calls are real.
+  /** the 开发 tab's task board + acceptance block (real workbench only) */
+  devBoard?: ReactNode
   /** the 部署 tab's injected 过程 / 历史 (a deploy frame's own record) */
   deploy?: ToolTabInjection
   // ACP-802 adds the sixth, and it is the SAME kind again: the 需求图谱 tab's
@@ -224,7 +233,7 @@ const MARK_KEY = {
 
 export default function ToolSidebar({
 onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publishApi,
-  graphEntries, distillation, realGraph, graphLoop, releaseFiles, releaseAction, dev, devLoop, deploy,
+  graphEntries, distillation, realGraph, graphLoop, releaseFiles, releaseAction, dev, devLoop, devBoard, deploy,
   initialGraphType,
   commitApi, commitKey = 'real', onCommitted, onDraftsSeen, requirementApi,
 }: ToolSidebarProps) {
@@ -250,7 +259,10 @@ onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publ
             type="button"
             role="tab"
             aria-selected={tool === t}
-            data-testid={t === 'releases' ? 'ai-studio-publish-entry' : undefined}
+            data-testid={
+              t === 'releases' ? 'ai-studio-publish-entry'
+                : t === 'dev' ? 'ai-studio-dev-entry' : undefined
+            }
             onClick={() => pick(t)}
             className={`px-2.5 py-2.5 text-[12px] whitespace-nowrap cursor-pointer border-b-2 transition-colors ${
               tool === t ? 'text-accent border-accent font-semibold' : 'text-muted border-transparent hover:text-text'
@@ -301,10 +313,13 @@ onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publ
         )}
         {tool === 'dev' && (dev
           ? <InjectedTool tab="dev" injection={dev} onOpenTab={onOpenTab} />
-          // a frame's snapshot injection outranks the real loop, which in
-          // turn outranks the fixture — the tab shows gate-driven reality
-          // only where the calls are real
-          : devLoop ?? <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />)}
+          // ACP-2085-S4: where the page says these reads are real, the board IS
+          // the tab and the gate loop rides below it — the DEV fixture never
+          // shares a screen with real run data. A caller that injects no board
+          // (a demo frame, a bare mount, today's page) gets exactly what it got
+          // before: the loop, or the fixture behind it.
+          : devBoard ? <>{devBoard}{devLoop}</>
+            : devLoop ?? <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />)}
         {tool === 'deploy' && (deploy
           ? <InjectedTool tab="deploy" injection={deploy} onOpenTab={onOpenTab} />
           : <DeployTool onOpenTab={onOpenTab} />)}

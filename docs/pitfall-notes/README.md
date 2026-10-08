@@ -100,3 +100,8 @@
   Host 回 403 恰好就是这个现场）。判据改成查三件资源；顺带 vite 5.4 没有
   `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`、`.ai-studio/` 下放 vite 配置找不到 vite、
   以及「停止后网址还 200」是网关默认 vhost 兜底（别拿网址当清理证据）。
+- [20261009-022126-dev-trust-grant-needs-chat-utils-and-slot-key.md](20261009-022126-dev-trust-grant-needs-chat-utils-and-slot-key.md) —
+  后端自己仿〔信任会话〕开关：判定不在设值处（在 `chat_runner._slot_is_trusted`，还认
+  `_trust_scope` 那条带 TTL 的 Scoped 授权），策略 key 要用 `effective_session_key` 且它要
+  从 `chat_utils` 导（`chat_handlers` 那份 import 一次 13.5 秒），旗按 slot 存而策略按
+  session 存（共用 session 的槽要一起打），策略只在当前 asyncio 任务可见，`sel()` 没有 `noop()`。
