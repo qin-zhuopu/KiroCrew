@@ -12,6 +12,7 @@ test that waited on it would be a wall-clock race (testing-conventions class 2).
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -185,6 +186,8 @@ def test_derive_cmd_default(monkeypatch):
         "--base",
         "/workspaces",
         "--no-init-sessions",
+        "--depth",
+        "all",
     ]
 
 
@@ -469,7 +472,8 @@ def test_retry_after_failure_pushes_not_clones(home, tmp_path):
     workspace.WorkspaceJob("sbgl", runner=derive, pusher=push, devserver_factory=dev).retry()
 
     assert derive.calls == []  # 不重新克隆
-    assert push.calls == [["git", "-C", str(ws), "push", "-u", "origin", "develop"]]
+    assert len(push.calls) == 1 and push.calls[0][:2] == ["sh", "-c"]
+    assert "push -u origin develop" in push.calls[0][2] and "--unshallow" in push.calls[0][2]
     got = _record("sbgl")
     assert got["status"] == "ready"
     assert [s["state"] for s in got["steps"]] == ["done", "done", "done", "done"]
@@ -783,3 +787,44 @@ def test_start_job_releases_the_id(home):
     while workspace.job_running("sbgl") and time.monotonic() < deadline:
         time.sleep(0.01)
     assert not workspace.job_running("sbgl")
+
+
+
+# ---- 实战-1 卡点（2026-10-09）：浅克隆推不到新建的空仓库 --------------------------
+
+
+def test_default_derive_cmd_clones_full_history(monkeypatch):
+    monkeypatch.delenv("AI_STUDIO_WORKSPACE_CMD", raising=False)
+    cmd = workspace.derive_cmd("https://x/tpl.git", "sbgl", "14409", Path("/w"))
+    assert cmd[-2:] == ["--depth", "all"]
+
+
+def _git(*args, cwd=None):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def test_retry_push_unshallows_from_template_before_push(tmp_path):
+    # 模板：两次提交；工作区：depth 1 浅克隆后 origin 换成一个空的裸仓库（= 新建的个人仓）
+    tpl = tmp_path / "tpl"
+    tpl.mkdir()
+    _git("init", "-q", "-b", "master", cwd=tpl)
+    for i in range(2):
+        (tpl / f"f{i}.txt").write_text(str(i))
+        _git("add", ".", cwd=tpl)
+        _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", f"c{i}", cwd=tpl)
+    personal = tmp_path / "personal.git"
+    _git("init", "-q", "--bare", str(personal))
+    personal_cfg = personal / "config"
+    personal_cfg.write_text(personal_cfg.read_text() + "[receive]\n\tshallowUpdate = false\n")
+    ws = tmp_path / "ws"
+    _git("clone", "-q", "--depth", "1", f"file://{tpl}", str(ws))
+    _git("remote", "set-url", "origin", str(personal), cwd=ws)
+    _git("checkout", "-q", "-b", "develop", cwd=ws)
+
+    plain = subprocess.run(workspace.push_cmd(ws), capture_output=True, text=True)
+    assert plain.returncode != 0 and "shallow" in (plain.stderr + plain.stdout)
+
+    fixed = subprocess.run(workspace.push_cmd(ws, f"file://{tpl}"), capture_output=True, text=True)
+    assert fixed.returncode == 0, fixed.stderr
+    log = subprocess.run(["git", "--git-dir", str(personal), "log", "--oneline", "develop"], capture_output=True, text=True)
+    assert len(log.stdout.strip().splitlines()) == 2

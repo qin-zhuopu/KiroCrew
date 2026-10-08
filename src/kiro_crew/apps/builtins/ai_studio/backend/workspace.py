@@ -160,6 +160,10 @@ def derive_cmd(template_url: str, code: str, staff_id: str, root: Path) -> list[
             "--base",
             str(root),
             "--no-init-sessions",
+            # 全量克隆：默认浅克隆（depth 1）推到新建的空仓库会被拒
+            # 「shallow update not allowed」（2026-10-09 实战-1 实测）。
+            "--depth",
+            "all",
         ]
     subs = {
         "{template}": template_url,
@@ -452,7 +456,7 @@ class WorkspaceJob:
         index = STEPS.index("推送")
         _mark(steps, index, STEP_RUNNING, None)
         self._set_steps(steps)
-        if not self._pusher(push_cmd(ws), log):
+        if not self._pusher(push_cmd(ws, template_url()), log):
             detail = "git push 失败，见工作区日志"
             self._fail(steps, index, detail)
             raise WorkspaceError(detail, "derive_failed", 502)
@@ -516,9 +520,22 @@ class WorkspaceJob:
         _mark(steps, index, STEP_DONE, None)
 
 
-def push_cmd(ws: Path) -> list[str]:
-    """补推送的命令。重试时用它，而不是重跑整条派生命令。"""
-    return ["git", "-C", str(ws), "push", "-u", "origin", "develop"]
+def push_cmd(ws: Path, template: str | None = None) -> list[str]:
+    """补推送的命令。重试时用它，而不是重跑整条派生命令。
+
+    工作区若是浅克隆（老版本派生命令留下的），先从模板把历史补全再推，
+    否则服务端拒「shallow update not allowed」。origin 此时已指向个人仓（空的），
+    所以补历史只能从模板地址取。
+    """
+    if not template:
+        return ["git", "-C", str(ws), "push", "-u", "origin", "develop"]
+    w, t = shlex.quote(str(ws)), shlex.quote(template)
+    script = (
+        f'if [ "$(git -C {w} rev-parse --is-shallow-repository)" = true ]; then '
+        f"git -C {w} fetch --unshallow {t} || exit 1; fi; "
+        f"git -C {w} push -u origin develop"
+    )
+    return ["sh", "-c", script]
 
 
 def run_push(cmd: list[str], log_path: Path) -> bool:
