@@ -185,6 +185,47 @@ def _push_slots(state: Any) -> None:
         push()
 
 
+def edit_notice(page: str, diff: str) -> str:
+    """直改通知的正文（RFC §5 ``DocDirectEdited``：需求上下文把 diff 发给会话）。
+
+    照派工单原文一字不差。两点约定：
+      * **只给 diff，不给全文**：一版渲染出来的需求文档是几十 KB，塞进一句话会把
+        助手的上下文顶掉，而它要落的只是改动的那几行；
+      * **「落不进去的地方问我」是硬要求**：图谱是事实源，助手不能把落不进去的改动
+        自己编个说法塞进去，那等于让它替用户改需求。
+    """
+    return (
+        f"用户在网页上直接改了需求页「{page}」的文档，改动如下（diff）。"
+        f"请把这些改动落回 docs/需求图谱/{page}.json，落不进去的地方问我。\n{diff}"
+    )
+
+
+async def send_to_req_session(
+    state: Any,
+    project: dict,
+    ws: Path,
+    text: str,
+    *,
+    dispatch: Callable[[Any, Any, str], Any] | None = None,
+) -> dict:
+    """往这个项目的需求会话发一条消息，返回 ``{"slotKey", "created"}``。
+
+    和 ``ensure_req_session`` 的唯一区别是**发什么**：那条发开场白（且只发一次），
+    这条发平台生成的通知（直改的 diff 等），每次都发。会话正忙时不丢消息也不并发
+    起第二个 turn —— ``_dispatch_turn`` 自己会排队（这是它比裸 ``_run_chat`` 值钱的地方）。
+
+    会话**只保证存在，不保证已开场**：开场白是打开左栏时才发的，而用户可能先在中栏
+    改了文档。所以这里复用 ``ensure_req_session`` 把顺序摆正 —— 真跑里直改通知排在
+    开场白之前，助手会先收到一段 diff 再收到「现在先问我这次要做什么页面」，答非所问。
+    于是本函数**不许**换成「直接拿 slot 发一条」：那样并发打开左栏时开场白会重发。
+    """
+    opened = await ensure_req_session(state, project, ws, dispatch=dispatch)
+    run_turn = dispatch if dispatch is not None else _dispatch_turn
+    slot = state.get_or_create_slot(name=opened["slotKey"], app=APP_NAME)
+    run_turn(state, slot, text)
+    return opened
+
+
 async def ensure_req_session(
     state: Any, project: dict, ws: Path, *, dispatch: Callable[[Any, Any, str], Any] | None = None
 ) -> dict:

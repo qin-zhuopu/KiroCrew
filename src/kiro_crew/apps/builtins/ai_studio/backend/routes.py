@@ -507,17 +507,26 @@ async def _handle_devrun_get(request: web.Request) -> web.StreamResponse:
     return web.json_response({"run": rec})
 
 
-async def _requirements_target(request: web.Request) -> Path | web.Response:
-    # Shared prologue for the two requirement reads: the project must exist and
-    # its workspace (the repo that actually holds docs/需求图谱) must resolve.
-    # Returning the error response instead of raising keeps the handlers a
-    # straight line.
+async def _requirements_ws_and_record(
+    request: web.Request,
+) -> tuple[Path, dict[str, Any]] | web.Response:
+    # The prologue both requirement reads and both writes need: the project must
+    # exist and its workspace (the repo that actually holds docs/需求图谱) must
+    # resolve. Returning the error response instead of raising keeps the handlers
+    # a straight line. The record comes along because the direct-edit route has
+    # to name the project to the 需求会话 — reading it twice would let the two
+    # reads disagree about which workspace the notice is about.
     project_id = request.match_info["project_id"]
     record = await asyncio.to_thread(projects.get_project, project_id)
     if record is None:
         return _error("project not found", "project_not_found", 404)
     ws = requirements.workspace_dir(record, projects.projects_root() / project_id)
-    return ws
+    return ws, record
+
+
+async def _requirements_target(request: web.Request) -> Path | web.Response:
+    target = await _requirements_ws_and_record(request)
+    return target[0] if isinstance(target, tuple) else target
 
 
 async def _handle_requirements_list(request: web.Request) -> web.StreamResponse:
@@ -546,6 +555,99 @@ async def _handle_requirement_page(request: web.Request) -> web.StreamResponse:
         result = await asyncio.to_thread(requirements.get_page, target, page)
     except requirements.RequirementError as exc:
         return _error(str(exc), exc.code, exc.status)
+    return web.json_response(result)
+
+
+def _req_error(exc: requirements.RequirementError) -> web.Response:
+    # One error body for every requirement write: the store already decided the
+    # status by data (a stale docHash is a 409, an unqualified graph a 422) and the
+    # frontend switches on `code`, never on the Chinese prose.
+    if not exc.details:
+        return _error(str(exc), exc.code, exc.status)
+    # 422 ``not_ready`` answers WITH data (RFC §10 验收 11): the verdict and the
+    # gaps the on-the-spot check found, so the bar redraws from the refusal it got
+    # instead of from what it was displaying. Named fields, not a merged bag — the
+    # body's shape is then readable here rather than wherever a detail was set.
+    missing = exc.details.get("missing")
+    return web.json_response(
+        {
+            "error": str(exc),
+            "code": exc.code,
+            "verdict": exc.details.get("verdict"),
+            "missing": [str(x) for x in missing] if isinstance(missing, list) else [],
+        },
+        status=exc.status,
+    )
+
+
+async def _handle_requirement_direct_edit(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/requirements/{page}/direct-edit (RFC §9.4, §7 B5): the
+    # user edited the GENERATED document in the editor. The doc is a view of the
+    # graph, so this does not "save a doc" — it records the change and hands the
+    # diff to the 需求会话, which lands it back into the graph (the graph stays the
+    # single writer-writable source of truth; this route never touches the json).
+    target = await _requirements_ws_and_record(request)
+    if isinstance(target, web.Response):
+        return target
+    ws, record = target
+    state = request.app.get("state")
+    if state is None:  # pragma: no cover - the dashboard always sets it
+        # Refused BEFORE the ledger row: an edit nobody can be told about would
+        # pin the bar at 「改动待落回需求」 with no one to land it.
+        return _error("dashboard state is unavailable", "state_unavailable", 503)
+    body = await _body(request)
+    base = body.get("baseDocHash")
+    markdown = body.get("markdown")
+    if not isinstance(base, str) or not isinstance(markdown, str):
+        return _error("baseDocHash and markdown are required", "base_doc_hash_required", 400)
+    page = request.match_info["page"]
+    try:
+        result = await asyncio.to_thread(requirements.direct_edit, ws, page, base, markdown)
+    except requirements.RequirementError as exc:
+        return _req_error(exc)
+    except OSError:
+        logger.exception("ai-studio direct-edit ledger write failed")
+        return _error("could not write the direct-edit record", "store_write_failed", 503)
+    if not result.get("changed"):
+        # nothing to tell anyone: an identical save is not a change request
+        return web.json_response(result)
+    try:
+        await reqsession.send_to_req_session(
+            state, record, ws, reqsession.edit_notice(page, str(result.get("diff") or ""))
+        )
+    except reqsession.ReqSessionError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except Exception:
+        # The ledger row already landed, so the bar's 「改动待落回需求」 is the true
+        # statement either way; failing the request here would throw away a save
+        # the user made and could not re-make from a reloaded view.
+        logger.exception("ai-studio direct-edit notice could not reach the session")
+    return web.json_response(result)
+
+
+async def _handle_requirement_start(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/requirements/{page}/start (RFC §9.4, §7 B6): 开始开发.
+    # The verdict is re-run HERE (requirements.start re-reads the graph and shells
+    # to `check`), because the frontend's bar is a 5-second-old observation and
+    # R2 makes the record's graphHash the hash THIS check used. Task splitting and
+    # dispatching are another work stream's job — this route's whole product is
+    # the append-only start-requests row.
+    target = await _requirements_target(request)
+    if isinstance(target, web.Response):
+        return target
+    body = await _body(request)
+    graph_hash_value = body.get("graphHash")
+    if not isinstance(graph_hash_value, str) or not graph_hash_value:
+        return _error("graphHash is required", "graph_hash_required", 400)
+    try:
+        result = await asyncio.to_thread(
+            requirements.start, target, request.match_info["page"], graph_hash_value
+        )
+    except requirements.RequirementError as exc:
+        return _req_error(exc)
+    except OSError:
+        logger.exception("ai-studio start-request ledger write failed")
+        return _error("could not write the start request", "store_write_failed", 503)
     return web.json_response(result)
 
 
@@ -712,6 +814,17 @@ def register_routes(app: web.Application) -> None:
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/req-session",
         _require_enabled(_handle_req_session),
+    )
+    # ACP-2104 (RFC §9.4, §7 B5/B6): the two requirement WRITES. Both are literal
+    # segments below ``requirements/{page}``, so neither can be reached by the
+    # ``{page}`` read above — the read has no further segment to give away.
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/requirements/{{page}}/direct-edit",
+        _require_enabled(_handle_requirement_direct_edit),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/requirements/{{page}}/start",
+        _require_enabled(_handle_requirement_start),
     )
     # RFC §9.6: the dev-server control. ``dev-server/log`` and the bare
     # ``dev-server`` cannot collide — the log route carries a further segment.

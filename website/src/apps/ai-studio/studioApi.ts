@@ -377,18 +377,51 @@ export interface StudioRequirementSummary {
 
 /** One page's whole read: the raw graph, the rendered doc (null when the
  * graph is unqualified — v34 refuses to render those), and the verdict detail
- * the bar expands. `devState`/`stale` are step-2 constants, step 3 moves them. */
+ * the bar expands.
+ *
+ * Two optimistic-concurrency hashes, deliberately different (ACP-2104):
+ * `graphHash` gates 开始开发 (readiness is a property of the graph), `docHash`
+ * gates 直改 (the contention there is over the view the owner is typing in).
+ * `devState`/`changedAfterStart` come from the start ledger re-read against the
+ * CURRENT graph hash, so the「已开工」button is the backend's answer, and a graph
+ * that moved after a start shows up as `changedAfterStart` rather than as a
+ * silently vanished record (R3). */
 export interface StudioRequirementPage {
   page: string
   graph: unknown
   markdown: string | null
   graphHash: string
+  docHash: string
   verdict: StudioVerdict
   errors: string[]
   missing: string[]
   tiers: { api: string[]; ui: string[]; parts: string[] }
-  devState: 'editing' | 'requested'
+  /** true while a direct edit sits in the ledger and the graph has not moved
+   * since: the on-screen verdict describes a graph that no longer matches what
+   * the owner asked for. */
+  pendingEdit: boolean
+  devState: 'editing' | 'started'
+  changedAfterStart: boolean
   stale: boolean
+}
+
+/** 直改's answer (ACP-2104). `changed: false` is not an error and carries no
+ * diff: an edit that changes nothing must not notify anyone. When it did change,
+ * the diff is recorded and relayed to the 需求会话 — the graph itself is written
+ * only by that session, so `pending` says the change is a REQUEST still waiting
+ * to land. */
+export interface StudioDirectEditResult {
+  changed: boolean
+  diff?: string
+  pending?: boolean
+}
+
+/** 开始开发's answer: the request is recorded, nothing is generated here. */
+export interface StudioStartRequestResult {
+  ok: boolean
+  page: string
+  graphHash: string
+  verdict: StudioVerdict
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +606,12 @@ export type StudioApi = {
   // at the workspace directory; a 409 `workspace_missing` means the recorded
   // workspace directory is gone, which no retry can fix by itself.
   ensureReqSession: (id: string) => Promise<StudioReqSession>
+  // 直改 / 开始开发 (ACP-2104) are NOT members of this interface, and that is a
+  // deliberate seam, not an omission: `createDemoApi` returns `StudioApi`, so a
+  // new required member would force the snapshot demo to fake a write it cannot
+  // perform (faking a ledger it does not own is exactly the dishonesty the demo
+  // doctrine forbids). They live on `requirementWriteApi` below, which the real
+  // page calls and the demo never renders.
   // T7 step 4 (ACP-851): the four development phases run the BGDD gate
   // (bgdd repo tools/gate.ts, ACP-848) through the backend. startDevRun is
   // the whole run — it resolves once every phase that got to run has an
@@ -759,6 +798,35 @@ export const studioApi: StudioApi = {
   getDevServerLog: (id: string, lines = 50) =>
     request<{ lines: string[] }>(
       `/projects/${encodeURIComponent(id)}/dev-server/log?lines=${encodeURIComponent(String(lines))}`,
+    ),
+}
+
+// ---------------------------------------------------------------------------
+// requirement writes (ACP-2104): 直改 and 开始开发.
+//
+// A separate object rather than two more `StudioApi` members, for the reason in
+// the interface's comment: `createDemoApi` returns `StudioApi`, and a demo
+// snapshot has no graph, no ledger and no session to notify — so it could only
+// implement these two by inventing a success. The write surface is where a fake
+// would do real damage (it would teach the page that a save works), so it stays
+// off the demo's type and the demo never renders the buttons that call it.
+// ---------------------------------------------------------------------------
+
+export const requirementWriteApi = {
+  /** 直改 one requirement page: the backend re-derives the diff from the file, so
+   * `baseDocHash` is the hash of the view the text was typed against, and a
+   * mismatch is 409 `doc_changed` — the assistant landed something mid-typing. */
+  directEditRequirement: (id: string, page: string, baseDocHash: string, markdown: string) =>
+    request<StudioDirectEditResult>(
+      `/projects/${encodeURIComponent(id)}/requirements/${encodeURIComponent(page)}/direct-edit`,
+      { method: 'POST', body: JSON.stringify({ baseDocHash, markdown }) },
+    ),
+  /** 开始开发: re-check + record. 409 `graph_changed` / 422 `not_ready` both mean
+   * the on-screen verdict was stale, so the caller re-reads rather than arguing. */
+  startRequirement: (id: string, page: string, graphHash: string) =>
+    request<StudioStartRequestResult>(
+      `/projects/${encodeURIComponent(id)}/requirements/${encodeURIComponent(page)}/start`,
+      { method: 'POST', body: JSON.stringify({ graphHash }) },
     ),
 }
 
