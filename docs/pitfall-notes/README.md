@@ -126,3 +126,15 @@
   是 `bcc6240a7` 的账；判归属只认「失败测试涉及的文件在不在本单 diff 里」+ 断言报的是
   整块缺失还是局部写错。另记：后端段一红 `local-gate` 就整体退出，前端两段根本不跑
   一条写完。附 `[pseudolocale]` 要求 `en-XA.json` 随 `en.json` 一起重新生成提交。
+- [20261009-032851-ai-studio-live-run-silent-blockers.md](20261009-032851-ai-studio-live-run-silent-blockers.md) —
+  真跑需求页直改连撞五个「报错不指向根因」的坑：① 浏览器写请求全 403 而 curl 200——CSRF 只校
+  `Origin`，vite 的 6791 不在 `build_allowed_origins` 里，而 `KIROCREW_HOME` 设了就白名单
+  `localhost:3000`（真跑要用 3000，且复现浏览器必须显式带 Origin）；② 工具批准 600 秒**自动替你拒绝**，
+  `approval_mode=auto` 不覆盖工作区外的 Edit，随后 loop-watchdog dump-then-exit 把网关整进程带走，
+  外面只见「页面没反应」；③ 直改成功**故意不改渲染文档**，所以「拿刚才的 docHash 重试」测不出陈旧
+  （会改 hash 的是图谱不是文档），那个假 409 还往演示账本里写了脏行；④ 渲染视图里带
+  `生成时间：<ISO>`，直接拿它对 `docHash` 等于对「现在几点」取指纹（重启就变、刚打字就误报未保存），
+  要过 `stable_doc` 抹戳；⑤ 两本需求账本（`direct-edits` / `start-requests`）写在**工作区**的
+  `.ai-studio/` 下（本次即模板仓 worktree），不在 `KIROCREW_HOME` 里，全盘 find 才找得到。
+  附：需求会话会拒不像需求的改动
+  （行为正确）、`每页 20 条` 全文 4 处要按 `- R-15 规则：` 定位、窄视口下三栏布局遮挡点击。

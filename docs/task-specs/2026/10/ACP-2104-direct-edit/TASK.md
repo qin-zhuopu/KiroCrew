@@ -65,4 +65,11 @@ def direct_edit(ws: Path, page: str, base_doc_hash: str, markdown: str) -> dict:
 
 ## 6. 收尾
 
-只 stage 本单文件；提交 `feat(ai-studio): direct-edit the requirement doc and request start (ACP-2104)`；推 fork；Jira ACP-2104 评论结论 + 置完成。最后只回复「ACP-2104 全部完成」。
+**需求文档随代码一起提交**（负责人 2026-10-09 追加）：本功能自身的需求 + 验收文档落在 webapp-template 仓的 `docs/需求图谱/`，格式照仓里已有的需求图谱（v34 图谱 JSON 是事实源，同名 `.md` 由 `jc fe reqdoc render` 生成，不手写）：
+
+- `docs/需求图谱/ai-studio-requirement-direct-edit.json`
+- `docs/需求图谱/ai-studio-requirement-direct-edit.md`
+
+文件名用英文（本机硬约定：禁止中文文件名；内容与仓里已有的 `设备分类.json` 等一样照旧，不改名）。判定用 `jc fe reqdoc check <json>` 验：本次结论是「可以开工但有已知缺口」，唯一缺口是零件可达一档的 `MarkdownSourceEditor`（框架组件池里确实没有「可编辑的 Markdown 正文区」这个零件，如实登记为缺口，不假装全齐）。这份文档在模板仓，**连模板仓的代码一起提交并推模板仓的 origin**，不进 KiroCrew 的提交。
+
+KiroCrew 侧：只 stage 本单文件；提交 `feat(ai-studio): direct-edit the requirement doc and request start (ACP-2104)`；推 fork；Jira ACP-2104 评论结论 + 置完成。最后只回复「ACP-2104 全部完成」。
