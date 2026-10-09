@@ -49,6 +49,39 @@ const TOOL_KEYS: Record<Tool, string> = {
   deploy: i18nT('apps.aiStudio.tool_deploy'),
 }
 
+/**
+ * ACP-2222: the unified handle for each tab, spelled out key by key rather than
+ * built with `` `ai-studio-tool-${t}` `` so that journeyTestids.test.ts can
+ * string-check the source for the id a journey script actually asks for. A
+ * computed id is invisible to that guard: delete one key's entry and the guard
+ * stays green while the script 404s.
+ */
+export const TOOL_TESTIDS: Record<Tool, string> = {
+  requirements: 'ai-studio-tool-requirements',
+  docs: 'ai-studio-tool-docs',
+  commits: 'ai-studio-tool-commits',
+  releases: 'ai-studio-tool-releases',
+  graph: 'ai-studio-tool-graph',
+  dev: 'ai-studio-tool-dev',
+  deploy: 'ai-studio-tool-deploy',
+}
+
+/**
+ * The two tab ids that shipped before ACP-2222 and that live tests and live
+ * scripts still click. They stay on `data-testid` — that is what `getByTestId`
+ * reads, and `DevDagPanel.test.tsx` asserts `aria-selected` on
+ * `ai-studio-dev-entry`, so the handle has to sit on the tab button itself, not
+ * on a wrapper. Which means one button carries two handles: the legacy name in
+ * `data-testid` and the unified `ai-studio-tool-<key>` in `data-tool`. Two
+ * names, one control — so no script can land on an element whose `aria-selected`
+ * belongs to a different tab, and a journey script locates ANY tab the same way:
+ * `[data-tool="ai-studio-tool-<key>"]`.
+ */
+const TOOL_LEGACY_TESTIDS: Partial<Record<Tool, string>> = {
+  releases: 'ai-studio-publish-entry',
+  dev: 'ai-studio-dev-entry',
+}
+
 /** One sidebar tab whose content comes from OUTSIDE (ACP-799). The 开发 and 部署
  * tabs are the two the demo's dev/deploy frames cover, and a frame knows facts
  * the shipped fixtures do not (its own run, its own deployment, its own
@@ -294,10 +327,8 @@ onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publ
             type="button"
             role="tab"
             aria-selected={tool === t}
-            data-testid={
-              t === 'releases' ? 'ai-studio-publish-entry'
-                : t === 'dev' ? 'ai-studio-dev-entry' : undefined
-            }
+            data-testid={TOOL_LEGACY_TESTIDS[t] ?? TOOL_TESTIDS[t]}
+            data-tool={TOOL_TESTIDS[t]}
             onClick={() => pick(t)}
             className={`px-2.5 py-2.5 text-[12px] whitespace-nowrap cursor-pointer border-b-2 transition-colors ${
               tool === t ? 'text-accent border-accent font-semibold' : 'text-muted border-transparent hover:text-text'
