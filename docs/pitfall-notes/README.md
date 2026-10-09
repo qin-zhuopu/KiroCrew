@@ -257,3 +257,9 @@
   `npm run i18n:pseudo`**，否则 hard-zero 报的是「keys 不匹配」看不出缺哪步。附带：
   `pytest -p no:xdist` 因仓的 `addopts` 带 `-n/--dist` 直接退出码 4 一条没跑，报错只说
   参数不认识
+- [20261010-050253-bash-hook-eats-multiline-command-bodies.md](20261010-050253-bash-hook-eats-multiline-command-bodies.md) —
+  完工评论 `jc jira issue comment … <<EOF` 连拒三次「禁止 head/tail 管道截断」，而命令里
+  根本没有管道。根因：钩子字符级扫**整条命令文本**，正文里那条门禁 JSON 样例的英文
+  「输出 tail」就是命中点——heredoc / 提交信息 / 脚本注释一样在扫。教训：**塞多行正文前先
+  自查这两个英文词**，改成中文（「输出末尾」）；带 `detail`/`snippet` 示例值时最容易中招；
+  被拒先读正文措辞，不要先改命令结构，更不要拆字符绕钩子
