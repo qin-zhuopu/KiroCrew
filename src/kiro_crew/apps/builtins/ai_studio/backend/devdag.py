@@ -1,15 +1,23 @@
-"""开发运行的串行调度（ACP-2085-S4 第 2 步）。
+"""开发运行的调度循环（ACP-2085-S4 第 2 步，ACP-2207 起可并行）。
 
-一个 ``DevRun`` = 一个项目的一轮开发：把 ``devplan.build_plan`` 算出的任务逐个
-跑完，每个任务**开一个助手会话**发一轮，看板上就是这些节点的状态。
+一个 ``DevRun`` = 一个项目的一轮开发：把 ``devplan.build_plan`` 算出的任务跑完，
+每个任务**开一个助手会话**发一轮，看板上就是这些节点的状态。
 
 和 07 设计文档（``raw/ai-studio-acceptance/07-dev-dag-two-phase.md``）的差别是
 本步有意为之的最小可用版，别照文档把它「补全」：
 
-* 只有一个阶段 ``full``：不做演示版/完整版两阶段、不打 git tag、不做回退、不接
-  Jira（节点上的 ``jiraKey`` 只是任务 id 的字段名，跟 Jira 没有关系）。
-* **串行**：同一个工作区目录一次只跑一个任务，不建 worktree，所以 §四 的
-  worktree 隔离/复用断言在这一版不适用。
+* 只有一个阶段 ``full``：不做演示版/完整版两阶段、不打 git tag、不做回退。节点上的
+  ``jiraKey`` 起初只是任务 id 的字段名，ACP-2085-S6 之后才真的挂上 Jira 子单。
+* **并行度受 ``AI_STUDIO_DEV_PARALLEL`` 管（默认 2，ACP-2207）**：一轮里同时最多
+  跑这么多个「依赖全 done」的节点，每个并行节点一个 git worktree（见
+  :func:`worktree_add`），跑完在**主目录** ``merge --no-ff``。设成 1 就是旧的串行，
+  一个 worktree 都不建。
+* **串行后继不复用前驱的 worktree**（ACP-2207 有意偏离 07 §四-2「串行复用」）：后继
+  等前驱**合进主目录**之后，从合并后的主目录 HEAD 新开一个。复用同一棵目录树省不下
+  什么（一次 ``worktree add`` 是秒级），代价却是两条说不清的语义：前驱的未提交改动
+  会漏进后继的工作现场，而前驱失败留下的现场（「保留供人看」）会被后继踩掉。合并点
+  才是这一单认的交接面 —— 看板上一个节点转「完成」的**那一刻**，它的代码已经在主
+  目录的历史里，下一个节点从那儿起步，谁也不用猜对方留在目录里的是什么。
 * 不用 ``TaskRunner``：这里就是一个几十行的循环，照 Spec Builder 的
   ``runtime._ensure_worker_slot`` + ``_dispatch_turn`` 的写法开会话发一轮。
 
@@ -24,6 +32,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -45,6 +54,262 @@ TURN_TIMEOUT_S = 2400.0
 #: —— 没人点的话节点会一直停在「进行中」，直到上面那个超时。默认不开：自动写
 #: 代码提交这件事本身已经够大，批准这一道留给操作员自己决定要不要撤。
 TRUST_ENV = "AI_STUDIO_DEV_TRUST"
+
+#: 一轮里最多同时跑几个节点（ACP-2207）。默认 2，照 07 §四 的并行度峰值。
+#: **设成 1 就是旧的串行**：一个 worktree 都不建，节点直接在工作区主目录里写，
+#: 这一版的看板行为与并行改造之前逐字相同 —— 所以「退回串行」不是一条特判，
+#: 而是「并行度 1 时永远只有一个节点在跑，也就没有同目录并写这回事」。
+#: 上限 8 是护栏不是设计：会话数每加一个就多一个 ACP 子进程 + 一份 pnpm install，
+#: 当晚实测几个会话同时跑就把机器压垮过（见 :mod:`devplan` 的「不跑测试」那条）。
+PARALLEL_ENV = "AI_STUDIO_DEV_PARALLEL"
+DEFAULT_PARALLEL = 2
+MAX_PARALLEL = 8
+
+#: 一个并行节点的 worktree 放在工作区的这个子目录下（``.ai-studio/wt/<序号>``）。
+#: 跟着工作区走而不是放临时目录：节点失败留下现场时，人就在同一个工作区里找得到它。
+WORKTREE_SUBDIR = ".ai-studio/wt"
+
+
+def parallel_limit(raw: str | None = None) -> int:
+    """本轮的并行度：``AI_STUDIO_DEV_PARALLEL``，读不出来就按 :data:`DEFAULT_PARALLEL`。
+
+    0、负数、非数字统统退回默认，不退回 1：把它读成 1 等于「配置写错了 ⇒ 悄悄变
+    串行」，那是把一个没人察觉的性能改动塞进一次拼写错误里；退回默认至少是这一版
+    声明过的行为。
+    """
+    text = (os.environ.get(PARALLEL_ENV, "") if raw is None else raw).strip()
+    if not text:
+        return DEFAULT_PARALLEL
+    try:
+        n = int(text)
+    except ValueError:
+        return DEFAULT_PARALLEL
+    if n < 1:
+        return DEFAULT_PARALLEL
+    return min(n, MAX_PARALLEL)
+
+
+def branch_name(node_key: str) -> str:
+    r"""一个节点的任务 id → 它的分支名 ``dev/<小写短横线>``。
+
+    「小写短横线」只管有大小写可言的那一半：任务 id 的页名是中文，中文没有大小写，
+    而把它一起换成短横线会让「设备点检记录:api」和「备件台账:api」塌成同一条分支
+    —— 两个并行节点共用一条分支就是共用工作，正是这一单要消灭的事。所以：ASCII 转
+    小写、下划线先换成短横线（它是 ``\w``，不先换就会被原样留下）、其余不是字母也
+    不是数字的一律换成短横线（``:`` ``/`` 空格都是 git 不接受或难读的写法），中文
+    原样保留（git 分支名允许 UTF-8，看板上一眼认得出是哪一页）。
+    """
+    cleaned = str(node_key).lower().replace("_", "-")
+    slug = re.sub(r"[^\w-]+", "-", cleaned).strip("-")
+    return f"dev/{slug or 'node'}"
+
+
+def worktree_path(ws: Path, index: int) -> Path:
+    """第 ``index``（0 起）个节点的 worktree 目录：``<工作区>/.ai-studio/wt/<序号>``。
+
+    按**节点序号**而不是按任务 id 命名，和 slot 名同一条规则（``ai-studio-dev-<项目>-<序号>``）：
+    看板上第几行、会话名、目录名是同一个序号，人排查时不用换算。
+    """
+    return Path(ws) / WORKTREE_SUBDIR / str(index + 1)
+
+
+class GitOpError(Exception):
+    """一条 git 命令没办成，带 git 自己那句话（原文，看板/日志照抄）。"""
+
+    def __init__(self, message: str, conflict_files: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.conflict_files = conflict_files
+
+
+def _git_run(repo: Path, args: list[str], timeout: int = 120) -> tuple[int, str]:
+    """工作区里跑一条 git，回 ``(returncode, stdout+stderr 合并原文)``。
+
+    合并两路：git 把进度和报错都往 stderr 写（``git worktree add`` 的
+    ``Preparing worktree ...`` 就在 stderr），只看 stdout 会把「它说了什么」丢掉。
+
+    **那句原文只能给人看，不能拿来做判断。** git 按 ``LC_MESSAGES`` 决定它说什么话：
+    本机 ``LANG=zh_CN.utf8``，实测 ``git worktree add -b`` 撞见已有分支回的是
+    ``fatal: 一个名为 'dev/x' 的分支已经存在``，``git status`` 还会把中文路径转成
+    ``"\\350\\256\\276..."`` 那样的八进制。所以本模块判断一律只看退出码，要文件名单就
+    用 ``diff --name-only --diff-filter=U``，一个英文子串都不匹配 —— 匹配英文子串的
+    写法在英文机器上全绿、在中文部署机上静默失效，测试也照过。
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GitOpError(f"git {' '.join(args)} 起不来：{type(exc).__name__}: {exc}") from exc
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+#: worktree 那一棵树对工作区自己是垃圾，但对 git 不是：模板的 ``.gitignore`` 里没有
+#: ``.ai-studio/``，所以第二棵树建出来之后主目录的 ``git status`` 会多出整份代码的
+#: 副本 —— 助手一句 ``git add -A`` 就能把另一个节点的现场当成自己的成果提交进去。
+#: 写 ``.git/info/exclude`` 而不是 ``.gitignore``：前者是本地账本，不进版本库、不
+#: 进发布包、也不改任何被跟踪的文件（改 ``.gitignore`` 本身就是把主目录改脏）。
+#: 只 Ignore worktree 那一格，不 Ignore 整个 ``.ai-studio/``：同目录下还放着需求文档
+#: （验收的事实源，要跟着代码一起进仓一起推），一把梭会把它们挡在提交之外。
+_LOCAL_EXCLUDE_ENTRY = f"/{WORKTREE_SUBDIR}/"
+
+
+def _git_dir(repo: Path) -> Path:
+    """``<工作区>/.git``（普通克隆）。取不到就回工作区里那个 ``.git`` 的原样路径。"""
+    rc, out = _git_run(repo, ["rev-parse", "--absolute-git-dir"], timeout=20)
+    if rc != 0:
+        return Path(repo) / ".git"
+    row = out.strip().splitlines()
+    return Path(row[-1]) if row else Path(repo) / ".git"
+
+
+def ensure_local_exclude(repo: Path) -> None:
+    """确保 ``.git/info/exclude`` 里 Ignore 得掉 ``.ai-studio/``（幂等，坏了自己咽）。
+
+    只追加一行本地忽略，不做别的：它既不改被跟踪文件（改 ``.gitignore`` 会把主目录
+    改脏，而每次合并前主目录都得是干净的），也不会被推到远端 —— 操作员的仓库里凭
+    空多出一条我们发明的规则，那是我们的事不是他的。
+    """
+    try:
+        git_dir = _git_dir(Path(repo))
+        exclude = git_dir / "info" / "exclude"
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        existing = (
+            exclude.read_text(encoding="utf-8", errors="replace") if exclude.is_file() else ""
+        )
+        have = any(line.strip() == _LOCAL_EXCLUDE_ENTRY for line in existing.splitlines())
+        if have:
+            return
+        with exclude.open("a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            fh.write(_LOCAL_EXCLUDE_ENTRY + "\n")
+    except OSError:
+        # 忽略规则没写成，最坏是主目录脏一点；为此让一个任务开工就失败是本末倒置。
+        logger.warning("ai-studio could not write .git/info/exclude", exc_info=True)
+
+
+def worktree_add(repo: Path, path: Path, branch: str, base: str) -> None:
+    """从 ``base``（主目录当前 HEAD）拉出 ``branch``，检出到 ``path``。
+
+    先试带 ``-b`` 的那条，失败就退回「直接检出已有分支」那一条：续跑同一轮时分支
+    已经在了，再 ``-b`` 只会回一句「分支已经存在」，于是同一个节点第二次永远开不出
+    现场。
+
+    **退回的判据是「第一条没成」，不是「git 那句话里有没有 already exists」。**
+    曾经写的就是后者，本机 ``LANG=zh_CN.utf8`` 下实测永远不成立 —— git 回的是
+    ``fatal: 一个名为 'dev/x' 的分支已经存在``，英文子串匹配不上，续跑在中文部署机上
+    100% 报「建 worktree 失败」，而英文 CI 全绿。两条命令各管一种现场，第二条自己
+    会决定成不成；真失败时把两条的原文一起带上，人能看到的是最后那次为什么没成。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rc, out = _git_run(repo, ["worktree", "add", "-b", branch, str(path), base or "HEAD"])
+    if rc == 0:
+        return
+    rc2, out2 = _git_run(repo, ["worktree", "add", str(path), branch])
+    if rc2 == 0:
+        return
+    raise GitOpError(_git_failure("worktree add", f"{out}\n{out2}"))
+
+
+def worktree_list(repo: Path) -> dict[str, str]:
+    """已登记的 worktree：``{路径: 该目录当前分支}``（读不出来就是空表，不抛）。
+
+    用 ``--porcelain`` 而不是 ``git worktree prune`` 那类副作用命令：这一版只想知道
+    有什么，不改什么。
+    """
+    rc, out = _git_run(repo, ["worktree", "list", "--porcelain"], timeout=30)
+    if rc != 0:
+        return {}
+    found: dict[str, str] = {}
+    path = ""
+    for row in out.splitlines():
+        if row.startswith("worktree "):
+            path = row[len("worktree ") :].strip()
+        elif row.startswith("branch ") and path:
+            found[path] = row[len("branch ") :].strip().removeprefix("refs/heads/")
+            path = ""
+    return found
+
+
+def worktree_reusable(repo: Path, path: Path, branch: str) -> bool:
+    """这个目录已经是检出 ``branch`` 的 worktree，可以直接续着用。
+
+    为什么要有这一步：上一轮合并冲突的节点**留下了** worktree（「保留供人看」），
+    续跑时同一个节点同一个序号同一个路径，``git worktree add`` 只会回一句
+    ``fatal: '<路径>' 已经存在``（英文 locale 下是 ``already exists``）—— 于是「人把
+    冲突解完了、点了重试」这一条最应该能走通的路被永久堵死。所以这里**问 git 有什么**
+    （``worktree list --porcelain``）而不是**听 git 说什么**：前者是数据，后者换语言就变。
+    分支对不上就不复用：宁可让它报建 worktree 失败，也不要在别人的分支上写这一条任务的代码。
+    """
+    return worktree_list(repo).get(str(path)) == branch
+
+
+def worktree_abort(repo: Path) -> None:
+    """把主目录退回合并之前的样子（``git merge --abort``，失败不抛）。"""
+    try:
+        _git_run(repo, ["merge", "--abort"], timeout=60)
+    except GitOpError as exc:
+        logger.warning("ai-studio merge abort failed: %s", exc)
+
+
+def worktree_merge(repo: Path, branch: str, label: str) -> None:
+    """在**主目录**里 ``merge --no-ff <branch>``。
+
+    ``--no-ff`` 是这一单的形态而非形式：一个任务一个合并节点，看板上第 3 行对应
+    git 图里第 3 个 merge，失败要回退也是回退那一个。快进合并会把两条线拧成一条
+    直线，事后分不清哪个提交属于哪个任务。
+
+    冲突 → :class:`GitOpError`，``conflict_files`` 是 git 报的那几个文件（取自
+    ``git diff --name-only --diff-filter=U``，比从 merge 的 stdout 里猜稳 —— 后者
+    按 locale 换语言）。这份名单要原样进看板那句「合并冲突：<文件>」，所以带
+    ``-c core.quotePath=false``：模板的页名是中文，默认输出会把「设备台账.txt」变成
+    ``"\\350\\256\\276\\345\\244\\207..."``，实测过 —— 人看到八进制就等于没看到文件名。
+
+    冲突之后**把主目录 abort 回原样**，这是刻意反着「留在冲突态更直观」的直觉做的：
+    主目录是这一轮唯一的公共目录，停在半合并状态时〔预览〕端看到的是两个任务混在
+    一起的代码、下一个节点的 ``merge`` 会撞一句看不出所以然的「concluded your
+    merge」、而〔开始开发〕之外没人能推进。现场不靠它保存 —— **分支和 worktree 都
+    在原地**（``.ai-studio/wt/<序号>``），人 ``cd`` 进去 ``git log``/``git diff``
+    看得完，而「保留 worktree 供人看」正是这一单写死的那句话。
+    """
+    rc, out = _git_run(repo, ["merge", "--no-ff", "-m", f"Merge {branch} ({label})", branch])
+    if rc == 0:
+        return
+    _, listed = _git_run(
+        repo,
+        ["-c", "core.quotePath=false", "diff", "--name-only", "--diff-filter=U"],
+        timeout=30,
+    )
+    conflict = tuple(f for f in listed.splitlines() if f.strip())
+    worktree_abort(repo)
+    raise GitOpError(_git_failure("merge", out), conflict)
+
+
+def worktree_remove(repo: Path, path: Path) -> None:
+    """收掉一个用顺了的 worktree（成功节点）。失败不抛：目录留在盘上是磁盘问题，
+    不是这一轮开发的结论，喊出来只会把一个跑完的轮次报成坏的。"""
+    try:
+        _git_run(repo, ["worktree", "remove", "--force", str(path)], timeout=60)
+    except GitOpError as exc:
+        logger.warning("ai-studio worktree remove failed: %s", exc)
+
+
+def _git_failure(what: str, out: str) -> str:
+    """git 的原文，砍掉头尾空行，最多留最后 5 行。
+
+    「失败」这一行要进看板，而看板上那一格是 ``whitespace-pre-wrap break-all``：
+    一次 merge 的 stdout 可以有几十行（每个冲突文件一行 + 一堆 hint），全贴上就把
+    整块板撑走了。最后几行才是 git 说「怎么解决」的那段。
+    """
+    rows = [r for r in (out or "").splitlines() if r.strip()]
+    return "\n".join(rows[-5:]) if rows else f"git {what} 失败（无输出）"
+
 
 _NODE_STATES = ("queued", "running", "done", "failed")
 
@@ -246,6 +511,7 @@ class DevRun:
         *,
         dispatcher: Callable[[Any, Any, str], Awaitable[str]] | None = None,
         git: Callable[[], str] | None = None,
+        git_at: Callable[[Path], str] | None = None,
         clock: Callable[[], float] | None = None,
         fail_point: str = "",
     ) -> None:
@@ -255,8 +521,25 @@ class DevRun:
         self.fail_point = fail_point
         self._dispatch = dispatcher or dispatch_and_read
         self._git = git if git is not None else (lambda: git_head(self.ws))
+        # 一个 worktree 的 HEAD：并行节点在**它自己的目录**里提交，主目录的 HEAD 在
+        # 合并之前根本不动。所以判「这个节点有没有真交付」必须读它自己那一份，
+        # 读主目录会把每个并行节点都判成「回复说完成了，但没有新提交」。
+        # 没传 `git_at` 但传了 `git` 时**跟着 `git` 走**，不能默认成真的 ``git_head``：
+        # 注入一个假 HEAD 却在判交付时偷偷去跑真 git，等于把一个测试的替身换成真环
+        # 境 —— 单测的工作区是 tmp 目录、不是仓，真 git 永远回空串，于是一个好好的
+        # 串行测试会莫名判成「回复说完成了，但没有新提交」。真按目录区分 HEAD 的
+        # 用例（并行那几条）自己传 `git_at`，这也是「这条断言看得见目录」的证据。
+        if git_at is not None:
+            self._git_at: Callable[[Path], str] = git_at
+        elif git is not None:
+            self._git_at = lambda _path: self._git()
+        else:
+            self._git_at = git_head
         self._clock = clock if clock is not None else time.time
         self._loop_task: asyncio.Task[Any] | None = None
+        # 合并串行化：两个并行节点同时成功时会在同一个 `.git` 上各合一次，而 git 的
+        # index.lock 只容得下一个。谁先合无所谓，一起冲上去只会让第二个报错失败。
+        self._merge_lock = asyncio.Lock()
 
     # ── 状态读写 ──
 
@@ -514,6 +797,11 @@ class DevRun:
                     "startCommit": "",
                     "endCommit": "",
                     "message": "",
+                    # 上一轮的现场不能跟到这一轮来：冲突留下的 worktree 路径会一直挂
+                    # 在这一行上，而这一轮它还没有目录。清掉之后「这一轮有没有目录」
+                    # 就等于「worktree 这一格空不空」，看板和读文件的人是同一个判据。
+                    "worktree": "",
+                    "branch": "",
                 }
             )
         hashes = current.get("graphHashes") if isinstance(current.get("graphHashes"), dict) else {}
@@ -667,46 +955,113 @@ class DevRun:
         raise DevDagError(f"injected crash at {where}", "dev_test_crash_point", 500)
 
     def _next_node(self, data: dict[str, Any]) -> dict[str, Any] | None:
-        """按顺序取第一个 queued 且依赖全 done 的节点。"""
+        """按顺序取第一个 queued 且依赖全 done 的节点（并行度 1 时的老写法）。"""
+        runnable = self._runnable(data)
+        return runnable[0] if runnable else None
+
+    def _runnable(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        """本轮现在就能派出去的节点（queued 且依赖全 done），保持计划顺序。
+
+        依赖只看 ``done``：合并冲突的节点是 ``failed``，它的后继因此永远排不进
+        来 —— 一个没合进去的后端接口，前端拿什么调。
+        """
         done = {n.get("jiraKey") for n in data["nodes"] if n.get("state") == "done"}
-        for node in data["nodes"]:
-            if node.get("state") != "queued":
-                continue
-            deps = node.get("dependsOn") or []
-            if all(dep in done for dep in deps):
-                return node
-        return None
+        return [
+            node
+            for node in data["nodes"]
+            if node.get("state") == "queued"
+            and all(dep in done for dep in (node.get("dependsOn") or []))
+        ]
 
     async def _loop(self) -> None:
-        project_id = str(self.project.get("id") or self.ws.name)
-        while True:
-            data = self._data()
-            node = self._next_node(data)
-            if node is None:
-                states = {n.get("state") for n in data["nodes"]}
-                if states <= {"done"}:
-                    data["runState"] = "done"
-                    self._save(data)
-                    self._log("run done", "")
-                elif "failed" in states:
-                    # 上一轮判失败时已经收口过；走到这里说明没有可派的节点了。
-                    data["runState"] = "failed"
-                    self._save(data)
-                else:
-                    # 没有 failed 也没有可派的 queued：只剩 running 或依赖成环。
-                    # 环在这一版不可能出现（每页只有 web→api 一条边），真到这里
-                    # 就是状态文件被改坏了，如实标失败，不要转圈。
-                    data["runState"] = "failed"
-                    self._save(data)
-                    self._log("no runnable node, stopping", "")
-                return
-            await self._run_node(data, node, project_id)
-            if self._data().get("runState") == "failed":
-                return
-            if node.get("kind") == "fix" and node.get("state") == "done":
-                await self._re_accept_after_fix()
+        """并行调度（ACP-2207）：同时在跑的节点数不超过 ``AI_STUDIO_DEV_PARALLEL``。
 
-    async def _re_accept_after_fix(self) -> None:
+        ``data`` 是**这一轮唯一的内存状态**，循环读它一次、每个节点改同一个对象、
+        每次改动整体落盘。之前每轮从盘上重读，是因为串行循环是当时的唯一写者而它
+        自己也在写；并行之后依然只有一个写者（这个循环），但「读-改-写」不再是原子的
+        —— 两个节点各拿一份快照再各自落盘，后落的那一份会把先落的那个节点的状态
+        抹掉（看板上一个已经「完成」的节点会退回「进行中」）。所以改成共享一份，
+        而不是给落盘加合并逻辑：一个事实只有一个持有者。
+
+        有节点失败时**不收正在跑的兄弟节点**：它们的会话正在自己的 worktree 里写
+        代码，取消等于把已经写的丢掉、还把分支留在半提交状态。只是不再派新的，
+        在跑的跑完各归各的状态，整轮仍以 ``failed`` 收口（07 场景 D2「不许假全绿」）。
+        """
+        project_id = str(self.project.get("id") or self.ws.name)
+        limit = parallel_limit()
+        data = self._data()
+        running: set[asyncio.Task[Any]] = set()
+        while True:
+            # 有节点判失败就不再派新节点（07 D2「不许假全绿」），但**不取消**正在
+            # 跑的兄弟：它们的会话正在自己的 worktree 里写代码，取消等于把已经写的
+            # 丢掉、把分支留在半提交状态。让它们各归各的状态，整轮仍以 failed 收口。
+            if data.get("runState") != "failed":
+                for node in self._runnable(data):
+                    if len(running) >= limit:
+                        break
+                    # 派出去就地置 running 并落盘。置位在循环这里而不是协程里，因为
+                    # ``_runnable`` 只认 queued：协程要等事件循环调度才开跑，等它再置位
+                    # 就等于「这一轮到底派了几个」取决于调度时机。落盘也是同一件事的
+                    # 下半：从「决定派它」起，这个节点在这份文件里就是 running —— 包
+                    # 括接下来建 worktree 的那几秒。断在那里的话，看板说它「中断」（会
+                    # 重试它），而不是说它「从没开始过」（而盘上已经有一个目录和一条
+                    # 分支了，那更糟）。
+                    node["state"] = "running"
+                    self._save(data)
+                    running.add(
+                        asyncio.ensure_future(
+                            self._run_node(data, node, project_id, parallel=limit > 1)
+                        )
+                    )
+            if not running:
+                # 修完自动再验收（ACP-2210）：整轮跑完、且这一轮确实排过修复节点，
+                # 才在收口之前补跑一次。**放在这里而不是每个节点跑完的地方**，是
+                # ACP-2207 之后的必然位置 —— 并行时「一个节点跑完」不再等于「活干
+                # 完了」，修复节点的兄弟可能还在自己的 worktree 里写代码，那时跑验
+                # 收测的是半份代码。判定用 `data` 而不是重读盘：这份内存状态是这一
+                # 轮唯一的写者，重读会把「循环眼里的世界」和「盘上的世界」变成两处
+                # 事实。此时盘上仍是 running，与串行那一版的取舍一致（见
+                # :meth:`_re_accept_after_fix`）。
+                if _round_all_done_with_fix(data):
+                    await self._re_accept_after_fix(data)
+                self._close_run(data)
+                return
+            finished, running = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            # 节点的**结局**（done/failed + 原因）由它自己落盘，循环不看它；能冒到
+            # 这里的只有没被 :meth:`_run_node` 兜住的异常 —— 注入崩溃（``fail_point``
+            # 模拟网关重启）和落盘失败这类。它们必须**终止整轮**，和改造前逐字相同：
+            # 串行时异常直接从循环里冒出去，``_run_safe`` 把整轮判 failed。并行之后
+            # 它躲在 task 里，不取出来的话 asyncio 只会析构时打一句「Task exception
+            # was never retrieved」，而看板还在转圈 ——「进程没了」这个现场就这么被
+            # 吞掉了，而它正是那套孤儿改判（:meth:`get`）唯一的入口。
+            for task in finished:
+                exc = task.exception()
+                if exc is not None:
+                    for other in running:
+                        other.cancel()
+                    if running:
+                        await asyncio.wait(running)
+                    raise exc
+
+    def _close_run(self, data: dict[str, Any]) -> None:
+        """没有可派的也没有在跑的了：按节点状态给整轮一个结论。
+
+        三种结局和串行那一版逐字同义：全 done 才是 done；有 failed 就是 failed
+        （**不许假全绿**，后继保持 queued）；既没有 failed 又派不出东西，是状态文件
+        被改坏了或依赖成环，如实标 failed，不许转圈。
+        """
+        states = {n.get("state") for n in data["nodes"]}
+        if states <= {"done"}:
+            data["runState"] = "done"
+            self._save(data)
+            self._log("run done", "")
+            return
+        data["runState"] = "failed"
+        self._save(data)
+        if "failed" not in states:
+            self._log("no runnable node, stopping", "")
+
+    async def _re_accept_after_fix(self, data: dict[str, Any]) -> None:
         """修复节点交付之后自动再跑一次验收（ACP-2210）。
 
         「修复完要人再点一次〔跑验收〕」是把闭环留一半：助手改完代码，人还得自己
@@ -721,13 +1076,16 @@ class DevRun:
         验收抢同一个工作区便宜得多，网关中途重启时文件停在 running 也是老实话
         （这一轮确实没收口，`get` 会照孤儿判失败）。
 
+        ``data`` 由调用方给（循环手里那份），不在这函数里重读盘：并行之后落盘是
+        「整份覆盖」，在这里读到的和循环稍后要写的是同一份东西，重读只会多出一个
+        可能过期的副本。
+
         ``accept`` 是**函数内**导入：``accept`` 在模块级 import 本模块（它要读
         ``PHASE`` 和 ``git_head``），模块级反向 import 就是循环导入。失败只记日志
         —— 验收跑不起来是记账坏了，不该把已经提交的修复改判成失败。
         """
         from kiro_crew.apps.builtins.ai_studio.backend import accept
 
-        data = self._data()
         self._log("re-accept after fix", "")
         try:
             record = await asyncio.to_thread(
@@ -738,7 +1096,21 @@ class DevRun:
             return
         self._log(f"re-accept result={record.get('result')}", "")
 
-    async def _run_node(self, data: dict[str, Any], node: dict[str, Any], project_id: str) -> None:
+    async def _run_node(
+        self,
+        data: dict[str, Any],
+        node: dict[str, Any],
+        project_id: str,
+        *,
+        parallel: bool = False,
+    ) -> None:
+        """跑一个任务节点，全程只改 ``node`` 这一份状态并落盘。
+
+        ``parallel`` 是「本轮并行度 > 1」（由 :meth:`_loop` 传的）：为真时这个节点
+        在**自己的 worktree** 里写代码，跑完在主目录合并；为假时和改造前逐字相同
+        —— 会话的 cwd 就是工作区主目录，一个 worktree 都不建。「退回串行」因此
+        不是一条特判分支，而是少做几件事。
+        """
         key = str(node.get("jiraKey") or "")
         index = next(
             (i for i, n in enumerate(data["nodes"]) if n.get("jiraKey") == key),
@@ -749,8 +1121,33 @@ class DevRun:
         node["state"] = "running"
         node["startCommit"] = self._git()
         node["message"] = ""
+        # 会话的工作目录：并行时是它自己的 worktree，串行时就是主目录。开工之前先定
+        # 下来，因为 ``startCommit`` 也要读**这个**目录的 HEAD（并行时那一个和主目录
+        # 的是同一个提交，刚拉出来还没人动过）。
+        cwd = self.ws
+        node["worktree"] = ""
+        if parallel:
+            cwd = worktree_path(self.ws, index)
+            branch = branch_name(key)
+            # 三条 git 都是子进程：并行时事件循环上有另一个节点正在等它的会话，一秒
+            # 都不能占（一次 worktree add 在真实工作区里是几秒）。
+            await asyncio.to_thread(ensure_local_exclude, self.ws)
+            reusable = await asyncio.to_thread(worktree_reusable, self.ws, cwd, branch)
+            if not reusable:
+                try:
+                    await asyncio.to_thread(
+                        worktree_add, self.ws, cwd, branch, str(node["startCommit"] or "")
+                    )
+                except GitOpError as exc:
+                    await self._set_failed(data, node, f"建 worktree 失败：{exc}")
+                    return
+            node["worktree"] = str(cwd)
+            node["branch"] = branch
         self._save(data)
         self._log("node start", key)
+        if parallel:
+            # 07 §三 B3 要日志里有「worktree 分配事件」，且要能和 §四 的实测路径互证
+            self._log(f"worktree={cwd} branch={node['branch']}", key)
         # 开工先把 Jira 子单推到「进行中」（名字可覆盖，见 jirasync.doing_state）。
         # 放在开会话之前：单子没流转到是记账的事，而会话开不开得出来是这条活干不
         # 干得了的事，两件事不要互相等。
@@ -759,7 +1156,7 @@ class DevRun:
 
         slot_name = f"ai-studio-dev-{project_id}-{index + 1}"
         try:
-            slot = open_slot(self.state, slot_name, self.ws, str(node.get("title") or key))
+            slot = open_slot(self.state, slot_name, cwd, str(node.get("title") or key))
         except Exception as exc:  # noqa: BLE001: 会话开不出来就是这个节点的失败
             await self._set_failed(data, node, f"开会话失败：{type(exc).__name__}: {exc}")
             return
@@ -791,29 +1188,71 @@ class DevRun:
         if self.fail_point == f"after-dispatch:{key}":
             self._crash(self.fail_point)
         last_line = _last_line(reply)
-        end_commit = self._git()
+        # 交付判定看**会话写代码的那个目录**：并行时它是 worktree，主目录的 HEAD 在
+        # 合并之前根本不动。拿主目录的 HEAD 判，每个并行节点都会被写成「回复说完成了，
+        # 但没有新提交」。串行时 cwd 就是主目录，这一行和改造前取的是同一个 HEAD。
+        end_commit = self._git_at(cwd)
         node["endCommit"] = end_commit
         said_done = last_line.startswith("完成")
         committed = bool(end_commit) and end_commit != node.get("startCommit")
         if committed and said_done:
-            node["state"] = "done"
-            node["message"] = ""
-            self._save(data)
-            self._log(f"done commit={end_commit[:8]}", key)
-            # 单子跟着落：先流转再评论，评论里带提交号 —— 在 Jira 里点开单子就能
-            # 看到这一条是哪一次提交（看板只是它的投影）。两次调用都可能往节点上
-            # 记 jiraError，所以完事再存一次盘。
-            await self._jira_transition(node, jirasync.done_state())
-            await self._jira_comment(node, f"完成，提交 {end_commit[:8]}")
-            self._save(data)
-            return
-        # 两个条件不一致时，光回显助手那句话会把看板写成「失败 / 完成」——那种
-        # 现场恰恰最需要说清是哪一半没成立。
-        if said_done and not committed:
-            node["message"] = "回复说完成了，但没有新提交"
+            if parallel:
+                # 活干完了，但还只在这个节点的分支上 —— 没合进主目录的代码对下一个
+                # 任务、对〔预览〕、对发布都不存在。合并之后才配「完成」这两个字。
+                merged = await self._merge_node(data, node, cwd)
+                if not merged:
+                    return
+            else:
+                node["state"] = "done"
+                node["message"] = ""
+                self._save(data)
+                self._log(f"done commit={end_commit[:8]}", key)
         else:
-            node["message"] = last_line
-        await self._set_failed(data, node, None)
+            # 两个条件不一致时，光回显助手那句话会把看板写成「失败 / 完成」——那种
+            # 现场恰恰最需要说清是哪一半没成立。
+            if said_done and not committed:
+                node["message"] = "回复说完成了，但没有新提交"
+            else:
+                node["message"] = last_line
+            await self._set_failed(data, node, None)
+            return
+        # 单子跟着落：先流转再评论，评论里带提交号 —— 在 Jira 里点开单子就能
+        # 看到这一条是哪一次提交（看板只是它的投影）。两次调用都可能往节点上
+        # 记 jiraError，所以完事再存一次盘。
+        await self._jira_transition(node, jirasync.done_state())
+        await self._jira_comment(node, f"完成，提交 {end_commit[:8]}")
+        self._save(data)
+
+    async def _merge_node(self, data: dict[str, Any], node: dict[str, Any], cwd: Path) -> bool:
+        """把这个节点的分支合回主目录，True = 节点已完成（False = 判失败）。
+
+        冲突的写法照派工单：该节点 failed，message「合并冲突：<文件>」。**worktree
+        留着**（只 ``merge --abort`` 回干净树）—— 现场就在 ``.ai-studio/wt/<序号>``，
+        人 cd 进去就能看这一条到底改了些什么；自动收干净等于把现场抹了。
+        """
+        key = str(node.get("jiraKey") or "")
+        async with self._merge_lock:
+            try:
+                await asyncio.to_thread(worktree_merge, self.ws, str(node.get("branch") or ""), key)
+            except GitOpError as exc:
+                files = "、".join(exc.conflict_files) or str(exc)
+                self._log(f"merge conflict files={len(exc.conflict_files)}", key)
+                await self._set_failed(data, node, f"合并冲突：{files}")
+                return False
+        # 合并提交是这一条任务真正的交付物（分支上的提交在主目录的历史里看不全），
+        # 所以 ``endCommit`` 改成合并之后的 HEAD —— 看板上这一行显示的提交，就是
+        # ``git log`` 里那个把这条任务带进主干的合并。
+        node["endCommit"] = self._git()
+        node["state"] = "done"
+        node["message"] = ""
+        # 只有合干净了才收得掉（--force 连未跟踪文件一起清）；失败的留下。放线程里
+        # 跑：``git worktree remove`` 要删整棵树，几百上千个文件，占用事件循环会让
+        # 另一个正在跑的节点连日志都写不出来。
+        await asyncio.to_thread(worktree_remove, self.ws, cwd)
+        node["worktree"] = ""
+        self._save(data)
+        self._log(f"merged {node.get('branch', '')}", key)
+        return True
 
     async def _set_failed(
         self, data: dict[str, Any], node: dict[str, Any], message: str | None
@@ -881,6 +1320,22 @@ class DevRun:
                 fh.write(f"{_iso(self._clock())} {event} {node_key}".rstrip() + "\n")
         except OSError:
             logger.warning("ai-studio dev-run log write failed", exc_info=True)
+
+
+def _round_all_done_with_fix(data: dict[str, Any]) -> bool:
+    """这一轮是否「全做完了、而且里面有一个修复节点」（ACP-2210 的前提判定）。
+
+    单独成一个函数只为一件事：并行改造之后这个判定被读的人不止一处 —— 循环在收口
+    前问一次，测试想不问文件系统也能验它。判定留在盘外，它就不是第二个事实来源，
+    只是对调用方手里那份 ``data`` 的一句提问。
+
+    「有 fix 节点」是必须的一半：普通一轮全 done 就跑验收，等于每次〔开始开发〕跑
+    完都自动跑一次验收，而那一步的收尾一直是「看板说完成」，验收要人自己点。
+    """
+    nodes = data.get("nodes") or []
+    if not any(n.get("kind") == "fix" for n in nodes if isinstance(n, dict)):
+        return False
+    return {n.get("state") for n in nodes if isinstance(n, dict)} <= {"done"}
 
 
 def _fix_prompt(node: dict[str, Any]) -> str:

@@ -442,6 +442,21 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
                 {i18nT(NODE_STATE_KEY[node.state] ?? NODE_STATE_KEY.queued)}
               </span>
             </div>
+            {node.state === 'running' && node.worktree && (
+              // ACP-2207: which directory this row is actually writing in. Two
+              // rows both reading 「in progress」 prove nothing about the
+              // isolation; the paths being different is the whole point. Rendered
+              // only while running — the backend clears the field when the branch
+              // merges, and a done row pointing at a removed directory is a lie.
+              // The path is data from the backend, so it is shown verbatim.
+              <div
+                className="pl-2 pb-1 text-[10.5px] text-muted whitespace-pre-wrap break-all"
+                data-testid={`ai-studio-dev-dag-node-worktree-${node.jiraKey}`}
+                title={node.branch}
+              >
+                {node.worktree}
+              </div>
+            )}
             {node.state === 'failed' && node.message && (
               // verbatim, per the file header
               <div
