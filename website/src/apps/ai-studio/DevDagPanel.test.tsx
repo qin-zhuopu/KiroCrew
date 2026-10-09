@@ -56,6 +56,7 @@ function apiOver(over: Partial<StudioDevBoardApi> = {}): StudioDevBoardApi {
       },
     })),
     listAcceptRecords: vi.fn(async () => ({ records: [] })),
+    fixAccept: vi.fn(async () => ({ runId: 'dev-2', phase: 'full' })),
     ...over,
   }
 }
@@ -353,6 +354,156 @@ describe('DevDagPanel — acceptance', () => {
     await user.click(screen.getByTestId('ai-studio-accept-run-btn'))
     expect(await screen.findByTestId('ai-studio-dev-error')).toHaveTextContent('dev not done')
     expect(screen.queryByTestId('ai-studio-accept-status')).not.toBeInTheDocument()
+  })
+
+  // ACP-2210: the way out of a red acceptance. Before this the block printed
+  // 「失败 2 条」 and stopped — the operator had to go open a terminal.
+  describe('〔让助手修复〕', () => {
+    const failedRecord = {
+      id: 'acc-9',
+      phase: 'full',
+      result: 'failed' as const,
+      voided: false,
+      results: [
+        { id: 'pnpm typecheck', ok: true, tail: '' },
+        {
+          id: 'pnpm test:unit',
+          ok: false,
+          tail: 'FAIL src/a.spec.ts',
+          logPath: '.ai-studio/accept/acc-9-1.log',
+        },
+      ],
+      requirementVersion: 'a:h1',
+      commitHash: 'c9',
+      at: '2026-10-10T11:00:00Z',
+    }
+    const failedDag = dag({
+      runState: 'done',
+      nodes: [node('a:api', 'done'), node('a:web', 'done')],
+    })
+
+    function withFailures(over: Partial<StudioDevBoardApi> = {}): StudioDevBoardApi {
+      return apiOver({
+        getDevDag: vi.fn(async () => failedDag),
+        listAcceptRecords: vi.fn(async () => ({ records: [failedRecord] })),
+        ...over,
+      })
+    }
+
+    it('a failed acceptance offers the fix and a click schedules it', async () => {
+      const user = userEvent.setup()
+      const api = mount(withFailures())
+      const btn = await screen.findByTestId('ai-studio-accept-fix-btn')
+      expect(screen.getByTestId('ai-studio-accept-status')).toHaveTextContent('Failed (1 checks)')
+      await user.click(btn)
+      expect(api.fixAccept).toHaveBeenCalledWith('p1')
+      // the board re-reads rather than inventing the fix row locally: the node
+      // list is the backend's file, and the new row appears when it does
+      await waitFor(() =>
+        expect(vi.mocked(api.getDevDag).mock.calls.length).toBeGreaterThan(1),
+      )
+    })
+
+    it('a passing acceptance offers nothing to fix', async () => {
+      mount(
+        apiOver({
+          getDevDag: vi.fn(async () => doneDag),
+          listAcceptRecords: vi.fn(async () => ({
+            records: [
+              {
+                ...failedRecord,
+                result: 'passed' as const,
+                // a green record has no red row — the backend derives `result`
+                // from the rows, so a fixture with both would be unconstructable
+                results: [{ id: 'pnpm typecheck', ok: true, tail: '' }],
+              },
+            ],
+          })),
+        }),
+      )
+      expect(await screen.findByTestId('ai-studio-accept-status')).toHaveTextContent('Passed')
+      expect(screen.queryByTestId('ai-studio-accept-fix-btn')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('ai-studio-accept-fix-exhausted')).not.toBeInTheDocument()
+    })
+
+    it('three repairs later the button is gone and the board says 请人工处理', async () => {
+      // the reachable shape: three fixes that each COMMITTED (so the run is
+      // `done` again) and the acceptance after the third one is still red. A fix
+      // node that itself failed would put the run at `failed`, where this block
+      // is not rendered at all — that round needs 从失败处继续, not this message.
+      const three = dag({
+        runState: 'done',
+        nodes: [
+          node('a:api', 'done'),
+          node('a:web', 'done'),
+          node('fix:1', 'done', { kind: 'fix', title: '修复验收失败（第 1 次）' }),
+          node('fix:2', 'done', { kind: 'fix', title: '修复验收失败（第 2 次）' }),
+          node('fix:3', 'done', { kind: 'fix', title: '修复验收失败（第 3 次）' }),
+        ],
+      })
+      mount(
+        withFailures({
+          getDevDag: vi.fn(async () => three),
+          fixAccept: vi.fn(async () => {
+            throw new Error('must not be callable')
+          }),
+        }),
+      )
+      expect(await screen.findByTestId('ai-studio-accept-status')).toHaveTextContent('Failed (1 checks)')
+      expect(screen.queryByTestId('ai-studio-accept-fix-btn')).not.toBeInTheDocument()
+      // the copy is the ticket's, verbatim — its absence would read as a bug
+      expect(screen.getByTestId('ai-studio-accept-fix-exhausted')).toHaveTextContent(
+        'Still failing after 3 repairs',
+      )
+    })
+
+    it('a fix that finishes on its own brings its new result onto the board', async () => {
+      // ACP-2210's last inch: after 〔让助手修复〕 the round runs elsewhere (a
+      // session, minutes later) and the platform re-accepts by itself. This tab
+      // clicked nothing at that moment, so the ONLY thing that can put the new
+      // record on screen is the records read polling — the manual cache write in
+      // runAccept cannot help, because no runAccept ran here.
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        const later = { ...failedRecord, id: 'acc-10', result: 'passed' as const, results: [{ id: 'pnpm typecheck', ok: true, tail: '' }] }
+        let reads = 0
+        const api = withFailures({
+          listAcceptRecords: vi.fn(async () => ({ records: ++reads === 1 ? [failedRecord] : [later] })),
+        })
+        mount(api)
+        await waitFor(() => expect(api.listAcceptRecords).toHaveBeenCalledTimes(1), { timeout: 3000 })
+        expect(screen.getByTestId('ai-studio-accept-status')).toHaveTextContent('Failed (1 checks)')
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(REFRESH_SLOW_MS)
+        })
+        await waitFor(
+          () => expect(screen.getByTestId('ai-studio-accept-status')).toHaveTextContent('Passed'),
+          { timeout: 3000 },
+        )
+        // and with nothing failed there is no button to offer any more
+        expect(screen.queryByTestId('ai-studio-accept-fix-btn')).not.toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('a refused fix is shown as a notice, not a silent no-op', async () => {
+      const user = userEvent.setup()
+      const api = mount(
+        withFailures({
+          fixAccept: vi.fn(async () => {
+            throw new StudioApiError(409, 'nothing_to_fix', 'nothing to fix')
+          }),
+        }),
+      )
+      await user.click(await screen.findByTestId('ai-studio-accept-fix-btn'))
+      // localized off the machine code, like every other refusal here
+      expect(await screen.findByTestId('ai-studio-dev-error')).toHaveTextContent(
+        'There is nothing to fix in the latest acceptance result',
+      )
+      expect(api.fixAccept).toHaveBeenCalledTimes(1)
+    })
   })
 })
 

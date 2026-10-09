@@ -162,6 +162,45 @@ def test_child_env_drops_secrets_and_proxy(monkeypatch):
     assert env["CI"] == "1"
 
 
+def test_the_full_output_of_every_cmd_lands_in_its_own_log(ws: Path):
+    # ACP-2210: the fix prompt hands the assistant these paths, so the file must
+    # carry the WHOLE output (not the 40-line tail) at a path the record states.
+    spam = "\n".join(f"l{i}" for i in range(200))
+    runner, _seen = make_runner(
+        {"pnpm test:unit": 1}, {"pnpm typecheck": "clean", "pnpm test:unit": spam}
+    )
+    record = accept.run_accept(ws, DONE_RUN, runner=runner)
+
+    paths = [r["logPath"] for r in record["results"]]
+    assert paths == [
+        f".ai-studio/accept/{record['id']}-0.log",
+        f".ai-studio/accept/{record['id']}-1.log",
+    ]
+    # relative to the workspace, so the assistant (whose cwd IS the workspace) can
+    # open it whatever the absolute spelling of the workspace turns out to be
+    assert all(not p.startswith("/") for p in paths)
+    assert (ws / paths[0]).read_text(encoding="utf-8") == "clean"
+    whole = (ws / paths[1]).read_text(encoding="utf-8")
+    assert whole == spam
+    assert whole.splitlines()[0] == "l0"  # the tail is not all the file keeps
+    assert len(whole.splitlines()) == 200
+    # the record still carries the tail for the board, and the tail is still 40
+    assert record["results"][1]["tail"].splitlines() == [f"l{i}" for i in range(160, 200)]
+    # and the log survives the round trip through the record file
+    stored = json.loads((accept.accept_dir(ws) / f"{record['id']}.json").read_text("utf-8"))
+    assert [r["logPath"] for r in stored["results"]] == paths
+
+
+def test_a_cmd_that_printed_nothing_still_gets_a_log_path(ws: Path):
+    # A missing file would send the assistant to read a path that is not there and
+    # come back 「失败：文件不存在」, which reads as a broken board.
+    runner, _seen = make_runner({}, {"pnpm typecheck": "", "pnpm test:unit": ""})
+    record = accept.run_accept(ws, DONE_RUN, runner=runner)
+    for result in record["results"]:
+        assert (ws / result["logPath"]).is_file()
+        assert (ws / result["logPath"]).read_text(encoding="utf-8") == ""
+
+
 def test_list_records_is_newest_first(ws: Path):
     runner, _seen = make_runner({})
     first = accept.run_accept(ws, DONE_RUN, runner=runner)
@@ -195,14 +234,22 @@ def test_default_cmds_match_the_ticket():
 class FakeRun:
     """The scheduler as the routes see it: one dict in, one dict out."""
 
-    def __init__(self, state: dict[str, Any]) -> None:
+    def __init__(self, state: dict[str, Any], fix_error: Exception | None = None) -> None:
         self._state = state
+        self.fix_error = fix_error
+        self.fixed: list[dict[str, Any]] = []
 
     def get(self) -> dict[str, Any]:
         return self._state
 
     async def start(self, pages: list[str]) -> dict[str, Any]:
         return {"runId": "dev-1", "phase": "full"}
+
+    async def fix(self, record: dict[str, Any]) -> dict[str, Any]:
+        self.fixed.append(record)
+        if self.fix_error is not None:
+            raise self.fix_error
+        return {"runId": "dev-2", "phase": "full"}
 
     def log_lines(self, lines: int) -> list[str]:
         return []
@@ -220,6 +267,9 @@ class FakeAccept:
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error
         self.seen: list[tuple[Path, dict[str, Any]]] = []
+        # what the fix route reads as 「the newest record」; the two records tests
+        # below set it, and the one below it is what the records route answers with
+        self.records: list[dict[str, Any]] = [{"id": "acc-1", "result": "passed"}]
 
     def run_accept(self, ws: Path, state: dict[str, Any], **_kw: Any) -> dict[str, Any]:
         self.seen.append((ws, state))
@@ -228,7 +278,7 @@ class FakeAccept:
         return {"id": "acc-1", "result": "passed", "voided": False}
 
     def list_records(self, ws: Path) -> list[dict[str, Any]]:
-        return [{"id": "acc-1", "result": "passed"}]
+        return self.records
 
 
 @pytest.fixture()
@@ -299,6 +349,65 @@ async def test_accept_routes_pass_the_workspace_and_the_run_state_through(
     # the checks are about THIS workspace and THIS run: the requirement version and
     # the 「dev not done」 refusal both come from that pair, not from the request body
     assert fake.seen == [(ws, DONE_RUN)]
+
+
+@pytest.mark.asyncio
+async def test_accept_fix_route_hands_the_newest_record_to_the_run(
+    route_env, monkeypatch, fake_accept
+):
+    # ACP-2210: the route takes NO id from the body. The board has exactly one
+    # candidate in view and list_records is newest-first, so 「the newest」 IS the
+    # record the operator just looked at — an id would let a stale tab fix a
+    # record that has since been re-run.
+    pid, _ws, app = route_env
+    fake_run = FakeRun(dict(DONE_RUN))
+    monkeypatch.setattr(routes, "_dev_run_for", lambda *a, **k: fake_run)
+    fake = fake_accept()
+    fake.records = [
+        {"id": "acc-new", "result": "failed"},
+        {"id": "acc-old", "result": "failed"},
+    ]
+    async with TestClient(TestServer(app)) as client:
+        r = await client.post(f"/api/apps/ai-studio/projects/{pid}/accept/fix")
+        assert r.status == 202
+        body = await r.json()
+        assert body["phase"] == "full" and body["runId"]
+    assert [x["id"] for x in fake_run.fixed] == ["acc-new"]
+
+
+@pytest.mark.asyncio
+async def test_accept_fix_route_refusals(route_env, monkeypatch, fake_accept):
+    pid, _ws, app = route_env
+    fake_run = FakeRun(dict(DONE_RUN))
+    monkeypatch.setattr(routes, "_dev_run_for", lambda *a, **k: fake_run)
+    fake = fake_accept()
+    fake.records = []  # a project that never ran acceptance has nothing to fix
+    async with TestClient(TestServer(app)) as client:
+        r = await client.post(f"/api/apps/ai-studio/projects/{pid}/accept/fix")
+        assert r.status == 409
+        assert (await r.json())["code"] == "nothing_to_fix"
+        # and it never reached the scheduler: the refusal is the ROUTE's, so a
+        # project with no records cannot start a run by clicking the button
+        assert fake_run.fixed == []
+
+        r = await client.post("/api/apps/ai-studio/projects/p-nope/accept/fix")
+        assert r.status == 404
+        assert (await r.json())["code"] == "project_not_found"
+
+
+@pytest.mark.asyncio
+async def test_accept_fix_route_maps_the_scheduler_refusal(route_env, monkeypatch, fake_accept):
+    # the 409s fix() raises itself (a round that is not done, the third-repair
+    # ceiling) reach the caller as codes, not as the English sentence
+    pid, _ws, app = route_env
+    fake_run = FakeRun(dict(DONE_RUN), fix_error=devdag.DevDagError("nope", "fix_limit", 409))
+    monkeypatch.setattr(routes, "_dev_run_for", lambda *a, **k: fake_run)
+    fake = fake_accept()
+    fake.records = [{"id": "acc-1", "result": "failed"}]
+    async with TestClient(TestServer(app)) as client:
+        r = await client.post(f"/api/apps/ai-studio/projects/{pid}/accept/fix")
+        assert r.status == 409
+        assert (await r.json())["code"] == "fix_limit"
 
 
 @pytest.mark.asyncio

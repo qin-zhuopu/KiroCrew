@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -23,6 +24,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from kiro_crew.apps.builtins.ai_studio.backend import (
+    accept,
     devdag,
     devplan,
     jirasync,
@@ -1276,6 +1278,7 @@ async def test_dev_dag_route_adds_the_parent_link_from_the_record(route_env, mon
         ("get", "/dev/dag"),
         ("get", "/dev/log"),
         ("post", "/accept/run"),
+        ("post", "/accept/fix"),
         ("get", "/accept/records"),
     ],
 )
@@ -1366,6 +1369,435 @@ async def test_an_interrupted_node_resumes_alone_and_the_run_completes(ws: Path,
     # the node identities survive the resume: one row per task, not one per attempt
     assert [n["jiraKey"] for n in dag["nodes"]] == IDS
     assert first["phase"] == second["phase"] == "full"
+
+
+# ── ACP-2210：验收没过 → 让助手修 → 自动再验收 ─────────────────────────────
+#
+# A red acceptance used to be a dead end on the board. These cover the four
+# things the ticket names: the refusal, the appended node and its prompt, the
+# automatic re-acceptance, and the three-repair ceiling.
+
+
+def failed_record(n_fail: int = 2, ordinal: int = 1) -> dict[str, Any]:
+    """A failed acceptance record shaped like accept.run_accept's output."""
+    results = [
+        {
+            "id": f"pnpm test:unit{k}",
+            "ok": k >= n_fail,
+            "tail": "FAIL" if k < n_fail else "",
+            "logPath": f".ai-studio/accept/acc-{ordinal}-{k}.log",
+        }
+        for k in range(3)
+    ]
+    return {
+        "id": f"acc-{ordinal}",
+        "phase": "full",
+        "result": "failed",
+        "voided": False,
+        "results": results,
+        "requirementVersion": "a:h1",
+        "commitHash": "c9",
+        "at": "2026-10-10T11:00:00Z",
+    }
+
+
+class FakeReAccept:
+    """The acceptance runner as ``_re_accept_after_fix`` sees it.
+
+    Patched onto the module as a function: the loop imports the module inside the
+    call, so a module-attribute lookup at call time is what the monkeypatch aims
+    at.
+    """
+
+    def __init__(self, result: str = "failed") -> None:
+        self.result = result
+        self.seen: list[tuple[Path, dict[str, Any]]] = []
+        # runState on disk while each call ran
+        self.file_states: list[str] = []
+
+    def __call__(self, ws: Path, state: dict[str, Any], **_kw: Any) -> dict[str, Any]:
+        self.seen.append((ws, dict(state)))
+        # what the STATE FILE said at the moment acceptance ran, read fresh off
+        # disk rather than from the argument the caller chose to hand us
+        raw = devdag._read(devdag._state_path(ws)) or {}
+        self.file_states.append(str(raw.get("runState") or ""))
+        return {"id": "acc-new", "result": self.result, "voided": False}
+
+
+@pytest.fixture(autouse=True)
+def no_real_acceptance_subprocess(monkeypatch):
+    """No test in this file may fork the workspace's ``pnpm``.
+
+    A finished fix node runs acceptance, and a test that lets that call through
+    unpatched would spawn a minutes-long real child (testing-conventions). Fail
+    loudly at the subprocess seam instead.
+    """
+
+    def _never(*_a: Any, **_kw: Any) -> tuple[int, str]:
+        raise AssertionError("a test reached the real acceptance subprocess")
+
+    monkeypatch.setattr(accept, "_run_cmd", _never)
+
+
+@pytest.fixture()
+def re_accept(monkeypatch):
+    """A spy acceptance runner, installed for the test."""
+    fake = FakeReAccept()
+    monkeypatch.setattr(accept, "run_accept", fake)
+    return fake
+
+
+@pytest.mark.asyncio
+async def test_fix_refuses_a_round_that_is_not_done_and_a_record_that_passed(
+    h: Harness, re_accept: FakeReAccept
+):
+    # nothing has ever run: there is no board to append a repair to
+    with pytest.raises(devdag.DevDagError) as exc:
+        await h.run.fix(failed_record())
+    assert (exc.value.code, exc.value.status) == ("nothing_to_fix", 409)
+
+    await h.run.start(PAGES)
+    await h.finish()
+    assert h.run.get()["runState"] == "done"
+
+    # a PASSED record is not a thing to fix, even on a done round
+    passed = failed_record(n_fail=0)
+    passed["result"] = "passed"
+    with pytest.raises(devdag.DevDagError) as exc:
+        await h.run.fix(passed)
+    assert (exc.value.code, exc.value.status) == ("nothing_to_fix", 409)
+    # the refusals wrote nothing: still the four planned nodes, still done
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert [n["jiraKey"] for n in dag["nodes"]] == IDS
+    assert h.calls and len(h.calls) == 4
+
+    # a RUNNING round is refused too — mid-flight the loop's nodes are its progress
+    h.dispatcher_block = asyncio.Event()
+    await h.run.fix(failed_record())
+    with pytest.raises(devdag.DevDagError) as exc:
+        await h.run.fix(failed_record())
+    assert (exc.value.code, exc.value.status) == ("nothing_to_fix", 409)
+    h.dispatcher_block.set()
+    await h.finish()
+
+
+@pytest.mark.asyncio
+async def test_fix_appends_one_node_and_its_prompt_carries_the_log_paths(
+    h: Harness, re_accept: FakeReAccept
+):
+    await h.run.start(PAGES)
+    await h.finish()
+
+    started = await h.run.fix(failed_record())
+    assert started["phase"] == "full"
+    await h.finish()
+
+    dag = h.run.get()
+    # appended at the END of the list, no dependencies, and the four real tasks
+    # are untouched (their commits and Jira numbers are the record of what shipped)
+    assert [n["jiraKey"] for n in dag["nodes"]] == IDS + ["fix:1"]
+    fix = dag["nodes"][-1]
+    assert fix["kind"] == "fix"
+    assert fix["title"] == "修复验收失败（第 1 次）"
+    assert fix["dependsOn"] == []
+    assert fix["state"] == "done"
+    assert dag["runState"] == "done"
+
+    # the fix turn is the fifth dispatch, and its prompt points at the outputs
+    assert len(h.calls) == 5
+    prompt = h.calls[-1][1]
+    assert ".ai-studio/accept/acc-1-0.log" in prompt
+    assert ".ai-studio/accept/acc-1-1.log" in prompt
+    # only the FAILING commands are named, and the passing one is not
+    assert "pnpm test:unit2" not in prompt
+    assert "平台验收没通过" in prompt
+    assert "fix: 验收失败修复（第 1 次）" in prompt
+    # the ticket's wording, verbatim
+    assert (
+        "可以单独运行失败的那几个测试文件来确认（一次只跑一个文件），不许运行全量测试、e2e 或开发服务器。"
+        in prompt
+    )
+    assert "最后一句只回复：完成 或 失败：<原因>。" in prompt
+
+
+@pytest.mark.asyncio
+async def test_a_finished_fix_re_runs_acceptance(h: Harness, monkeypatch):
+    fake = FakeReAccept("passed")
+    monkeypatch.setattr(accept, "run_accept", fake)
+    await h.run.start(PAGES)
+    await h.finish()
+    assert fake.seen == []  # a normal round never re-accepts by itself
+
+    await h.run.fix(failed_record())
+    await h.finish()
+
+    assert len(fake.seen) == 1
+    ws, state = fake.seen[0]
+    # called with THIS workspace, and the state it was handed says the dev is
+    # done — that is run_accept's own precondition, so anything else is a 409
+    assert ws == h.run.ws
+    assert state["runState"] == "done"
+    assert [n["jiraKey"] for n in state["nodes"]][-1] == "fix:1"
+    assert "re-accept result=passed" in "\n".join(h.run.log_lines(50))
+
+
+@pytest.mark.asyncio
+async def test_a_start_is_refused_while_the_post_fix_acceptance_runs(h: Harness, monkeypatch):
+    # The state file stays `running` for the minutes the automatic acceptance
+    # takes. Written the other way (file to `done`, then run), the board would
+    # report done with a live loop attached, and 开始开发's own guard
+    # (`runState == running`) would let a SECOND loop start over the same
+    # workspace while the checks are still running in it.
+    inside = threading.Event()
+    release = threading.Event()
+    fake = FakeReAccept("passed")
+
+    def slow_accept(ws: Path, state: dict[str, Any], **_kw: Any) -> dict[str, Any]:
+        inside.set()
+        release.wait(timeout=10)
+        return fake(ws, state)
+
+    monkeypatch.setattr(accept, "run_accept", slow_accept)
+    await h.run.start(PAGES)
+    await h.finish()
+    await h.run.fix(failed_record())
+
+    # hold the loop at the instant acceptance is in flight (it runs on a thread,
+    # so this is a real handshake and not a guessed number of awaits)
+    await asyncio.to_thread(inside.wait, 10)
+    dag = h.run.get()
+    assert dag["runState"] == "running"
+    with pytest.raises(devdag.DevDagError) as exc:
+        await h.run.start(PAGES)
+    assert (exc.value.code, exc.value.status) == ("run_active", 409)
+    # the row the board shows IS a finished repair, so 「开发中」 beside a row of ✓s
+    # is the accepted half of this trade — documented on the method
+    assert dag["nodes"][-1]["state"] == "done"
+
+    release.set()
+    await h.finish()
+    assert h.run.get()["runState"] == "done"
+    assert fake.file_states == ["running"]
+
+
+@pytest.mark.asyncio
+async def test_a_broken_acceptance_run_does_not_unwrite_the_fix(h: Harness, monkeypatch):
+    # the fix committed; acceptance failing to RUN is a bookkeeping failure, and
+    # flipping the node to failed would throw away real delivered work
+    def boom(_ws: Path, _state: dict[str, Any], **_kw: Any) -> dict[str, Any]:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(accept, "run_accept", boom)
+    await h.run.start(PAGES)
+    await h.finish()
+    await h.run.fix(failed_record())
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert dag["nodes"][-1]["state"] == "done"
+    assert "re-accept failed: OSError" in "\n".join(h.run.log_lines(50))
+
+
+@pytest.mark.asyncio
+async def test_the_third_fix_is_the_last_one(h: Harness, re_accept: FakeReAccept):
+    await h.run.start(PAGES)
+    await h.finish()
+
+    for ordinal in (1, 2, 3):
+        await h.run.fix(failed_record(ordinal=ordinal))
+        await h.finish()
+
+    dag = h.run.get()
+    assert [n["jiraKey"] for n in dag["nodes"]][-3:] == ["fix:1", "fix:2", "fix:3"]
+    assert h.run.fix_attempts() == 3
+
+    # the fourth is refused: three repairs and still red is not a code problem
+    with pytest.raises(devdag.DevDagError) as exc:
+        await h.run.fix(failed_record(ordinal=4))
+    assert (exc.value.code, exc.value.status) == ("fix_limit", 409)
+    assert h.run.fix_attempts() == 3
+    assert [n["jiraKey"] for n in h.run.get()["nodes"]][-3:] == ["fix:1", "fix:2", "fix:3"]
+
+
+@pytest.mark.asyncio
+async def test_a_fix_files_its_own_jira_issue_under_the_same_parent(
+    ws: Path, jira: JiraSpy, re_accept: FakeReAccept
+):
+    git = FakeGit()
+    run = devdag.DevRun(
+        FakeState(),
+        {"id": "p0101", "name": "设备管理", "jiraParent": "ACP-8000"},
+        ws,
+        # ONE git for both seams: the dispatcher "commits" and the scheduler reads
+        # HEAD, and a second FakeGit would report an unchanged HEAD forever, which
+        # is the 「回复说完成了，但没有新提交」 failure — every node would fail and
+        # the round would never reach `done`, which is what fix() requires.
+        dispatcher=_completing_dispatch(git),
+        git=git,
+        clock=lambda: 100.0,
+    )
+    await run.plan(PAGES)
+    created_before = len(jira.created)
+    await run.start(PAGES)
+    await run._loop_task
+    assert len(jira.created) == created_before  # start reuses plan's issues
+
+    await run.fix(failed_record())
+    await run._loop_task
+
+    # one new sub-issue, under the SAME parent, and the board carries its key
+    assert len(jira.created) == created_before + 1
+    parent, title, _code = jira.created[-1]
+    assert (parent, title) == ("ACP-8000", "修复验收失败（第 1 次）")
+    node = run.get()["nodes"][-1]
+    assert node["jira"] == f"ACP-{jira._next}"
+    assert node["jiraUrl"].endswith(f"/{node['jira']}")
+    # and it gets closed like any delivered task, not left 进行中
+    assert (node["jira"], jirasync.done_state()) in jira.transitions
+
+
+def _completing_dispatch(git: FakeGit):
+    async def dispatch(_state: Any, _slot: Any, _prompt: str) -> str:
+        git.commit()
+        return "完成"
+
+    return dispatch
+
+
+@pytest.mark.asyncio
+async def test_a_fix_prompt_survives_a_restart(ws: Path, monkeypatch):
+    # the failing commands live on the NODE, not only in the prompt that was sent:
+    # a gateway restart between the crash and 从失败处继续 must not send a fix
+    # request with no evidence attached
+    monkeypatch.setattr(accept, "run_accept", FakeReAccept())
+    state = FakeState()
+    git = FakeGit()
+    prompts: list[str] = []
+
+    async def dispatch(_state: Any, _slot: Any, prompt: str) -> str:
+        prompts.append(prompt)
+        git.commit()
+        return "完成"
+
+    run = devdag.DevRun(
+        state, {"id": "p0101"}, ws, dispatcher=dispatch, git=git, clock=lambda: 100.0
+    )
+    await run.start(PAGES)
+    await run._loop_task
+    await run.fix(failed_record())
+    await run._loop_task
+
+    # a NEW object over the same workspace, like a restarted gateway
+    again = devdag.DevRun(state, {"id": "p0101"}, ws, dispatcher=dispatch, git=git)
+    node = again.get()["nodes"][-1]
+    assert node["acceptCmds"] == [
+        {"id": "pnpm test:unit0", "logPath": ".ai-studio/accept/acc-1-0.log"},
+        {"id": "pnpm test:unit1", "logPath": ".ai-studio/accept/acc-1-1.log"},
+    ]
+    prompt = again._prompt_for(node)
+    assert ".ai-studio/accept/acc-1-1.log" in prompt
+
+
+def test_fix_limit_matches_the_boards_copy():
+    # the board hides its button at the same number the backend refuses at; a
+    # drifted constant here is a click that 409s, which is what the notice says
+    assert devdag.FIX_LIMIT == 3
+
+
+@pytest.mark.asyncio
+async def test_a_new_round_drops_the_old_repairs_and_the_ceiling_with_them(
+    h: Harness, re_accept: FakeReAccept
+):
+    # 「连续 3 次」 counts repairs of ONE acceptance. If the repair rows outlived
+    # the round, a project that had repaired three times would never be offered a
+    # fix again — for the rest of its life, whatever the new acceptance says.
+    await h.run.start(PAGES)
+    await h.finish()
+    for ordinal in (1, 2, 3):
+        await h.run.fix(failed_record(ordinal=ordinal))
+        await h.finish()
+    assert h.run.fix_attempts() == 3
+
+    # re-developing (the board's 开始开发 on a done round) is a new round
+    await h.run.start(PAGES)
+    await h.finish()
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert [n["jiraKey"] for n in dag["nodes"]] == IDS
+    assert h.run.fix_attempts() == 0
+    # and the button is offered again
+    await h.run.fix(failed_record())
+    await h.finish()
+    assert [n["jiraKey"] for n in h.run.get()["nodes"]][-1] == "fix:1"
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_failed_round_keeps_its_repair(h: Harness, re_accept: FakeReAccept):
+    # the other half of the same rule: 从失败处继续 must NOT drop the repair it is
+    # continuing — a half-done repair is exactly what that button is for
+    await h.run.start(PAGES)
+    await h.finish()
+    h.no_commit = {"ai-studio-dev-p0101-5"}  # the fix node's own slot
+    await h.run.fix(failed_record())
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "failed"
+    assert dag["nodes"][-1]["jiraKey"] == "fix:1"
+    assert dag["nodes"][-1]["state"] == "failed"
+
+    h.no_commit = set()
+    await h.run.start(PAGES)
+    await h.finish()
+    after = h.run.get()
+    # the task rows were not re-run (they are done and this is a resume), the
+    # repair was, and its ordinal did not restart at 1
+    assert [n["jiraKey"] for n in after["nodes"]] == IDS + ["fix:1"]
+    assert after["nodes"][-1]["state"] == "done"
+    assert h.run.fix_attempts() == 1
+
+
+@pytest.mark.asyncio
+async def test_a_re_split_drops_repairs_and_never_voids_their_issues(
+    ws: Path, jira: JiraSpy, re_accept: FakeReAccept
+):
+    # A repair row is not a page. Carrying it into a re-split would make
+    # _pages_of() report "fix" as one of the pages (so every later split thinks
+    # the page set changed and rebuilds the plan and its issues) and would offer
+    # to void an issue that recorded real delivered work.
+    git = FakeGit()
+    run = devdag.DevRun(
+        FakeState(),
+        {"id": "p0101", "name": "设备管理", "jiraParent": "ACP-8000"},
+        ws,
+        dispatcher=_completing_dispatch(git),
+        git=git,
+        clock=lambda: 100.0,
+    )
+    await run.plan(PAGES)
+    await run.start(PAGES)
+    await run._loop_task
+    await run.fix(failed_record())
+    await run._loop_task
+    assert run.fix_attempts() == 1
+    repair_issue = run.get()["nodes"][-1]["jira"]
+    voided_before = len(jira.comments)
+
+    # a page was added, so this split really rebuilds
+    (ws / requirements.REQ_DIR / "设备报废.json").write_text(
+        json.dumps({"page": "设备报废"}, ensure_ascii=False), encoding="utf-8"
+    )
+    await run.plan(PAGES + ["设备报废"])
+    after = run.get()
+    keys = [str(n["jiraKey"]) for n in after["nodes"]]
+    assert "fix:1" not in keys
+    assert "fix" not in devdag._pages_of(after["nodes"])
+    # the repair's own issue is left alone: it is delivered work, not a dropped task
+    assert repair_issue
+    assert [k for k, _text in jira.comments[voided_before:]] != [repair_issue]
+    assert all(k != repair_issue for k, _text in jira.comments[voided_before:])
 
 
 # ── ACP-2207：独立任务并行，各占一个 worktree，跑完在主目录合并 ──────────────

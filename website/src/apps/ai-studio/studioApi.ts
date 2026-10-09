@@ -550,6 +550,10 @@ export interface StudioDevNode {
   jiraUrl?: string
   /** why there is no issue, verbatim from the command */
   jiraError?: string
+  /** `'fix'` on a node the platform appended after a FAILED acceptance
+   * (ACP-2210). Absent on a task the split built: the board must be able to tell
+   * the two apart without parsing `jiraKey`, because 「已修 N 次」 counts these. */
+  kind?: string
 }
 
 /** `GET …/dev/dag` — the whole board in one read. */
@@ -571,6 +575,11 @@ export interface StudioAcceptResult {
   id: string
   ok: boolean
   tail: string
+  /** the command's FULL output, written under the workspace (ACP-2210). The
+   * board shows the 40-line 尾巴 because a failing tsc runs to thousands of
+   * lines; this is the path the 让助手修复 prompt hands the assistant instead of
+   * pasting them. Optional because records written before that change have none. */
+  logPath?: string
 }
 
 /** One acceptance record (`POST …/accept/run`). `voided` is always present and
@@ -602,6 +611,13 @@ export type StudioDevBoardApi = {
   /** 409 `dev_not_done` until every node is done; 201 with the new record. */
   runAccept: (id: string) => Promise<{ record: StudioAcceptRecord }>
   listAcceptRecords: (id: string) => Promise<{ records: StudioAcceptRecord[] }>
+  /** 〔让助手修复〕 (ACP-2210): schedule a fix node for the NEWEST acceptance
+   * record and run it; the platform re-runs acceptance by itself once that node
+   * lands, so the caller only refreshes the board. Same 202-as-scheduled contract
+   * as `startDev`. 409 `nothing_to_fix` (round not `done`, or that record did not
+   * fail) and 409 `fix_limit` (three repairs already) are the refusals the UI
+   * pre-empts by not offering the button at all. */
+  fixAccept: (id: string) => Promise<{ runId: string; phase: string }>
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,4 +1080,9 @@ export const devBoardApi: StudioDevBoardApi = {
     ),
   listAcceptRecords: (id: string) =>
     request<{ records: StudioAcceptRecord[] }>(`/projects/${encodeURIComponent(id)}/accept/records`),
+  fixAccept: (id: string) =>
+    request<{ runId: string; phase: string }>(
+      `/projects/${encodeURIComponent(id)}/accept/fix`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
 }

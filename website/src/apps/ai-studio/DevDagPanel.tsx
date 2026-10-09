@@ -50,6 +50,8 @@ const NOTICE_KEY: Record<string, string> = {
   no_pages: 'apps.aiStudio.devDag.err_no_pages',
   run_active: 'apps.aiStudio.devDag.err_run_active',
   dev_not_done: 'apps.aiStudio.devDag.err_dev_not_done',
+  nothing_to_fix: 'apps.aiStudio.devDag.err_nothing_to_fix',
+  fix_limit: 'apps.aiStudio.devDag.err_fix_limit',
   app_disabled: 'apps.aiStudio.err_app_disabled',
 }
 
@@ -98,6 +100,12 @@ const RUN_STATE_KEY: Record<StudioDevRunState, string> = {
  * personal server that also serves the chat. */
 export const REFRESH_FAST_MS = 3000
 export const REFRESH_SLOW_MS = 10000
+
+/** How many repairs one failed acceptance buys (ACP-2210). The board needs the
+ * number because hiding the button IS the product behaviour at the limit; the
+ * backend's `devdag.FIX_LIMIT` is the one that actually refuses (409
+ * `fix_limit`), so a drifted copy here costs at most one refused click. */
+export const FIX_LIMIT = 3
 
 /** What the 需求 tab fires when its 〔开始开发〕 succeeds (ACP-2150: the event
  * existed and no one listened). */
@@ -150,6 +158,7 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
   const [notice, setNotice] = useState('')
   const [showLog, setShowLog] = useState(false)
   const [accepting, setAccepting] = useState(false)
+  const [fixing, setFixing] = useState(false)
 
   const dagQuery = useQuery({
     queryKey: ['ai-studio', 'dev-dag', projectId],
@@ -164,6 +173,21 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
   const recordsQuery = useQuery({
     queryKey: ['ai-studio', 'accept-records', projectId],
     queryFn: () => api.listAcceptRecords(projectId),
+    // Polled on the board's own cadence, unlike the log. Two writers make a
+    // record that this tab never asked for: the automatic re-acceptance that
+    // follows a fix (ACP-2210 — the ticket's 「修复完自动出现新验收结果」), and a
+    // run driven from another tab or an agent session. Without this, the newest
+    // record on screen would be whichever 跑验收 THIS tab clicked.
+    // Same two numbers as the board: while a round is in flight the backend is
+    // writing records every few seconds, and the re-acceptance lands in exactly
+    // that window (the state file stays `running` until it has been written).
+    // Reads the board's cached state instead of this query's own: the cadence
+    // is a property of the run, which this query's data says nothing about.
+    refetchInterval: () =>
+      queryClient.getQueryData<{ runState?: string }>(['ai-studio', 'dev-dag', projectId])
+        ?.runState === 'running'
+        ? REFRESH_FAST_MS
+        : REFRESH_SLOW_MS,
   })
   const logQuery = useQuery({
     queryKey: ['ai-studio', 'dev-log', projectId],
@@ -279,11 +303,43 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
     }
   }
 
+  /** 〔让助手修复〕 (ACP-2210): the way OUT of a failed acceptance.
+   *
+   * It does NOT re-run acceptance itself and it does not wait: the platform
+   * appends a fix node, runs it, and re-accepts on its own when that node
+   * lands. So the only thing to do here is to make the board re-read, which is
+   * what puts the new row on screen — the same move 开始开发 makes, for the same
+   * reason (the run's state is the backend's file, not this component's). */
+  async function askFix() {
+    setNotice('')
+    setFixing(true)
+    try {
+      await api.fixAccept(projectId)
+    } catch (e) {
+      setNotice(noticeText(e))
+    } finally {
+      setFixing(false)
+      await refreshDag()
+    }
+  }
+
   async function toggleLog() {
     setShowLog((v) => !v)
   }
 
   const failedCount = latest ? latest.results.filter((r) => !r.ok).length : 0
+  // Repairs this round has already scheduled. Counted from the board's own node
+  // list rather than a field of its own: the nodes ARE the record of what ran,
+  // and a counter written beside them would be a second truth that can disagree
+  // with the rows the operator is looking at.
+  const fixAttempts = nodes.filter((n) => n.kind === 'fix').length
+  // 3 mirrors the backend's FIX_LIMIT, which is the answer that actually holds —
+  // this only decides whether to offer a click that would be refused.
+  const fixExhausted = fixAttempts >= FIX_LIMIT
+  // The button belongs under 「失败 N 条」 and nowhere else: a passing record has
+  // nothing to fix, and while a fix is running the block is not even rendered
+  // (runState is not `done`), so a second click cannot stack a second repair.
+  const offerFix = failedCount > 0 && !fixExhausted
 
   return (
     <div className="flex flex-col gap-2" data-testid="ai-studio-dev-dag-panel">
@@ -482,6 +538,33 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
               </span>
             )}
           </div>
+          {latest && offerFix && (
+            // ACP-2210: a failed acceptance used to be a dead end — the board
+            // showed 「失败 2 条」 and the operator had to go find a terminal.
+            // This is the way out: the platform reads the failure outputs and
+            // fixes them, then re-accepts by itself.
+            <div className="flex">
+              <Btn
+                onClick={askFix}
+                disabled={fixing}
+                data-testid="ai-studio-accept-fix-btn"
+                className="shrink-0"
+              >
+                {i18nT('apps.aiStudio.devDag.accept_fix')}
+              </Btn>
+            </div>
+          )}
+          {latest && fixExhausted && (
+            // Three repairs and still red: the loop has stopped being a
+            // two-line-code problem. Say so in the same place the button was,
+            // so its absence reads as a decision and not as a missing feature.
+            <div
+              className="text-[11px] text-err"
+              data-testid="ai-studio-accept-fix-exhausted"
+            >
+              {i18nT('apps.aiStudio.devDag.accept_fix_exhausted', { n: FIX_LIMIT })}
+            </div>
+          )}
           {latest && (
             <div className="flex flex-col" data-testid="ai-studio-accept-result-list">
               {latest.results.map((r, index) => (

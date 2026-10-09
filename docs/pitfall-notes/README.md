@@ -185,9 +185,56 @@
   要三趟线程池往返，`asyncio.sleep(0)` 不推进时钟所以等不出来 → 有界真实时间轮询。
   附一条反面：我先给①编了个「忙等饿死 selector」的根因，探针实测把它否了 —— 根因没做
   最小复现就别写进笔记。
+- [20261009-235147-dnt-case-insensitive-and-replicated-gates.md](20261009-235147-dnt-case-insensitive-and-replicated-gates.md) —
+  预判 `git tag` 会被 `untranslated-script` 判红，实跑不红：`glossary.json` 里有 `Git`，而
+  `doNotTranslate` 剥离正则是**忽略大小写**的，小写 `git` 早被剥掉了——我按 `t === 'git'` 比才漏。
+  推论：单子里点名要防的 `App URL` 之所以命中，是因为 `App` 恰好也在表里，换个没登记的词就漏。
+  主坑是「自己复刻一份判据」：中英西意 440 条里 139 条带拉丁词，用复刻规则算出 12 条必红，
+  直接 import 仓里的 `CHECKS` 判是 **0** 条（引号嵌套、括号内英文、代码跨度都不算违规）。
+  教训：门禁在本地跑不了的语种，检查脚本必须 import 真模块 + 配反向对照（故意写坏一条必须变红）。
 - [20261009-235859-dead-proxy-tunnel-still-listens-push-hangs.md](20261009-235859-dead-proxy-tunnel-still-listens-push-hangs.md) —
   `git push` 推 fork 静默挂死几分钟：`ss` 显示 7777 在听、DNS 能解析、隧道主机 ping 得通，
   但那条 `ssh -D` 的**上游已经断了** —— 本地监听端口与上游健康是两件事，客户端连上后等一个
   永远建不起来的远端拨号，于是「连上了但一个字都不回」（`curl --max-time 8` 也会挂过 8 秒，
   因为 TCP 已连上）。判代理只认一条硬指标：拿它打真请求看状态码。修法是另开一条一次性隧道
   + `git -c http.proxy=`，不动用户那条；`-D` 转发不是立刻可用，要轮询端口。
+- [20261009-235900-i18n-check-prints-no-catalogparity-row.md](20261009-235900-i18n-check-prints-no-catalogparity-row.md) —
+  任务书让记 `i18n:check` 里 catalogParity 每语种缺几个键，可 826 行输出里这词命中 0 次：
+  它是 `src/i18n/catalogParity.test.ts`（前端测试），门禁脚本链里根本没有，最容易被误当成
+  `[key-refs]` 顶替（方向相反，语种缺键它永远绿）→ 复刻判据只度量。同单另一坑：退路写
+  「没翻译脚本就按英文原文填」，实测会被零容忍的 `changed-passthrough` 新增 **1041** 条
+  （非拉丁文种各 146 条：去噪后 ≥4 字母 ≥2 词且本族文字为 0 即判红，`"App URL"` 照抄就中）。
+  另有两条不报错的约束：语种目录键序须保持 en 的子序列（`i18n-translate.mjs merge` 会把
+  233 键的补丁炸成 7800 行重排），以及 `*Style.test.ts` 那 1474 行风格断言 `i18n:check`
+  完全不看（`qa.test.ts` 的 `edge-whitespace` 15/15、`doubled-space` 10/10 已顶格）。
+- [20261010-001858-worktree-venv-pth-imports-the-main-checkout.md](20261010-001858-worktree-venv-pth-imports-the-main-checkout.md) —
+  worktree 里的 `.venv` 是指向主仓的符号链接，其可编辑安装的 `.pth` 写死
+  `<主仓>/src`：`python -c "import kiro_crew…"` 加载的是**主仓**那份（新模块根本不在），
+  而 pytest 因为 conftest 先插本地 `src` 所以是对的 → 「主仓没有这个模块」不等于「你改坏了」，
+  判 import 归属一律走 pytest 或压住 `.pth`。附带一条：带 `{{n}}` 的文案若走
+  `NOTICE_KEY` → `i18nT(key)`（不带参数），占位符会原样印在界面上
+- [20261010-002120-i18n-parity-debt-masquerades-as-your-diff.md](20261010-002120-i18n-parity-debt-masquerades-as-your-diff.md) —
+  `catalogParity.test.ts` 12 语种全红，看着像新加的 4 条文案改坏了目录，其实 HEAD 上就红
+  （ACP-2113 欠的 233 键）。但数过才知道自己有没有让它更糟：按**同一份 en 键集**度量是
+  233 → 237（10 个语种各多缺 4），直接对各自的新 en 比会把这 4 个从「改前」扣掉，
+  得出「一条没加」的假结论。对照用新建的干净 worktree 不要 `git stash`；
+  `en-XA.json` 是 `gen-pseudolocale.mjs` 的生成物（要在 `website/` 下跑），别手写
+- [20261010-003700-inherited-green-copy-merge-red-and-the-wrong-fix.md](20261010-003700-inherited-green-copy-merge-red-and-the-wrong-fix.md) —
+  审计报告说 `destructiveConfirm` 在 main 上本来就红、本分支「丢了 9 个豁免」、合并会复活成红，
+  修法是搬回那 22 行。三点全错，同一个根因：把「本分支 en 目录没这些键」当成「测试丢了豁免」。
+  本分支**一次没碰过**该测试文件（`git diff <merge-base> HEAD --` 为空 → 合并直接取 main 那份，丢不了），
+  而照那修法会把 main 的 9 个键名搬进一个「没有这 9 个键」的目录，撞上同文件的
+  `exists in English` → 造 9 个新红。教训：**「合并会不会红」别推理，用一次性 worktree
+  `merge --no-commit` + 软链 node_modules 真跑整目录**（main 0 红 / 本分支 6 文件 16 红 /
+  合并树 8 文件 18 红）。我第一遍只跑「相关的那几个文件」、还把分支目录拷进合并结果，
+  于是报了个假数：既多出 5 条假红又藏掉 1 条真红。唯一「只在合并里红」的是
+  `localeFormatting` —— main 把 `BASELINE` 从 25 收到 16，本地绿不代表合并绿
+- [20261010-010304-audit-a-merge-in-place-black-outside-the-repo-lies.md](20261010-010304-audit-a-merge-in-place-black-outside-the-repo-lies.md) —
+  自查合并结果时把 `git show HEAD:…` 拷到 `/tmp` 跑 black，报「134 行要重排」，据此差点
+  回去重做冲突解决。假的：**black 的配置是从文件所在位置往上找 `pyproject.toml`**，拷出
+  仓库就读不到 `line-length = 100`，退回默认 88，于是每个超 88 列的签名都算违规（同一个
+  文件放回仓里再跑 = 0 行）。自查合并一律原地做：`git checkout -m -- <路径>` 重新造出冲突
+  现场，再和已提交版本 diff，才是「我对合并做的全部改动」。同一轮顺手证明两边用例没丢
+  （三方 test 名字集合：45 + 44 − 33 共有 = 56，无重名）——**「pytest 全绿」证明不了这个**。
+  另一半：`_loop` 的冲突不是二选一，「修完自动再验收」原来挂在「每个节点跑完」后面，并行
+  时那个位置等于测半份代码（不报错，只是结论对它没跑过的代码负责），要搬到整轮收口之前

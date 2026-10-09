@@ -37,7 +37,8 @@ DEFAULT_CMDS: list[list[str]] = [["pnpm", "typecheck"], ["pnpm", "test:unit"]]
 _CMD_TIMEOUT_S = 900
 
 #: 输出只留最后这么多行：一条失败的 tsc 能喷几千行，整份塞进记录会把看板拖死，
-#: 而判定要的证据恰恰在尾巴上。
+#: 而判定要的证据恰恰在尾巴上。尾巴是给**人**在看板上扫的，完整输出落文件是给
+#: 助手读的（ACP-2210：〔让助手修复〕的提示词只给路径，绝不把几千行塞进一轮对话）。
 _TAIL_LINES = 40
 
 #: 同 devserver 的子进程环境（``devserver.py:71``）：网关自己的模型/密钥/数据目录
@@ -67,6 +68,13 @@ class AcceptError(Exception):
 
 def accept_dir(ws: Path) -> Path:
     return ws / ".ai-studio" / "accept"
+
+
+#: 完整输出的落点（相对工作区，ACP-2210）。写成常量而不是从 :func:`accept_dir`
+#: 反推：``logPath`` 是**记录里给助手读的路径**，它必须与工作区怎么解析无关 ——
+#: ``workspace_dir`` 对同一项目可以给出不止一个绝对写法（软链、相对根），
+#: ``relative_to`` 在那种现场会直接抛。
+_LOG_DIR_REL = ".ai-studio/accept"
 
 
 def accept_cmds(ws: Path) -> list[list[str]]:
@@ -157,22 +165,35 @@ def run_accept(ws: Path, run: dict[str, Any], *, runner: Callable | None = None)
     """逐条跑验收命令，落一条记录，返回该记录。
 
     ``runner(cmd, ws) -> (returncode, output)`` 是可注入的替身（单测不起真进程）。
+
+    每条命令的**完整输出**另外落一份 ``.ai-studio/accept/<记录id>-<序号>.log``，
+    记录里带 ``logPath``（相对工作区）。为什么要两份：看板要的是尾巴 40 行，而
+    〔让助手修复〕要把证据交给助手 —— 塞进提示词是几千行 token，只给尾巴又常常
+    看不到失败的那一行（pytest 的 traceback 在中间，尾巴是覆盖率表）。
     """
     if run.get("runState") != "done":
         raise AcceptError("dev not done", "dev_not_done", 409)
     call = runner or _run_cmd
+    record_id = f"acc-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+    directory = accept_dir(ws)
+    directory.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, Any]] = []
-    for cmd in accept_cmds(ws):
+    for index, cmd in enumerate(accept_cmds(ws)):
         code, output = call(list(cmd), ws)
+        # 先写 log 再拼记录：logPath 要在记录落盘之前就定下来，否则一条「有 logPath
+        # 指向不存在的文件」的记录会骗到下游（修复节点的提示词）。
+        log_name = f"{record_id}-{index}.log"
+        (directory / log_name).write_text(output or "", encoding="utf-8", errors="replace")
         results.append(
             {
                 "id": " ".join(cmd),
                 "ok": code == 0,  # 只认退出码：输出里有没有 error 字样是猜
                 "tail": _text_tail(output),
+                "logPath": f"{_LOG_DIR_REL}/{log_name}",
             }
         )
     record = {
-        "id": f"acc-{int(time.time())}-{uuid.uuid4().hex[:8]}",
+        "id": record_id,
         "phase": devdag.PHASE,
         "result": "passed" if all(r["ok"] for r in results) else "failed",
         # 字段必须存在：这一版没有回退，但它不许缺省

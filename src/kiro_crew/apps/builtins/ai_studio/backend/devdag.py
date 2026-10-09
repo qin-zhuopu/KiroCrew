@@ -320,6 +320,11 @@ _NODE_STATES = ("queued", "running", "done", "failed")
 #: 「网关重启，中断」会白毁一份计划和它底下已经建好的 Jira 子单。
 RUN_PLANNED = "planned"
 
+#: 一次验收失败最多让助手修几次（ACP-2210）。3 是「修三次还不行就不是改两行代码
+#: 的事」的经验值；到数就不再追加修复节点，把口子交回给人。计数只看**本轮**状态
+#: 文件里的 fix 节点，所以「重新开发」下一轮（那会清掉 fix 节点）等于重新计。
+FIX_LIMIT = 3
+
 
 class DevDagError(Exception):
     """A refused dev run, with the HTTP status the route maps."""
@@ -636,7 +641,17 @@ class DevRun:
         if current.get("runState") == "running":
             raise DevDagError("already running", "run_active", 409)
 
-        prior = [n for n in (current.get("nodes") or []) if isinstance(n, dict)]
+        # A repair node is not part of a plan (ACP-2210): it belongs to ONE
+        # acceptance record. Leaving it in `prior` would let a re-split treat it
+        # as a page (`_pages_of` reads the "fix" out of the task id), carry its
+        # done row along forever, and offer to void its Jira issue. Dropping it
+        # here is also what resets the 3-repair ceiling — 连续 3 次 counts repairs
+        # of one acceptance, and a rebuilt plan is a new thing being accepted.
+        prior = [
+            n
+            for n in (current.get("nodes") or [])
+            if isinstance(n, dict) and n.get("kind") != "fix"
+        ]
         by_key: dict[str, dict[str, Any]] = {str(n.get("jiraKey") or ""): n for n in prior}
         same_pages = bool(prior) and _pages_of(prior) == set(pages)
         if same_pages:
@@ -761,7 +776,17 @@ class DevRun:
         # 新一轮（idle，或 done 之后再点一次）：整条清单重新派一遍。
         keep_done = resume_plan
 
-        nodes = [dict(n) for n in (current.get("nodes") or []) if isinstance(n, dict)]
+        nodes = [
+            dict(n)
+            for n in (current.get("nodes") or [])
+            if isinstance(n, dict)
+            # 新一轮不重跑旧的修复（ACP-2210）：修复节点属于**那一份**验收记录，
+            # 重新开发是把整条清单再派一遍，把上一次的修复也排进去等于让助手照旧
+            # 的失败输出再改一遍（而且旧 log 早就不是当前代码的输出）。续跑
+            # （planned / failed）必须留着它：修到一半被中断，〔从失败处继续〕
+            # 接着修就是这一档存在的意义。
+            if keep_done or n.get("kind") != "fix"
+        ]
         for node in nodes:
             if node.get("state") == "done" and keep_done:
                 continue
@@ -797,6 +822,98 @@ class DevRun:
         self._log(f"start phase={PHASE} resumed={resume_plan} nodes={len(nodes)}", "")
         self._loop_task = asyncio.create_task(self._run_safe())
         return {"runId": run_id, "phase": PHASE}
+
+    # ── 修（ACP-2210）──
+
+    async def fix(self, accept_record: dict[str, Any]) -> dict[str, Any]:
+        """验收没过 → 追加一个修复节点并跑它，返回 ``{"runId","phase"}``。
+
+        前提两条，缺一条就 409 ``nothing_to_fix``：整轮 ``done``（在跑的时候追加
+        节点会让循环手里的节点从盘上多出来一个，而它已经不读 ``runState=running``
+        之外的东西），以及这份验收记录确实是 ``failed``（对着一条没失败的历史记录
+        「修复」是凭空造活）。
+
+        节点追加在 ``nodes`` **末尾**、``dependsOn`` 为空：修复要能立刻被派出去，
+        而它的依赖其实就是「前面都做完」这件事，那一层已经由「整轮 done」这个前提
+        保证了。序号是本轮已有 fix 节点的个数 + 1，所以第 4 次点会被拒 —— 看板上
+        那句「已修 3 次仍未通过，请人工处理」就是这条的镜像。
+
+        跑法与 :meth:`start` 完全共用 :meth:`_loop`：不另写一套循环，因此修复节点
+        的 Jira 建单/流转、失败收口、重启孤儿判定这些行为天然和普通节点一致。
+        """
+        current = self.get()
+        can_fix = current.get("runState") == "done" and accept_record.get("result") == "failed"
+        if not can_fix:
+            raise DevDagError("this acceptance record has nothing to fix", "nothing_to_fix", 409)
+        prior = [n for n in (current.get("nodes") or []) if isinstance(n, dict)]
+        ordinal = sum(1 for n in prior if n.get("kind") == "fix") + 1
+        if ordinal > FIX_LIMIT:
+            raise DevDagError(f"already fixed {FIX_LIMIT} times without passing", "fix_limit", 409)
+
+        nodes = [dict(n) for n in prior]
+        node: dict[str, Any] = {
+            "jiraKey": f"fix:{ordinal}",
+            "title": f"修复验收失败（第 {ordinal} 次）",
+            "kind": "fix",
+            "dependsOn": [],
+            "state": "queued",
+            "slotKey": "",
+            "startCommit": "",
+            "endCommit": "",
+            "message": "",
+            # 失败命令与 log 路径存进节点，不只在提示词里用一次：中断之后重启，
+            # 提示词得能从盘上重新算出来，否则「网关重启 → 继续」会发一句没有
+            # 失败证据的修复提示，助手只能自己猜哪条命令红了。
+            "acceptCmds": [
+                {"id": str(r.get("id") or ""), "logPath": str(r.get("logPath") or "")}
+                for r in (accept_record.get("results") or [])
+                if isinstance(r, dict) and not r.get("ok")
+            ],
+            "jira": "",
+        }
+        nodes.append(node)
+
+        run_id = f"dev-{int(self._clock())}-{os.getpid()}"
+        data = {
+            "runId": run_id,
+            "phase": PHASE,
+            "runState": "running",
+            "startedAt": _iso(self._clock()),
+            "graphHashes": (
+                current.get("graphHashes") if isinstance(current.get("graphHashes"), dict) else {}
+            ),
+            "nodes": nodes,
+        }
+        parent = str(current.get("jiraParent") or self.project.get("jiraParent") or "")
+        if parent:
+            data["jiraParent"] = parent
+            # 建单在起循环之前：和普通节点不同，修复节点这张单是一次性的记账，而
+            # _run_node 那条路只**流转**已有号的节点（它假设号是 plan 建的）。放在
+            # 这里才能沿用同一个父单，且建单失败的原因写在节点上而不是只留在日志里。
+            created, err = await self._jira(
+                "create_task_checked", str(parent), node["title"], self._jira_code()
+            )
+            node["jira"] = str(created or "")
+            if err:
+                node["jiraError"] = err
+        node["jiraUrl"] = jirasync.browse_url(node["jira"]) if node["jira"] else ""
+        _write(_state_path(self.ws), data)
+        self._log(f"fix start ordinal={ordinal} record={accept_record.get('id') or '-'}", "")
+        self._loop_task = asyncio.create_task(self._run_safe())
+        return {"runId": run_id, "phase": PHASE}
+
+    def fix_attempts(self) -> int:
+        """本轮已经排过几个修复节点。
+
+        和 :meth:`fix` 里算序号用的是同一个数，单测靠它直接看上限有没有生效。
+        看板不问它 —— 前端数的是 ``dag`` 里 ``kind=="fix"`` 的节点，那已经是答案
+        的同一份来源，多返回一个字段就多了两处可以互相矛盾的事实。
+        """
+        data = _read(_state_path(self.ws)) or {}
+        nodes = data.get("nodes")
+        if not isinstance(nodes, list):
+            return 0
+        return sum(1 for n in nodes if isinstance(n, dict) and n.get("kind") == "fix")
 
     # ── 循环 ──
 
@@ -897,6 +1014,16 @@ class DevRun:
                         )
                     )
             if not running:
+                # 修完自动再验收（ACP-2210）：整轮跑完、且这一轮确实排过修复节点，
+                # 才在收口之前补跑一次。**放在这里而不是每个节点跑完的地方**，是
+                # ACP-2207 之后的必然位置 —— 并行时「一个节点跑完」不再等于「活干
+                # 完了」，修复节点的兄弟可能还在自己的 worktree 里写代码，那时跑验
+                # 收测的是半份代码。判定用 `data` 而不是重读盘：这份内存状态是这一
+                # 轮唯一的写者，重读会把「循环眼里的世界」和「盘上的世界」变成两处
+                # 事实。此时盘上仍是 running，与串行那一版的取舍一致（见
+                # :meth:`_re_accept_after_fix`）。
+                if _round_all_done_with_fix(data):
+                    await self._re_accept_after_fix(data)
                 self._close_run(data)
                 return
             finished, running = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
@@ -933,6 +1060,41 @@ class DevRun:
         self._save(data)
         if "failed" not in states:
             self._log("no runnable node, stopping", "")
+
+    async def _re_accept_after_fix(self, data: dict[str, Any]) -> None:
+        """修复节点交付之后自动再跑一次验收（ACP-2210）。
+
+        「修复完要人再点一次〔跑验收〕」是把闭环留一半：助手改完代码，人还得自己
+        去确认改没改好，而这一轮的目的恰恰是让人不用盯。
+
+        **盘上那一份 runState 在这几分钟里保持 ``running``**，只有交给
+        ``run_accept`` 的那一份改成 ``done``（它的前提就是 done）。反过来的写法
+        —— 先把文件写成 done 再去跑 —— 会开出一道真口子：文件说 done、循环却还
+        活着，〔开始开发〕的前提「不是 running」就成立了，于是同一个工作区上长出
+        第二个循环，而这正是 ``routes._DEV_RUNS`` 缓存要防的事。看板因此多显示
+        一会儿「开发中」，而那一行修复节点已经是「完成」——这个歧义比让第二轮和
+        验收抢同一个工作区便宜得多，网关中途重启时文件停在 running 也是老实话
+        （这一轮确实没收口，`get` 会照孤儿判失败）。
+
+        ``data`` 由调用方给（循环手里那份），不在这函数里重读盘：并行之后落盘是
+        「整份覆盖」，在这里读到的和循环稍后要写的是同一份东西，重读只会多出一个
+        可能过期的副本。
+
+        ``accept`` 是**函数内**导入：``accept`` 在模块级 import 本模块（它要读
+        ``PHASE`` 和 ``git_head``），模块级反向 import 就是循环导入。失败只记日志
+        —— 验收跑不起来是记账坏了，不该把已经提交的修复改判成失败。
+        """
+        from kiro_crew.apps.builtins.ai_studio.backend import accept
+
+        self._log("re-accept after fix", "")
+        try:
+            record = await asyncio.to_thread(
+                accept.run_accept, self.ws, {**data, "runState": "done"}
+            )
+        except Exception as exc:  # noqa: BLE001: 见上
+            self._log(f"re-accept failed: {type(exc).__name__}: {exc}", "")
+            return
+        self._log(f"re-accept result={record.get('result')}", "")
 
     async def _run_node(
         self,
@@ -1140,6 +1302,8 @@ class DevRun:
 
     def _prompt_for(self, node: dict[str, Any]) -> str:
         key = str(node.get("jiraKey") or "")
+        if node.get("kind") == "fix":
+            return _fix_prompt(node)
         page, _, kind = key.partition(":")
         if kind in devplan.KINDS:
             return devplan.task_prompt(page, kind, self.ws)
@@ -1156,6 +1320,52 @@ class DevRun:
                 fh.write(f"{_iso(self._clock())} {event} {node_key}".rstrip() + "\n")
         except OSError:
             logger.warning("ai-studio dev-run log write failed", exc_info=True)
+
+
+def _round_all_done_with_fix(data: dict[str, Any]) -> bool:
+    """这一轮是否「全做完了、而且里面有一个修复节点」（ACP-2210 的前提判定）。
+
+    单独成一个函数只为一件事：并行改造之后这个判定被读的人不止一处 —— 循环在收口
+    前问一次，测试想不问文件系统也能验它。判定留在盘外，它就不是第二个事实来源，
+    只是对调用方手里那份 ``data`` 的一句提问。
+
+    「有 fix 节点」是必须的一半：普通一轮全 done 就跑验收，等于每次〔开始开发〕跑
+    完都自动跑一次验收，而那一步的收尾一直是「看板说完成」，验收要人自己点。
+    """
+    nodes = data.get("nodes") or []
+    if not any(n.get("kind") == "fix" for n in nodes if isinstance(n, dict)):
+        return False
+    return {n.get("state") for n in nodes if isinstance(n, dict)} <= {"done"}
+
+
+def _fix_prompt(node: dict[str, Any]) -> str:
+    """修复节点的那段提示词（派工单 ACP-2210 第 2 步给定，**逐字**）。
+
+    失败证据只给**路径**不给内容：一条红的 ``pnpm test:unit`` 尾巴就有 40 行，
+    几条拼起来是把整份输出抄进一轮对话，而助手要读的往往是尾巴之外的部分。
+
+    ``acceptCmds`` 里缺 ``logPath`` 的行（改动之前落盘的老记录）退回只写命令：
+    一句「没有 log 文件」的提示至少还能让助手自己去跑那一条，比按一个不存在的
+    路径去读、然后回「失败：文件不存在」有用。
+    """
+    rows: list[str] = []
+    for item in node.get("acceptCmds") or []:
+        if not isinstance(item, dict):
+            continue
+        cmd = str(item.get("id") or "").strip()
+        log = str(item.get("logPath") or "").strip()
+        if not cmd and not log:
+            continue
+        rows.append(f"{cmd} → {log}" if cmd and log else (cmd or log))
+    ordinal = str(node.get("jiraKey") or "").partition(":")[2] or "1"
+    return (
+        f"平台验收没通过。失败的命令和完整输出在这些文件里：{'；'.join(rows)}。\n"
+        "先读这些输出，找到失败的测试，改代码让它们通过（只改代码，不许删测试、不许改测试的断言，"
+        "除非测试本身和需求文档 docs/需求图谱/ 矛盾——那样要在提交说明里写清理由）。\n"
+        "可以单独运行失败的那几个测试文件来确认（一次只跑一个文件），不许运行全量测试、e2e 或开发服务器。\n"
+        f"改完 git commit，提交说明「fix: 验收失败修复（第 {ordinal} 次）」。"
+        "最后一句只回复：完成 或 失败：<原因>。"
+    )
 
 
 def _failure_comment(node: dict[str, Any]) -> str:

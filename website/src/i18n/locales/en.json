@@ -308,9 +308,13 @@
         "accept_run": "Run acceptance",
         "accept_passed": "Passed",
         "accept_failed": "Failed ({{n}} checks)",
+        "accept_fix": "Let the assistant fix it",
+        "accept_fix_exhausted": "Still failing after {{n}} repairs — please handle it manually",
         "err_no_pages": "No page's requirement is complete enough to develop — finish the requirement in the Requirements tab first",
         "err_run_active": "A development round is already running for this project",
-        "err_dev_not_done": "Acceptance can only run once every task is done"
+        "err_dev_not_done": "Acceptance can only run once every task is done",
+        "err_nothing_to_fix": "There is nothing to fix in the latest acceptance result",
+        "err_fix_limit": "Acceptance has already been repaired three times without passing — please handle it manually"
       },
       "doc_list": "Documents",
       "pending_changes": "Uncommitted changes",
