@@ -219,3 +219,22 @@
   233 → 237（10 个语种各多缺 4），直接对各自的新 en 比会把这 4 个从「改前」扣掉，
   得出「一条没加」的假结论。对照用新建的干净 worktree 不要 `git stash`；
   `en-XA.json` 是 `gen-pseudolocale.mjs` 的生成物（要在 `website/` 下跑），别手写
+- [20261010-003700-inherited-green-copy-merge-red-and-the-wrong-fix.md](20261010-003700-inherited-green-copy-merge-red-and-the-wrong-fix.md) —
+  审计报告说 `destructiveConfirm` 在 main 上本来就红、本分支「丢了 9 个豁免」、合并会复活成红，
+  修法是搬回那 22 行。三点全错，同一个根因：把「本分支 en 目录没这些键」当成「测试丢了豁免」。
+  本分支**一次没碰过**该测试文件（`git diff <merge-base> HEAD --` 为空 → 合并直接取 main 那份，丢不了），
+  而照那修法会把 main 的 9 个键名搬进一个「没有这 9 个键」的目录，撞上同文件的
+  `exists in English` → 造 9 个新红。教训：**「合并会不会红」别推理，用一次性 worktree
+  `merge --no-commit` + 软链 node_modules 真跑整目录**（main 0 红 / 本分支 6 文件 16 红 /
+  合并树 8 文件 18 红）。我第一遍只跑「相关的那几个文件」、还把分支目录拷进合并结果，
+  于是报了个假数：既多出 5 条假红又藏掉 1 条真红。唯一「只在合并里红」的是
+  `localeFormatting` —— main 把 `BASELINE` 从 25 收到 16，本地绿不代表合并绿
+- [20261010-010304-audit-a-merge-in-place-black-outside-the-repo-lies.md](20261010-010304-audit-a-merge-in-place-black-outside-the-repo-lies.md) —
+  自查合并结果时把 `git show HEAD:…` 拷到 `/tmp` 跑 black，报「134 行要重排」，据此差点
+  回去重做冲突解决。假的：**black 的配置是从文件所在位置往上找 `pyproject.toml`**，拷出
+  仓库就读不到 `line-length = 100`，退回默认 88，于是每个超 88 列的签名都算违规（同一个
+  文件放回仓里再跑 = 0 行）。自查合并一律原地做：`git checkout -m -- <路径>` 重新造出冲突
+  现场，再和已提交版本 diff，才是「我对合并做的全部改动」。同一轮顺手证明两边用例没丢
+  （三方 test 名字集合：45 + 44 − 33 共有 = 56，无重名）——**「pytest 全绿」证明不了这个**。
+  另一半：`_loop` 的冲突不是二选一，「修完自动再验收」原来挂在「每个节点跑完」后面，并行
+  时那个位置等于测半份代码（不报错，只是结论对它没跑过的代码负责），要搬到整轮收口之前
