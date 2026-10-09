@@ -3,11 +3,11 @@
 // canned dag per scenario plus the two actions. Every assertion goes through a
 // data-testid or the rendered words — design 07 §颗粒度约定 makes the testids the
 // contract and the four node words the only legal status text.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import DevDagPanel from './DevDagPanel'
+import DevDagPanel, { REFRESH_SLOW_MS, StartDevContext } from './DevDagPanel'
 import ToolSidebar from './ToolSidebar'
 import { StudioApiError, type StudioDevBoardApi, type StudioDevDag, type StudioDevNode } from './studioApi'
 import { renderStudio } from './testUtils'
@@ -22,6 +22,11 @@ function node(jiraKey: string, state: StudioDevNode['state'], over: Partial<Stud
     startCommit: '',
     endCommit: '',
     message: '',
+    // the split defaults to 「建好了」：一个节点默认带着 Jira 号，因为接了 Jira
+    // 的部署上每个任务都该有一张单，测试要单独构造的是「没建出来」那种例外。
+    jira: `ACP-${7000 + jiraKey.length}`,
+    jiraUrl: `https://jira.jereh.cn/browse/ACP-${7000 + jiraKey.length}`,
+    jiraError: '',
     ...over,
   }
 }
@@ -40,6 +45,7 @@ function dag(over: Partial<StudioDevDag> = {}): StudioDevDag {
 function apiOver(over: Partial<StudioDevBoardApi> = {}): StudioDevBoardApi {
   return {
     startDev: vi.fn(async () => ({ runId: 'dev-1', phase: 'full' })),
+    planDev: vi.fn(async () => dag({ runState: 'planned', nodes: [node('设备点检记录:api', 'queued')] })),
     getDevDag: vi.fn(async () => dag()),
     getDevLog: vi.fn(async () => ({ lines: ['12:00:00 start dev-1', '12:00:01 node start 设备点检记录:api'] })),
     runAccept: vi.fn(async () => ({
@@ -54,6 +60,11 @@ function apiOver(over: Partial<StudioDevBoardApi> = {}): StudioDevBoardApi {
   }
 }
 
+/** The 需求 tab's 〔开始开发〕 click, as RequirementPage actually fires it. */
+function fireStartDev(projectId: string, page?: string) {
+  window.dispatchEvent(new CustomEvent('ai-studio:start-dev', { detail: { projectId, page } }))
+}
+
 function mount(api: StudioDevBoardApi = apiOver()) {
   renderStudio(<DevDagPanel projectId="p1" api={api} />)
   return api
@@ -63,15 +74,30 @@ function mount(api: StudioDevBoardApi = apiOver()) {
  * (an idle board is a legitimate first paint, not a spinner), so an assertion
  * taken straight after mount sees 空闲 and zero rows — waiting on the run line is
  * waiting on the one read every scenario varies. */
+const RUN_WORDS: Record<StudioDevDag['runState'], string> = {
+  idle: 'Idle',
+  planned: 'Tasks split',
+  running: 'Developing',
+  done: 'Completed',
+  failed: 'Failed',
+}
+
 async function mountShowing(runState: StudioDevDag['runState'], api: StudioDevBoardApi) {
   mount(api)
-  const expected = { idle: 'Idle', running: 'Developing', done: 'Completed', failed: 'Failed' }[runState]
-  await waitFor(() => expect(screen.getByTestId('ai-studio-dev-status')).toHaveTextContent(expected))
+  await waitFor(() =>
+    expect(screen.getByTestId('ai-studio-dev-status')).toHaveTextContent(RUN_WORDS[runState]),
+  )
   return api
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// 请求存在 ToolSidebar 的 state 里，卸载即消失，没有跨测试的残留要清；这里只
+// 负责把假计时器换回真的（有用到 vi.useFakeTimers 的那条测试自己换的，兜底）。
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('DevDagPanel — the four node states', () => {
@@ -317,5 +343,215 @@ describe('the board in the 开发 tab (07 §〇-1)', () => {
     expect(screen.getByText('dev-309')).toBeInTheDocument()
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()
+  })
+})
+
+describe('DevDagPanel — 先拆任务，Jira 号（ACP-2085-S6）', () => {
+  const planned = dag({
+    runState: 'planned',
+    jiraParent: 'ACP-8000',
+    jiraParentUrl: 'https://jira.jereh.cn/browse/ACP-8000',
+    nodes: [
+      node('设备点检记录:api', 'queued', { jira: 'ACP-9001', jiraUrl: 'https://jira.jereh.cn/browse/ACP-9001' }),
+      node('设备点检记录:web', 'queued', {
+        jira: '', jiraUrl: '', jiraError: 'jc 连不上 jira：connection refused',
+      }),
+    ],
+  })
+
+  it('〔拆分任务〕 calls dev/plan and the rows carry the Jira numbers', async () => {
+    const user = userEvent.setup()
+    let reads = 0
+    // the button exists to TURN this board into that one, so the read is staged:
+    // idle and empty until the click, then the split board. Asserting the numbers
+    // afterwards is what proves the click is what built the list.
+    const api = apiOver({
+      // 第一次读还是空的，点了拆分之后才变成分好的那份板
+      getDevDag: vi.fn(async () => (++reads === 1 ? dag() : planned)),
+    })
+    mount(api)
+    await screen.findByTestId('ai-studio-dev-dag-empty')
+    expect(screen.queryByTestId('ai-studio-dev-dag-jira-parent')).not.toBeInTheDocument()
+    const btn = screen.getByTestId('ai-studio-dev-plan-btn')
+    await user.click(btn)
+    // pages omitted = every page whose verdict allows it, same as 开始开发。
+    // 断的是两个字面参数：按钮不带页名调过来，第二个参数就是 undefined
+    await waitFor(() => expect(api.planDev).toHaveBeenCalledWith('p1', undefined))
+    expect(api.startDev).not.toHaveBeenCalled()
+
+    const dagBox = await screen.findByTestId('ai-studio-dev-dag')
+    const link = within(dagBox).getByTestId('ai-studio-dev-dag-node-jira-设备点检记录:api')
+    expect(link).toHaveTextContent('ACP-9001')
+    expect(link).toHaveAttribute('href', 'https://jira.jereh.cn/browse/ACP-9001')
+    // 新标签打开：点了不许把这块板换掉
+    expect(link).toHaveAttribute('target', '_blank')
+    // 表头那一行是父单
+    const parent = screen.getByTestId('ai-studio-dev-dag-jira-parent')
+    expect(parent).toHaveTextContent('ACP-8000')
+    expect(parent).toHaveAttribute('href', 'https://jira.jereh.cn/browse/ACP-8000')
+    // 状态从「空闲」变「已拆任务」，任务一行行列出来了
+    await waitFor(() => expect(screen.getByTestId('ai-studio-dev-status')).toHaveTextContent('Tasks split'))
+    expect(dagBox.children).toHaveLength(2)
+  })
+
+  it('a row with no Jira issue says why, verbatim', async () => {
+    mount(apiOver({ getDevDag: vi.fn(async () => planned) }))
+    const dagBox = await screen.findByTestId('ai-studio-dev-dag')
+    const row = await within(dagBox).findByTestId('ai-studio-dev-dag-node-jira-missing-设备点检记录:web')
+    // 「Jira 未建：<命令原文>」—— 原文不许被改写成一句通用报错
+    expect(row).toHaveTextContent('No Jira issue: jc 连不上 jira：connection refused')
+    // 有号的那一行不出现灰字，没号的那一行也不出现链接
+    expect(within(dagBox).getByTestId('ai-studio-dev-dag-node-jira-设备点检记录:api')).toBeInTheDocument()
+    expect(within(dagBox).queryByTestId('ai-studio-dev-dag-node-jira-设备点检记录:web')).not.toBeInTheDocument()
+  })
+
+  it('a deployment with no Jira configured shows no reason line at all', async () => {
+    // 没配 AI_STUDIO_JIRA_CMD 的部署：节点上没号、也没原因。这时灰字一行都不该
+    // 有 —— 否则每个没接 Jira 的实例都会看见四条看不懂的报错。
+    mount(
+      apiOver({
+        getDevDag: vi.fn(async () =>
+          dag({
+            runState: 'planned',
+            nodes: [node('x:api', 'queued', { jira: '', jiraUrl: '', jiraError: '' })],
+          }),
+        ),
+      }),
+    )
+    const dagBox = await screen.findByTestId('ai-studio-dev-dag')
+    expect(within(dagBox).queryAllByTestId(/ai-studio-dev-dag-node-jira-missing/)).toHaveLength(0)
+    expect(screen.queryByText(/No Jira issue/)).not.toBeInTheDocument()
+    // 没父单就没有表头那一行，而不是一个点开就 404 的空链接
+    expect(screen.queryByTestId('ai-studio-dev-dag-jira-parent')).not.toBeInTheDocument()
+  })
+
+  it('planned: 开始开发 is clickable and keeps the same confirm', async () => {
+    const user = userEvent.setup()
+    const api = apiOver({ getDevDag: vi.fn(async () => planned) })
+    mount(api)
+    await screen.findByTestId('ai-studio-dev-status')
+    const btn = screen.getByTestId('ai-studio-dev-start-btn')
+    expect(btn).toBeEnabled()
+    await user.click(btn)
+    expect(await screen.findByTestId('ai-studio-dev-confirm')).toBeInTheDocument()
+    await user.click(screen.getByTestId('ai-studio-dev-confirm-ok'))
+    await waitFor(() => expect(api.startDev).toHaveBeenCalledWith('p1'))
+    // 拆过了就不再提供「拆分任务」：计划已经在那儿了
+    expect(screen.queryByTestId('ai-studio-dev-plan-btn')).not.toBeInTheDocument()
+  })
+
+  it('running: no 拆分任务, and the hint names the 3s cadence', async () => {
+    // 等的是「开发中」这个词而不是状态块本身：状态块在第一次读之前就是「空闲」，
+    // 而「空闲」正是要提供拆分按钮的状态 —— 等错对象就会拿首帧去断。
+    await mountShowing('running', apiOver({ getDevDag: vi.fn(async () => dag({ runState: 'running', nodes: [node('a:api', 'running')] })) }))
+    expect(screen.queryByTestId('ai-studio-dev-plan-btn')).not.toBeInTheDocument()
+    expect(screen.getByTestId('ai-studio-dev-refresh-hint')).toHaveTextContent('Refreshes every 3 seconds')
+  })
+
+  it('a planned board still refreshes, every 10s, without a click', async () => {
+    // the shape RequirementPage.test.tsx uses: `shouldAdvanceTime` keeps the
+    // microtask queue moving (React Query resolves the fetch off a timer) while
+    // the 10s clock is still ours to push. `getDevDag` is called once per render
+    // cycle at most, so a count is a real measurement, not a race.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const api = apiOver({ getDevDag: vi.fn(async () => planned) })
+      mount(api)
+      await waitFor(() => expect(api.getDevDag).toHaveBeenCalledTimes(1), { timeout: 3000 })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REFRESH_SLOW_MS)
+      })
+      await waitFor(() => expect(api.getDevDag).toHaveBeenCalledTimes(2), { timeout: 3000 })
+      // 小字说明的就是这个节奏
+      expect(screen.getByTestId('ai-studio-dev-refresh-hint')).toHaveTextContent('Refreshes every 10 seconds')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('需求页〔开始开发〕→ 开发页签（ACP-2150/2151）', () => {
+  /** The workbench shape: the sidebar owns the tab, the board is injected — and
+   * it is created by the CALLER, which is exactly why context (not a prop) is
+   * what has to carry the request. */
+  function mountSidebar(api: StudioDevBoardApi, initialTool = 'requirements') {
+    renderStudio(
+      <ToolSidebar
+        onOpenTab={vi.fn()}
+        docs={[]}
+        projectId="p1"
+        initialTool={initialTool as 'requirements' | 'dev'}
+        devBoard={<DevDagPanel projectId="p1" api={api} />}
+      />,
+    )
+    return api
+  }
+
+  it('the event switches to the 开发 tab and splits just that page', async () => {
+    const api = mountSidebar(apiOver({ getDevDag: vi.fn(async () => dag({ runState: 'planned' })) }))
+    await screen.findByTestId('tool-sidebar')
+    // 开局在需求页签，板上无事发生
+    expect(screen.getByTestId('ai-studio-dev-entry')).toHaveAttribute('aria-selected', 'false')
+    expect(api.planDev).not.toHaveBeenCalled()
+
+    fireStartDev('p1', '设备点检记录')
+
+    // 切页签是页签状态的主人（ToolSidebar）干的，拆任务是板干的 —— 事件到达时
+    // 板还没挂载，这一条断的就是那个先后顺序
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-studio-dev-entry')).toHaveAttribute('aria-selected', 'true'),
+    )
+    await waitFor(() => expect(api.planDev).toHaveBeenCalledWith('p1', ['设备点检记录']))
+    expect(api.startDev).not.toHaveBeenCalled()
+  })
+
+  it('another project event switches nothing and splits nothing', async () => {
+    const api = mountSidebar(apiOver())
+    await screen.findByTestId('tool-sidebar')
+    fireStartDev('other-project', '设备点检记录')
+    // 让事件循环走一圈再断：detail.projectId 对不上就该什么都不发生
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('ai-studio-dev-entry')).toHaveAttribute('aria-selected', 'false')
+    expect(api.planDev).not.toHaveBeenCalled()
+  })
+
+  it('a board already on screen splits the page too, and only once per request', async () => {
+    const api = mountSidebar(
+      apiOver({ getDevDag: vi.fn(async () => dag({ runState: 'planned' })) }),
+      'dev',
+    )
+    await screen.findByTestId('ai-studio-dev-start-btn')
+    fireStartDev('p1', '备件台账')
+    await waitFor(() => expect(api.planDev).toHaveBeenCalledWith('p1', ['备件台账']))
+    // 同一份请求不许因为板自己的重渲染（拿到数据、10 秒刷新）而重放一遍：
+    // 重放就是往 Jira 里再写一轮，哪怕服务端幂等也是白跑
+    await waitFor(() => expect(api.getDevDag).toHaveBeenCalledTimes(2))
+    expect(api.planDev).toHaveBeenCalledTimes(1)
+  })
+
+  it('a page with no page in the detail splits everything', async () => {
+    const api = mountSidebar(apiOver(), 'dev')
+    await screen.findByTestId('ai-studio-dev-start-btn')
+    fireStartDev('p1')
+    await waitFor(() => expect(api.planDev).toHaveBeenCalledWith('p1', undefined))
+  })
+})
+
+describe('a bare board with no sidebar above it', () => {
+  it('the context channel is optional: 拆分任务 still works', async () => {
+    const api = apiOver({ getDevDag: vi.fn(async () => dag({ runState: 'planned' })) })
+    // 直接给一个 StartDevContext null 的树（等价于不套 Provider），证明这条
+    // 链路是可选的：老的挂载方式（本文件上面所有测试）不会因为多了一个 context 就坏
+    renderStudio(
+      <StartDevContext.Provider value={null}>
+        <DevDagPanel projectId="p1" api={api} />
+      </StartDevContext.Provider>,
+    )
+    await screen.findByTestId('ai-studio-dev-plan-btn')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('ai-studio-dev-plan-btn'))
+    await waitFor(() => expect(api.planDev).toHaveBeenCalledWith('p1', undefined))
   })
 })

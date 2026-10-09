@@ -7,9 +7,10 @@
 // four tabs are fixture-backed unless a caller injects its own content — the
 // commits lists (ACP-795) and the 开发 / 部署 tabs (ACP-799). Every injection is
 // optional and defaults to that fixture, so an ordinary workbench is unchanged.
-import { useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { i18nT } from '../../i18n/t'
+import { START_DEV_EVENT, StartDevContext, type StartDevChannel, type StartDevRequest } from './DevDagPanel'
 import {
   CHANGED,
   COMMITS,
@@ -247,6 +248,40 @@ onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publ
     if (t !== 'graph') setGraphType(null)
   }
 
+  // ACP-2150/2151: the 需求 tab's 〔开始开发〕 dispatches `ai-studio:start-dev`
+  // on `window`, and until now nothing listened — the event was fired into the
+  // void. Switching the tab belongs HERE, because this component owns the tab
+  // state; the split itself does not, because the board that performs it is an
+  // injected node that only exists while the 开发 tab is open. So this listener
+  // switches the tab AND holds the request, which it hands down to that board
+  // through StartDevContext (see DevDagPanel for why a listener on the board
+  // cannot work). The id check keeps one project's click from re-splitting
+  // another project's board.
+  const [startReq, setStartReq] = useState<StartDevRequest | null>(null)
+  useEffect(() => {
+    const onStart = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ projectId?: unknown; page?: unknown }>).detail
+      if (String(detail?.projectId ?? '') !== projectId) return
+      const page = detail?.page
+      setStartReq((prev) => ({
+        projectId,
+        pages: page == null ? undefined : [String(page)],
+        seq: (prev?.seq ?? 0) + 1,
+      }))
+      setTool('dev')
+    }
+    window.addEventListener(START_DEV_EVENT, onStart)
+    return () => window.removeEventListener(START_DEV_EVENT, onStart)
+  }, [projectId])
+  const startDevChannel: StartDevChannel = useMemo(
+    () => ({
+      request: startReq,
+      served: (seq: number) =>
+        setStartReq((cur) => (cur && cur.seq <= seq ? null : cur)),
+    }),
+    [startReq],
+  )
+
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="tool-sidebar">
       <div className="px-3 h-[38px] shrink-0 flex items-center border-b border-border text-[13px] font-semibold text-text-strong">
@@ -318,7 +353,11 @@ onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publ
           // shares a screen with real run data. A caller that injects no board
           // (a demo frame, a bare mount, today's page) gets exactly what it got
           // before: the loop, or the fixture behind it.
-          : devBoard ? <>{devBoard}{devLoop}</>
+          // The provider wraps the injected board (ACP-2151): context is read at
+          // the node's position in the tree, so a board the PAGE created still
+          // sees the request this sidebar holds. Unmounted board = no consumer,
+          // and the request waits here for it.
+          : devBoard ? <><StartDevContext.Provider value={startDevChannel}>{devBoard}</StartDevContext.Provider>{devLoop}</>
             : devLoop ?? <ReleasesTool model={DEV} onOpenTab={onOpenTab} history={DEV_HISTORY} noun={i18nT('apps.aiStudio.dev')} />)}
         {tool === 'deploy' && (deploy
           ? <InjectedTool tab="deploy" injection={deploy} onOpenTab={onOpenTab} />

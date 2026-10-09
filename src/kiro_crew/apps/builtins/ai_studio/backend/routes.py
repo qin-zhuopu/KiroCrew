@@ -796,7 +796,7 @@ def _dev_run_for(project_id: str, record: dict[str, Any], ws: Path, state: Any) 
 async def _dev_target(
     request: web.Request,
 ) -> tuple[devdag.DevRun, dict[str, Any], Path] | web.Response:
-    # Shared prologue for the five dev/accept routes: the project must exist,
+    # Shared prologue for the six dev/accept routes: the project must exist,
     # its workspace must resolve (that is where .ai-studio/ lives), and the
     # dashboard state must be reachable — a dev task IS a chat session, so
     # without it there is nothing to open one on.
@@ -882,6 +882,38 @@ def _resolve_dev_pages(ws: Path, raw_pages: Any) -> list[str]:
     return [page for page, entry in by_page.items() if entry.get("verdict") in DEV_READY_VERDICTS]
 
 
+async def _handle_dev_plan(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/dev/plan: split the work into tasks (and Jira issues)
+    # WITHOUT starting it (ACP-2085-S6). Same page rules as dev/start — omitted
+    # = every page the verdicts allow, a named 不齐 page is a 422 — because the
+    # split is the same decision dev/start makes when it has to auto-plan; two
+    # sets of rules would let a page be splittable but undevelopable.
+    target = await _dev_target(request)
+    if isinstance(target, web.Response):
+        return target
+    run, _record, ws = target
+    body = await _body(request)
+    raw_pages = body.get("pages")
+    try:
+        pages = await asyncio.to_thread(_resolve_dev_pages, ws, raw_pages)
+    except requirements.RequirementError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except DevPagesError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    if not pages:
+        return _error("no page's requirement is ready for development", "no_pages", 422)
+    try:
+        state = await run.plan(pages)
+    except devdag.DevDagError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError as exc:
+        logger.exception("ai-studio dev plan write failed")
+        return _error(f"could not write the development plan: {exc}", "dev_run_write_failed", 503)
+    # the board's own read of what it just produced, so the client never has to
+    # assume a shape plan() did not promise
+    return web.json_response(state, status=201)
+
+
 async def _handle_dev_dag(request: web.Request) -> web.StreamResponse:
     # GET /projects/{id}/dev/dag: the board's single read. ``get`` also owns the
     # restart-orphan verdict (a file left at running by a dead process), so the
@@ -889,8 +921,19 @@ async def _handle_dev_dag(request: web.Request) -> web.StreamResponse:
     target = await _dev_target(request)
     if isinstance(target, web.Response):
         return target
-    run, _record, _ws = target
-    return web.json_response(run.get())
+    run, record, _ws = target
+    # A copy: the merge below must not write into whatever the run returned (a
+    # route must not mutate the object it is reading through).
+    state = dict(run.get())
+    # The parent link the board's header needs. A key and its URL are ONE fact,
+    # so whichever key wins gets exactly its own link — a state carrying ACP-1
+    # must never be paired with the record's URL. The record is the fallback
+    # because ``ensure_parent`` writes the key into project.json while the
+    # cached DevRun's last write may predate it; without this the header would
+    # stay empty until a restart even though the issue exists.
+    key = str(state.get("jiraParent") or record.get("jiraParent") or "")
+    state.update(devdag.node_jira_view({"jiraParent": key}))
+    return web.json_response(state)
 
 
 async def _handle_dev_log(request: web.Request) -> web.StreamResponse:
@@ -1086,6 +1129,13 @@ def register_routes(app: web.Application) -> None:
     # ACP-2085-S4: the development board and its acceptance run. The literal
     # ``dev/start`` / ``dev/dag`` / ``dev/log`` cannot collide with the
     # ``dev-server`` family (a further segment each) or with ``dev-runs``.
+    # ACP-2085-S6: ``dev/plan`` splits the work (and the Jira issues) apart from
+    # running it. Same non-collision argument as above: the literal ``dev/plan``
+    # shares no path with ``dev/start`` / ``dev/dag`` / ``dev/log`` / dev-server.
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/dev/plan",
+        _require_enabled(_handle_dev_plan),
+    )
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/dev/start",
         _require_enabled(_handle_dev_start),

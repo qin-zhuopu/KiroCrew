@@ -509,8 +509,11 @@ export interface StudioProdServer {
 /** The four node states the board renders, and the only four (07 §〇-1). */
 export type StudioDevNodeState = 'queued' | 'running' | 'done' | 'failed'
 
-/** The run's own state; `idle` is the no-file-yet answer, not a phase. */
-export type StudioDevRunState = 'idle' | 'running' | 'done' | 'failed'
+/** The run's own state; `idle` is the no-file-yet answer, not a phase.
+ * `planned` (ACP-2085-S6) is a split that has not been started: the tasks and
+ * their Jira issues exist and no session has been dispatched, which is exactly
+ * why a gateway restart cannot orphan it — nothing was running. */
+export type StudioDevRunState = 'idle' | 'planned' | 'running' | 'done' | 'failed'
 
 /** One task node: one page's 后端接口 or 前端页面, scheduled in plan order.
  * `jiraKey` is the field name 07 §三 B1 fixed and holds the TASK id
@@ -526,6 +529,16 @@ export interface StudioDevNode {
   endCommit: string
   /** the failure's own line, verbatim from the assistant or the scheduler */
   message: string
+  // ACP-2085-S6: this task's Jira sub-issue. All three are optional because a
+  // deployment with no `AI_STUDIO_JIRA_CMD` configured has none of them, and a
+  // board must be able to tell 「Jira is not configured」 (no fields) apart from
+  // 「Jira is broken」 (`jiraError` with the command's own line).
+  /** the Jira key, '' when no issue was created */
+  jira?: string
+  /** its browse URL, '' with the key */
+  jiraUrl?: string
+  /** why there is no issue, verbatim from the command */
+  jiraError?: string
 }
 
 /** `GET …/dev/dag` — the whole board in one read. */
@@ -536,6 +549,9 @@ export interface StudioDevDag {
   startedAt?: string
   graphHashes?: Record<string, string>
   nodes: StudioDevNode[]
+  /** the project's parent Jira issue and its URL, paired by the backend */
+  jiraParent?: string
+  jiraParentUrl?: string
 }
 
 /** One acceptance command's outcome. `id` is the command text, `tail` the last
@@ -565,6 +581,11 @@ export type StudioDevBoardApi = {
    * minutes to an hour of work and no request may wait for it. `pages` omitted
    * = every page whose requirement verdict allows it. */
   startDev: (id: string, pages?: string[]) => Promise<{ runId: string; phase: string }>
+  /** 〔拆分任务〕 (ACP-2085-S6): build the task list AND its Jira sub-issues,
+   * runState `planned`, nothing dispatched. Same page rules and the same
+   * refusals as `startDev` (422 `not_ready`, 409 `run_active`); 201 with the
+   * whole board, which is what lets the caller repaint without a second read. */
+  planDev: (id: string, pages?: string[]) => Promise<StudioDevDag>
   getDevDag: (id: string) => Promise<StudioDevDag>
   getDevLog: (id: string, lines?: number) => Promise<{ lines: string[] }>
   /** 409 `dev_not_done` until every node is done; 201 with the new record. */
@@ -998,6 +1019,11 @@ export const devBoardApi: StudioDevBoardApi = {
   startDev: (id: string, pages?: string[]) =>
     request<{ runId: string; phase: string }>(
       `/projects/${encodeURIComponent(id)}/dev/start`,
+      { method: 'POST', body: JSON.stringify(pages?.length ? { pages } : {}) },
+    ),
+  planDev: (id: string, pages?: string[]) =>
+    request<StudioDevDag>(
+      `/projects/${encodeURIComponent(id)}/dev/plan`,
       { method: 'POST', body: JSON.stringify(pages?.length ? { pages } : {}) },
     ),
   getDevDag: (id: string) =>

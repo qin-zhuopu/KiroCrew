@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from kiro_crew.apps.builtins.ai_studio.backend import devplan
+from kiro_crew.apps.builtins.ai_studio.backend import devplan, jirasync
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,13 @@ TURN_TIMEOUT_S = 2400.0
 TRUST_ENV = "AI_STUDIO_DEV_TRUST"
 
 _NODE_STATES = ("queued", "running", "done", "failed")
+
+#: ``planned`` 是「任务已拆好、Jira 子单已建、等人点〔开始开发〕」这一档 runState
+#: （ACP-2085-S6 第 2 步）。节点状态不变（还是那四种），多的是**整轮**的一档。
+#: 「planned 不是在跑」是这一档最要紧的语义：:meth:`DevRun.get` 的孤儿判断只针对
+#: ``running``，一份计划停在 ``planned`` 几小时等人开工是正常用法，把它判成
+#: 「网关重启，中断」会白毁一份计划和它底下已经建好的 Jira 子单。
+RUN_PLANNED = "planned"
 
 
 class DevDagError(Exception):
@@ -256,12 +263,15 @@ class DevRun:
         它不会自己结束，看板会永远转圈，所以在读的时候如实判成失败并说明原因；
         判失败同时也是失败续跑那条路的入口（续跑只挑 queued，节点不先落成 failed
         就永远轮不到它重做）。
+
+        ``planned`` 不在判断之列（ACP-2085-S6）：它是「拆好了等人开工」，一份计划
+        停在这一档几小时是正常用法，判它「网关重启，中断」会白毁一份计划。
         """
         data = _read(_state_path(self.ws))
         if data is None:
             return {"runState": "idle", "nodes": []}
         if self._loop_alive():
-            return data
+            return self._with_parent_url(data)
         interrupted = False
         for node in data.get("nodes") or []:
             if isinstance(node, dict) and node.get("state") == "running":
@@ -277,6 +287,19 @@ class DevRun:
             except OSError:
                 logger.warning("ai-studio dev-run orphan rewrite failed", exc_info=True)
             self._log("interrupted by gateway restart", "")
+        # 没中断也要带上父单链接：派生字段只在读的时候算，理由见 _with_parent_url。
+        return self._with_parent_url(data)
+
+    def _with_parent_url(self, data: dict[str, Any]) -> dict[str, Any]:
+        """给读出的一份状态补上父单链接（``jiraParentUrl``）。
+
+        派生字段不写盘：链接模板是环境变量 ``AI_STUDIO_JIRA_BROWSE`` 决定的，落进
+        状态文件就等于把一个部署侧的配置焊死在数据里 —— 换了 Jira 地址之后，旧文件
+        里的旧链接会一直指着错的地方。
+        """
+        parent = str(data.get("jiraParent") or self.project.get("jiraParent") or "")
+        if parent:
+            data = {**data, "jiraParent": parent, "jiraParentUrl": jirasync.browse_url(parent)}
         return data
 
     def log_lines(self, lines: int) -> list[str]:
@@ -291,53 +314,184 @@ class DevRun:
 
     # ── 起 ──
 
-    async def start(self, pages: list[str]) -> dict[str, Any]:
-        """起一轮（或从失败处续跑），立即返回 ``{"runId","phase"}``。
+    def _jira_code(self) -> str:
+        """Jira 标签和标题里带的工作区代号（没代号的普通项目退回 id，再退工作区名）。"""
+        return str(self.project.get("code") or self.project.get("id") or self.ws.name)
 
-        循环在后台跑：一页前后端是几十分钟量级，没有任何 HTTP handler 可以等它。
+    async def _jira(self, fn: str, *args: Any) -> Any:
+        """线程池里调 :mod:`jirasync` 的一个函数。
+
+        这一层的每个函数都是子进程（内网 Jira，秒级），在事件循环里直接调就是拿
+        整个网关换一次建单。异常一律吃掉：Jira 是记账，记账坏了不许改开发的结论。
+        """
+        try:
+            return await asyncio.to_thread(getattr(jirasync, fn), *args)
+        except Exception as exc:  # noqa: BLE001: 见上
+            logger.warning("ai-studio jira %s failed: %s", fn, exc)
+            return (None, f"{type(exc).__name__}: {exc}") if fn.endswith("_checked") else None
+
+    async def plan(self, pages: list[str]) -> dict[str, Any]:
+        """先拆任务、后开发（ACP-2085-S6）：生成计划 + 每个任务建一个 Jira 子单。
+
+        和 :meth:`start` 的分工就是这一步的全部意义：拆完的看板是一眼能数清的清单
+        （``runState=planned``，一个节点都没跑）， Jira 里也已经挂上了子单，人能先
+        在 Jira 上改标题、改优先级、删掉不该做的，再回来看板点〔开始开发〕。
+
+        重复拆的规矩（派工单第 2 步）：
+
+        * **页面集合没变**：原样保留已经拆好的那份，一个 Jira 单都不新建 —— 否则点
+          两次〔拆分任务〕就会在项目下长出两套重复子单。
+        * **页面集合变了**：按新页面重新生成，但**同一个任务 id 的号不重建**（老号
+          跟着走），已 ``done`` 的节点连同提交号一起保留（不重跑已经交付的活）；
+          被这次改动挤掉的、又没做完的老单，在 Jira 里评论「计划已重做，此单作废」
+          并置完成 —— 留在待办里是让人去做一件已经不做了的事。
+
+        ``running`` 时 409：正在跑的那一轮的节点就是它的进度，中途换计划会让循环
+        手里的节点从盘上消失。
         """
         current = self.get()
         if current.get("runState") == "running":
             raise DevDagError("already running", "run_active", 409)
 
-        resumed = current.get("runState") == "failed" and bool(current.get("nodes"))
-        if resumed:
-            # 失败续跑：沿用上一轮的节点，done 的原样不动（不重跑已经交付的活），
-            # 其余一律改回 queued —— 包括上一轮正在跑被打断的那个，它的提交可能
-            # 只写了一半，重跑一遍比猜它写到哪强。
-            nodes = [dict(n) for n in current["nodes"] if isinstance(n, dict)]
-            for node in nodes:
-                if node.get("state") != "done":
-                    node.update(
-                        {
-                            "state": "queued",
-                            "slotKey": "",
-                            "startCommit": "",
-                            "endCommit": "",
-                            "message": "",
-                        }
-                    )
-            hashes = (
-                current.get("graphHashes") if isinstance(current.get("graphHashes"), dict) else {}
-            )
-        else:
-            plan = devplan.build_plan(self.ws, pages)
-            nodes = [
+        prior = [n for n in (current.get("nodes") or []) if isinstance(n, dict)]
+        by_key: dict[str, dict[str, Any]] = {str(n.get("jiraKey") or ""): n for n in prior}
+        same_pages = bool(prior) and _pages_of(prior) == set(pages)
+        if same_pages:
+            # 已经拆好的一份计划（含它的 Jira 号）就是答案，重写一遍只会造重复单。
+            data = dict(current)
+            data.setdefault("runState", RUN_PLANNED)
+            return data
+
+        parent, parent_err = await self._jira("ensure_parent_checked", self.project)
+        if parent_err:
+            self._log(f"jira parent failed: {parent_err}", "")
+
+        built = devplan.build_plan(self.ws, pages)
+        nodes: list[dict[str, Any]] = []
+        for task in built["tasks"]:
+            key = str(task["id"])
+            old = by_key.get(key)
+            node: dict[str, Any] = {
+                # ``jiraKey`` 是 07 §三 B1 定死的字段名（看板按它定位节点），里面装
+                # 的是任务 id；真正的 Jira 号在 ``jira``（ACP-2085-S6 才有的那一位）。
+                "jiraKey": key,
+                "title": task["title"],
+                "dependsOn": list(task["dependsOn"]),
+                "state": "queued",
+                "slotKey": "",
+                "startCommit": "",
+                "endCommit": "",
+                "message": "",
+            }
+            if old is not None and old.get("state") == "done":
+                # 交付过的活不重跑也不重开单：状态、提交号、号一起搬过来。
+                node["state"] = "done"
+                node["startCommit"] = str(old.get("startCommit") or "")
+                node["endCommit"] = str(old.get("endCommit") or "")
+                node["slotKey"] = str(old.get("slotKey") or "")
+                node["message"] = str(old.get("message") or "")
+            node["jira"] = str(old.get("jira") or "") if old else ""
+            if not node["jira"] and parent:
+                created, err = await self._jira(
+                    "create_task_checked", str(parent), str(task["title"]), self._jira_code()
+                )
+                node["jira"] = str(created or "")
+                node["jiraError"] = err
+            elif not node["jira"] and parent_err:
+                # 父单没建起来：原因记一条就够，不必每个节点去撞一次命令。
+                node["jiraError"] = parent_err
+            # 三种情况都不记 jiraError：没配 Jira（AI_STUDIO_JIRA_CMD 没设）时
+            # parent 与 parent_err 都空，那不是故障，而是「这个部署不同步 Jira」。
+            # 给每个节点挂一句「没有 Jira 父单」的灰字，等于把一项可选配置报成坏了。
+            node["jiraUrl"] = jirasync.browse_url(node["jira"]) if node["jira"] else ""
+            nodes.append(node)
+
+        # 「done 的节点保留」：连页一起掉的也留着那一行 —— 代码已经提交在工作区里了，
+        # 从看板上消失等于把交付过的事实抹掉，而 Jira 那张单还该是完成态。
+        for key, old in by_key.items():
+            if key not in {str(n["jiraKey"]) for n in nodes} and old.get("state") == "done":
+                nodes.append(dict(old))
+
+        kept = {str(n["jiraKey"]) for n in nodes}
+        for key, old in by_key.items():
+            # 只作废「这次不要了、而且没交付」的老单：留在 Jira 待办里是让人去做一件
+            # 已经不做了的事；交付过的上面已经留下，不作废。
+            if key not in kept:
+                await self._void_old(old)
+
+        data = {
+            "runId": current.get("runId") or f"plan-{int(self._clock())}-{os.getpid()}",
+            "phase": PHASE,
+            "runState": RUN_PLANNED,
+            "startedAt": current.get("startedAt") or _iso(self._clock()),
+            "graphHashes": built["graphHashes"],
+            "nodes": nodes,
+        }
+        if parent:
+            data["jiraParent"] = str(parent)
+        _write(_state_path(self.ws), data)
+        self._log(f"planned nodes={len(nodes)} parent={parent or '-'}", "")
+        # 和 GET dev/dag 同一个形状返回（父单链接是读时派生的），否则刚拆完那一次
+        # 前端拿到的表头没有链接，要等下一次刷新才有。
+        return self._with_parent_url(data)
+
+    async def _void_old(self, node: dict[str, Any]) -> None:
+        """把被新计划挤掉的、没做完的老单作废：评论一句 + 置完成。
+
+        「置完成」而不是「删单」：Jira 里没有删（``jc`` 也没给），而留在待办的是一
+        件没人会做的事。失败不抛，看板上那一行本来就已经不在列表里了。
+        """
+        key = str(node.get("jira") or "")
+        if not key:
+            return
+        err = await self._jira("comment_checked", key, "计划已重做，此单作废")
+        if err:
+            self._log(f"jira void comment failed {key}: {err}", key)
+        err = await self._jira("transition_checked", key, jirasync.done_state())
+        if err:
+            self._log(f"jira void transition failed {key}: {err}", key)
+
+    async def start(self, pages: list[str]) -> dict[str, Any]:
+        """起一轮（或从失败处续跑），立即返回 ``{"runId","phase"}``。
+
+        循环在后台跑：一页前后端是几十分钟量级，没有任何 HTTP handler 可以等它。
+
+        有 ``planned`` 计划就跑那份（**不重新拆**：任务已经建过 Jira 单，重拆等于
+        把人工在 Jira 上改过的东西抹掉）；没有就先自动 ``plan`` 一次，所以老用法
+        「点〔开始开发〕直接跑」的行为一个字没变，只是顺带也拆了单。
+
+        ``done`` 之后再点是**新一轮**：节点全部改回 queued 重跑一遍（和这一单之前
+        的行为一致 —— 交付过了也可以再来一轮），Jira 号沿用不重建：同一个任务第二
+        次做完，是把原来那张单再流转一遍，而不是另开一张。
+        """
+        current = self.get()
+        state_before = str(current.get("runState") or "")
+        if state_before == "running":
+            raise DevDagError("already running", "run_active", 409)
+
+        resume_plan = state_before in (RUN_PLANNED, "failed") and bool(current.get("nodes"))
+        if not resume_plan:
+            # idle（没拆过）或上一轮已经 done：先拆一份（same-pages 时 plan 原样回
+            # 已经拆好的那份，一个 Jira 单都不新建）。
+            current = await self.plan(pages)
+        # 续跑（planned / failed）：done 的节点原样不动，不重跑已经交付的活。
+        # 新一轮（idle，或 done 之后再点一次）：整条清单重新派一遍。
+        keep_done = resume_plan
+
+        nodes = [dict(n) for n in (current.get("nodes") or []) if isinstance(n, dict)]
+        for node in nodes:
+            if node.get("state") == "done" and keep_done:
+                continue
+            node.update(
                 {
-                    # ``jiraKey`` 是 07 §三 B1 定死的字段名（看板按它定位节点），
-                    # 这一版里面装的是任务 id，与 Jira 无关。
-                    "jiraKey": task["id"],
-                    "title": task["title"],
-                    "dependsOn": list(task["dependsOn"]),
                     "state": "queued",
                     "slotKey": "",
                     "startCommit": "",
                     "endCommit": "",
                     "message": "",
                 }
-                for task in plan["tasks"]
-            ]
-            hashes = plan["graphHashes"]
+            )
+        hashes = current.get("graphHashes") if isinstance(current.get("graphHashes"), dict) else {}
 
         run_id = f"dev-{int(self._clock())}-{os.getpid()}"
         data = {
@@ -348,8 +502,11 @@ class DevRun:
             "graphHashes": hashes,
             "nodes": nodes,
         }
+        parent = str(current.get("jiraParent") or self.project.get("jiraParent") or "")
+        if parent:
+            data["jiraParent"] = parent
         _write(_state_path(self.ws), data)
-        self._log(f"start phase={PHASE} resumed={bool(resumed)} nodes={len(nodes)}", "")
+        self._log(f"start phase={PHASE} resumed={resume_plan} nodes={len(nodes)}", "")
         self._loop_task = asyncio.create_task(self._run_safe())
         return {"runId": run_id, "phase": PHASE}
 
@@ -443,12 +600,17 @@ class DevRun:
         node["message"] = ""
         self._save(data)
         self._log("node start", key)
+        # 开工先把 Jira 子单推到「进行中」（名字可覆盖，见 jirasync.doing_state）。
+        # 放在开会话之前：单子没流转到是记账的事，而会话开不开得出来是这条活干不
+        # 干得了的事，两件事不要互相等。
+        await self._jira_transition(node, jirasync.doing_state())
+        self._save(data)
 
         slot_name = f"ai-studio-dev-{project_id}-{index + 1}"
         try:
             slot = open_slot(self.state, slot_name, self.ws, str(node.get("title") or key))
         except Exception as exc:  # noqa: BLE001: 会话开不出来就是这个节点的失败
-            self._set_failed(data, node, f"开会话失败：{type(exc).__name__}: {exc}")
+            await self._set_failed(data, node, f"开会话失败：{type(exc).__name__}: {exc}")
             return
         node["slotKey"] = str(getattr(slot, "key", slot_name) or slot_name)
         self._save(data)
@@ -467,10 +629,10 @@ class DevRun:
         try:
             reply = await self._dispatch(self.state, slot, prompt)
         except _TurnTimeout:
-            self._set_failed(data, node, "超时")
+            await self._set_failed(data, node, "超时")
             return
         except Exception as exc:  # noqa: BLE001: 派发炸了同样是这一节点的失败
-            self._set_failed(data, node, f"派发失败：{type(exc).__name__}: {exc}")
+            await self._set_failed(data, node, f"派发失败：{type(exc).__name__}: {exc}")
             return
 
         # 会话已经写完并提交了，状态文件里这个节点还是 running —— 断在这里就是
@@ -487,6 +649,12 @@ class DevRun:
             node["message"] = ""
             self._save(data)
             self._log(f"done commit={end_commit[:8]}", key)
+            # 单子跟着落：先流转再评论，评论里带提交号 —— 在 Jira 里点开单子就能
+            # 看到这一条是哪一次提交（看板只是它的投影）。两次调用都可能往节点上
+            # 记 jiraError，所以完事再存一次盘。
+            await self._jira_transition(node, jirasync.done_state())
+            await self._jira_comment(node, f"完成，提交 {end_commit[:8]}")
+            self._save(data)
             return
         # 两个条件不一致时，光回显助手那句话会把看板写成「失败 / 完成」——那种
         # 现场恰恰最需要说清是哪一半没成立。
@@ -494,9 +662,11 @@ class DevRun:
             node["message"] = "回复说完成了，但没有新提交"
         else:
             node["message"] = last_line
-        self._set_failed(data, node, None)
+        await self._set_failed(data, node, None)
 
-    def _set_failed(self, data: dict[str, Any], node: dict[str, Any], message: str | None) -> None:
+    async def _set_failed(
+        self, data: dict[str, Any], node: dict[str, Any], message: str | None
+    ) -> None:
         node["state"] = "failed"
         if message is not None:
             node["message"] = message
@@ -505,6 +675,40 @@ class DevRun:
         data["runState"] = "failed"
         self._save(data)
         self._log(f"failed: {node.get('message', '')}", str(node.get("jiraKey") or ""))
+        # 失败的单子**不流转**（派工单第 2 步）：Jira 那边它还在「进行中」，因为这一
+        # 条活确实没干完 —— 只有评论说清为什么。把失败流转成「完成」会让 Jira 的
+        # 看板比这块板更假。
+        await self._jira_comment(node, _failure_comment(node))
+        self._save(data)
+
+    async def _jira_transition(self, node: dict[str, Any], to: str) -> None:
+        """流转这一节点的 Jira 子单，失败把原文记到 ``jiraError``（不抛）。
+
+        没有号就一个子进程都不起（没配 Jira 的部署每轮会白跑十几次 ``jc``）。
+        """
+        key = str(node.get("jira") or "")
+        if not key:
+            return
+        await self._jira_note(node, await self._jira("transition_checked", key, to))
+
+    async def _jira_comment(self, node: dict[str, Any], text: str) -> None:
+        """给这一节点的 Jira 子单追加一条评论，规则同上。"""
+        key = str(node.get("jira") or "")
+        if not key:
+            return
+        await self._jira_note(node, await self._jira("comment_checked", key, text))
+
+    async def _jira_note(self, node: dict[str, Any], err: Any) -> None:
+        """记一条 Jira 失败原文（调用方已经确认这一节点有号）。
+
+        留**第一条**而不是最后一条：一个节点的建单／流转／评论是同一条链路上的三连
+        调用，第一条坏了后面两条必然跟着坏，而看板上那行灰字要的是根因。
+        """
+        if not err:
+            return
+        if not str(node.get("jiraError") or ""):
+            node["jiraError"] = str(err)
+        self._log(f"jira call failed: {err}", str(node.get("jiraKey") or ""))
 
     def _prompt_for(self, node: dict[str, Any]) -> str:
         key = str(node.get("jiraKey") or "")
@@ -526,6 +730,45 @@ class DevRun:
             logger.warning("ai-studio dev-run log write failed", exc_info=True)
 
 
+def _failure_comment(node: dict[str, Any]) -> str:
+    """失败节点发到 Jira 的那句话。
+
+    节点的 ``message`` 有两种来源：助手自己那一行的原文（「失败：单测没过」），或
+    调度器的一句判定（「超时」「回复说完成了，但没有新提交」）。前者已经带了
+    「失败：」，再拼一次就是「失败：失败：单测没过」—— 看板上那行是原文照抄的，
+    Jira 里多出来的一层前缀会让它和看板对不上。
+    """
+    message = str(node.get("message") or "").strip() or "未知原因"
+    return message if message.startswith("失败") else f"失败：{message}"
+
+
 def _last_line(text: str) -> str:
     rows = [r.strip() for r in str(text or "").splitlines() if r.strip()]
     return rows[-1] if rows else ""
+
+
+def node_jira_view(record: dict[str, Any]) -> dict[str, Any]:
+    """一个项目记录对应的 Jira 父单视图 ``{jiraParent, jiraParentUrl}``。
+
+    给路由用：一份 ``planned`` 计划可能还没有父单（没配 Jira、或建失败），这时
+    表头那一行该显示项目记录里已经记着的号 —— ``project.json`` 的 ``jiraParent``
+    是父单的唯一持久出处（``ensure_parent`` 建成就写回那里）。
+    """
+    parent = str(record.get("jiraParent") or "")
+    if not parent:
+        return {}
+    return {"jiraParent": parent, "jiraParentUrl": jirasync.browse_url(parent)}
+
+
+def _pages_of(nodes: list[dict[str, Any]]) -> set[str]:
+    """一份节点列表覆盖的页名集合（任务 id 是 ``<page>:<kind>``）。
+
+    ``plan`` 用它判「页面集合变没变」：没变就别重拆（会造重复 Jira 单），变了才
+    重新生成。用集合而不是顺序：换页的顺序不改任务集合，也不该为此重开一批单。
+    """
+    pages: set[str] = set()
+    for node in nodes:
+        page = str(node.get("jiraKey") or "").partition(":")[0]
+        if page:
+            pages.add(page)
+    return pages
