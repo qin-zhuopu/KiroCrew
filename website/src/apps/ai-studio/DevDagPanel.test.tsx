@@ -437,7 +437,8 @@ describe('DevDagPanel — 先拆任务，Jira 号（ACP-2085-S6）', () => {
     await user.click(screen.getByTestId('ai-studio-dev-confirm-ok'))
     await waitFor(() => expect(api.startDev).toHaveBeenCalledWith('p1'))
     // 拆过了就不再提供「拆分任务」：计划已经在那儿了
-    expect(screen.queryByTestId('ai-studio-dev-plan-btn')).not.toBeInTheDocument()
+    // 实战-4：已拆未开工时允许重新拆分（拆错了要能改），按钮文字变成「重新拆分任务」
+    expect(screen.getByTestId('ai-studio-dev-plan-btn')).toHaveTextContent('Split again')
   })
 
   it('running: no 拆分任务, and the hint names the 3s cadence', async () => {

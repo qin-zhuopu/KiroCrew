@@ -186,7 +186,11 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
   // no plan. Once tasks are listed they ARE the plan (planned, running, or the
   // residue of a round), and offering to rebuild it next to 开始开发 would offer
   // to void Jira issues somebody may already be working on.
-  const splitBtn = runState === 'idle' || nodes.length === 0
+  // 实战-4（2026-10-09）：一份拆错的计划（把模板已做好的页也拆了进来）跑失败后，
+  // 不许重新拆分 = 只能「从失败处继续」把错的计划跑完。失败 / 已拆未开工时也给重新拆分；
+  // 后端只作废没完成的 Jira 子单，做完的保留。跑着的时候不给。
+  const splitBtn = runState === 'idle' || runState === 'failed' || runState === 'planned' || nodes.length === 0
+  const replan = nodes.length > 0
   // key AND url come from the same read: a board whose header names ACP-1 must
   // not link somewhere else. The backend pairs them, and an empty key means
   // there is no parent issue, which renders no row at all.
@@ -295,7 +299,7 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
             className="shrink-0"
           >
             <Scissors size={13} className="lucide-inline" />
-            {i18nT('apps.aiStudio.devDag.plan')}
+            {replan ? i18nT('apps.aiStudio.devDag.replan') : i18nT('apps.aiStudio.devDag.plan')}
           </Btn>
         )}
         <Btn

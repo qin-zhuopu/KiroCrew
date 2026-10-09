@@ -278,6 +278,7 @@
         "confirm_ok": "Start",
         "confirm_cancel": "Cancel",
         "plan": "Split into tasks",
+        "replan": "Split again",
         "run_idle": "Idle",
         "run_planned": "Tasks split",
         "run_running": "Developing",

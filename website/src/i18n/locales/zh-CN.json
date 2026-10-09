@@ -496,6 +496,7 @@
         "confirm_ok": "开始",
         "confirm_cancel": "取消",
         "plan": "拆分任务",
+        "replan": "重新拆分任务",
         "run_idle": "空闲",
         "run_planned": "已拆任务",
         "run_running": "开发中",
