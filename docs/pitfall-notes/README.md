@@ -147,3 +147,15 @@
   `.ai-studio/` 下（本次即模板仓 worktree），不在 `KIROCREW_HOME` 里，全盘 find 才找得到。
   附：需求会话会拒不像需求的改动
   （行为正确）、`每页 20 条` 全文 4 处要按 `- R-15 规则：` 定位、窄视口下三栏布局遮挡点击。
+- [20261009-065213-nonatomic-state-write-flashes-stopped.md](20261009-065213-nonatomic-state-write-flashes-stopped.md) —
+  正式服务器状态文件原地 `write_text` 不是原子的：部署线程一边写、`deploy()` 自己一边读，
+  读到半份 JSON 被容错成 `{}`，于是「部署中」判成「已停止」。三个证据互相矛盾（文件写着
+  deploying、`_busy_gen` 也设上了、返回的却是 stopped），且 **`-n 0` 串行全绿、并发才红**——
+  先找第二个线程，别先怀疑测试隔离。修法：写临时文件 + `os.replace`；注意别复用
+  `merge_json_file`（它自己就把真路径原地写了一遍，rename 等于白做）。
+- [20261009-070012-demo-zero-fetch-breaks-on-a-separate-api-export.md](20261009-070012-demo-zero-fetch-breaks-on-a-separate-api-export.md) —
+  顶栏加 `ProdServerControl` 之后 `demo/states-release.test.tsx` 红 4 条，只报
+  「fetch 被调了 1 次」：该文件把 `studioApi`/`publishApi` 换成替身来证明 demo 零请求，而
+  `prodServerApi` 是同一模块里**另一个 export**，spread 没覆盖到，于是发了真请求。
+  `!demoStates` 挡不住它（那些用例走的就是非 demo 的真壳子）。新加独立 api export 先
+  grep `spyOn(globalThis, 'fetch')` 去登记替身；定位来源直接看 spy 打出的 URL。

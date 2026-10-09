@@ -445,6 +445,23 @@
         "log_loading": "读取日志中…",
         "log_empty": "暂无日志输出"
       },
+      "prodServer": {
+        "stopped": "未部署",
+        "deploying": "部署中…",
+        "running": "正式运行中",
+        "failed": "部署失败",
+        "deploying_step": "部署中：{{step}}",
+        "querying": "查询中…",
+        "deploy": "部署到正式服务器",
+        "redeploy": "重新部署",
+        "stop": "停止正式服务器",
+        "version": "版本 {{version}}",
+        "not_accepted": "先通过验收再部署",
+        "view_log": "查看日志",
+        "hide_log": "收起日志",
+        "log_loading": "读取日志中…",
+        "log_empty": "暂无日志输出"
+      },
       "newWorkspace": {
         "title": "新建工作区",
         "progress_title": "创建工作区",
