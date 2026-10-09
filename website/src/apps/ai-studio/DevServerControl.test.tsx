@@ -127,6 +127,37 @@ describe('DevServerControl', () => {
     await user.click(screen.getByTestId('dev-server-toggle'))
     expect(await screen.findByTestId('dev-server-action-error')).toHaveTextContent('项目未配置代号')
   })
+
+  it('before the first answer: 「Checking…」, a grey dot, no 「Stopped」', async () => {
+    // The bug this pins: the button's label and the status string were both
+    // derived from `view?.state ?? 'stopped'`, so opening the workbench on a
+    // RUNNING project read 已停止 (grey) for one frame and then flipped to
+    // 运行中 (green). Not-yet-known is not the same fact as stopped.
+    let release: ((v: StudioDevServer) => void) | null = null
+    getDevServer.mockReturnValue(new Promise((resolve) => (release = resolve)))
+    mount()
+    expect(await screen.findByTestId('dev-server-dot-unknown')).toBeInTheDocument()
+    expect(screen.getByText('Checking…')).toBeInTheDocument()
+    expect(screen.queryByText('Stopped')).not.toBeInTheDocument()
+    expect(screen.getByTestId('dev-server-toggle')).toBeDisabled()
+
+    // and the truth appears the moment the read answers
+    release?.(view({ state: 'stopped' }))
+    await waitFor(() => expect(screen.getByTestId('dev-server-dot-stopped')).toBeInTheDocument())
+    expect(screen.getByText('Stopped')).toBeInTheDocument()
+    expect(screen.queryByText('Checking…')).not.toBeInTheDocument()
+    expect(screen.getByTestId('dev-server-toggle')).toBeEnabled()
+  })
+
+  it('a first answer of running never flashes 「Stopped」', async () => {
+    let release: ((v: StudioDevServer) => void) | null = null
+    getDevServer.mockReturnValue(new Promise((resolve) => (release = resolve)))
+    mount()
+    await screen.findByTestId('dev-server-dot-unknown')
+    release?.(view({ state: 'running', url: URL, ports: { web: 6801, api: 6802 } }))
+    expect(await screen.findByTestId('dev-server-dot-running')).toBeInTheDocument()
+    expect(screen.queryByText('Stopped')).not.toBeInTheDocument()
+  })
 })
 
 describe('DevServerBadge (project card)', () => {

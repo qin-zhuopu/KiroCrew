@@ -74,6 +74,13 @@ export default function DevServerControl({ projectId }: { projectId: string }) {
   }, [projectId])
 
   const view: StudioDevServer | undefined = statusQuery.data
+  // Before the first answer lands we genuinely do not know, and 「已停止」 is a
+  // claim about the world that the first GET may immediately contradict — so the
+  // open of the workbench visibly read 已停止 → 运行中 (the dot went grey, then
+  // green). Same shape as ProdServerControl: say 「查询中…」 and disable the
+  // button, and let the real state arrive before naming it. The dot testid gains
+  // the `unknown` suffix exactly as the prod one does.
+  const querying = view === undefined
   const state = view?.state ?? 'stopped'
   const running = state === 'running'
   const starting = state === 'starting'
@@ -139,11 +146,14 @@ export default function DevServerControl({ projectId }: { projectId: string }) {
     }
   }
 
-  // Only our own in-flight request disables the button. A `starting` project
-  // MUST stay clickable: an install that hangs is cancelled with 停止, and
-  // devserver.stop() is written to kill a half-launched set (it bumps the
-  // generation the launch thread checks).
-  const busy = pending
+  // Only our own in-flight request disables the button, plus the one moment we
+  // have no answer at all: this button is one direction-per-state, so clicking
+  // while `view` is undefined always means 启动 — including on a project that is
+  // about to be reported as running, where the answer is a 409 dance. A
+  // `starting` project MUST stay clickable: an install that hangs is cancelled
+  // with 停止, and devserver.stop() is written to kill a half-launched set (it
+  // bumps the generation the launch thread checks).
+  const busy = querying || pending
   const failure = state === 'failed' ? view : null
 
   return (
@@ -151,10 +161,14 @@ export default function DevServerControl({ projectId }: { projectId: string }) {
       <div className="flex items-center gap-2">
         <span
           aria-hidden
-          data-testid={`dev-server-dot-${state}`}
-          className={`inline-block w-2 h-2 shrink-0 rounded-full ${DOT_CLASS[state]}`}
+          data-testid={`dev-server-dot-${querying ? 'unknown' : state}`}
+          className={`inline-block w-2 h-2 shrink-0 rounded-full ${
+            querying ? 'bg-muted/50' : DOT_CLASS[state]
+          }`}
         />
-        <span className="text-[11px] text-muted shrink-0">{i18nT(STATE_LABEL[state])}</span>
+        <span className="text-[11px] text-muted shrink-0">
+          {querying ? i18nT('apps.aiStudio.devServer.querying') : i18nT(STATE_LABEL[state])}
+        </span>
         {running && url && (
           <span className="flex items-center gap-1 min-w-0">
             <a

@@ -14,6 +14,7 @@ import asyncio
 import base64
 import json
 import logging
+import threading
 from functools import wraps
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -1070,7 +1071,33 @@ async def _handle_prod_server_log(request: web.Request) -> web.StreamResponse:
     return web.json_response({"lines": tail})
 
 
+def _recover_interrupted_workspaces() -> None:
+    """新网关起来时把上次没跑完的派生判成失败（ACP-2111）。
+
+    线程而不是 ``await``：这是全盘扫项目目录 + 逐个改写，注册路径在事件循环上，
+    一次同步的目录遍历就是卡住整个网关（no-blocking-call-on-event-loop）。daemon
+    线程而不是 app 的 ``on_startup``：``hooks_integration`` 会按磁盘签名重跑钩子，
+    一个 ``routes`` 的改动就能让 ``on_startup`` 再响一次；而这件事本身是幂等的
+    （判完就是 failed，第二遍扫到的是零条），多跑一次不出错。异常只写日志：一个
+    坏记录不许把路由注册带下来 —— 那等于让整条 ai-studio API 因为一次重启的
+    残留而 404。
+    """
+
+    def _run() -> None:
+        try:
+            recovered = workspace.recover_interrupted()
+            if recovered:
+                logger.info("ai-studio recovered %d interrupted workspace(s)", recovered)
+        except Exception:
+            logger.warning("ai-studio workspace recovery failed", exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="ai-studio-workspace-recover").start()
+
+
 def register_routes(app: web.Application) -> None:
+    # 开机先收上次没跑完的派生，再挂路由：早一秒把谎话改过来，新建对话框就早一秒
+    # 从「永远转圈」变成能点重试。放线程里，注册本身不被一次目录遍历拖住。
+    _recover_interrupted_workspaces()
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
     app.router.add_get(f"{_BASE}/projects/{{project_id}}", _require_enabled(_handle_project_get))

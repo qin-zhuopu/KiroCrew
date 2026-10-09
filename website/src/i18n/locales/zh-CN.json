@@ -432,6 +432,7 @@
       "req_session_no_key": "后端没有开成需求会话，请查看网关日志。",
       "req_session_tip": "助手要写需求文件时会请你批准。点一次〔信任会话〕，它就能自己写，不用每次点。",
       "devServer": {
+        "querying": "查询中…",
         "stopped": "已停止",
         "starting": "启动中…",
         "running": "运行中",

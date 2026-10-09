@@ -169,3 +169,10 @@
   `prodServerApi` 是同一模块里**另一个 export**，spread 没覆盖到，于是发了真请求。
   `!demoStates` 挡不住它（那些用例走的就是非 demo 的真壳子）。新加独立 api export 先
   grep `spyOn(globalThis, 'fetch')` 去登记替身；定位来源直接看 spy 打出的 URL。
+- [20261009-225512-boot-side-effect-in-a-shared-register-routes.md](20261009-225512-boot-side-effect-in-a-shared-register-routes.md) —
+  往 `register_routes` 加开机恢复，`test_route_retry` 就从 409 变 202：`register_routes`
+  是 20 个 ai-studio 测试文件共用的壳子，恢复线程和它们抢同一批记录，而那条老测试默认
+  「没人认领的 creating 永远不会被改判」。给测试一个 `_make_app(recover=False)` 的口子，
+  恢复单独验；验「扫过但不碰普通项目」要放一条该改判的记录当栅栏，否则是线程没跑到的假绿。
+  附同一症状的第二个根因：`view?.state ?? 'stopped'` 把「还不知道」写成「已停止」，
+  需要 `querying` 单独一态（测试得让接口挂着不返回才测得到那一帧）。
