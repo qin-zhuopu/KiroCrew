@@ -275,3 +275,20 @@
   限制的「需求快照提交」+ 失败后自己算「未跟踪 ∩ 分支新建」的交集写进 advice。教训：
   **合并失败是一大类，冲突只是其中一种**，别指望 `--diff-filter=U` 非空；顺带一条测试
   纪律 —— autouse 替身会把它自己那条真函数测试吃掉，要真函数得在导入时抓引用
+- [20261010-045321-gates-already-red-on-the-branch.md](20261010-045321-gates-already-red-on-the-branch.md) —
+  收尾跑门禁红两处（`tsc` 2 条 + `[manifest-sync]` 7 条），全在我没碰的文件/命名空间里。
+  归属不靠「看着不像我的」：`git log -L <行>,<行>:<文件>` 指到上游提交；typecheck 造一次
+  干净基线（`worktree add --detach HEAD` + 软链同一个 `node_modules`，跑前 `pwd` 自证）
+  实测回**同样两条**；`manifest-sync` 更省，直接 JSON 探测 HEAD 与工作树的 en.json 里
+  `apps.aiStudio.manifest` **两边都不存在**。教训：**长分支上 typecheck / i18n:check 本来就
+  是红的**，`i18n:check` 的 diff 基线默认 `origin/main` 会把整条分支的账算给你（只看自己
+  用 `I18N_BASE_REF=HEAD`），whole-repo 那几行不受它影响；**加了 `en.json` 键必须马上
+  `npm run i18n:pseudo`**，否则 hard-zero 报的是「keys 不匹配」看不出缺哪步。附带：
+  `pytest -p no:xdist` 因仓的 `addopts` 带 `-n/--dist` 直接退出码 4 一条没跑，报错只说
+  参数不认识
+- [20261010-050253-bash-hook-eats-multiline-command-bodies.md](20261010-050253-bash-hook-eats-multiline-command-bodies.md) —
+  完工评论 `jc jira issue comment … <<EOF` 连拒三次「禁止 head/tail 管道截断」，而命令里
+  根本没有管道。根因：钩子字符级扫**整条命令文本**，正文里那条门禁 JSON 样例的英文
+  「输出 tail」就是命中点——heredoc / 提交信息 / 脚本注释一样在扫。教训：**塞多行正文前先
+  自查这两个英文词**，改成中文（「输出末尾」）；带 `detail`/`snippet` 示例值时最容易中招；
+  被拒先读正文措辞，不要先改命令结构，更不要拆字符绕钩子

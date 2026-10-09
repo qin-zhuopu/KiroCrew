@@ -93,6 +93,17 @@ const RUN_STATE_KEY: Record<StudioDevRunState, string> = {
   failed: 'apps.aiStudio.devDag.run_failed',
 }
 
+/** The quality gates (ACP-2226), keyed by the backend's advisory `id`. Like the
+ * error codes, the id is the contract and the sentence is ours — a new gate on
+ * the backend therefore lands as its raw id on this board, which is legible,
+ * rather than as a wrong translation of something else. */
+const GATE_KEY: Record<string, string> = {
+  'ac-coverage': 'apps.aiStudio.devDag.gate_ac_coverage',
+  'weakened-tests': 'apps.aiStudio.devDag.gate_weakened_tests',
+  lint: 'apps.aiStudio.devDag.gate_lint',
+  'schema-requirements': 'apps.aiStudio.devDag.gate_schema_requirements',
+}
+
 /** The two refresh cadences the ticket names. A running round moves on a file
  * the gateway writes every few seconds; anything else only moves when SOMEONE
  * else moves it — another tab, another agent session, a Jira round-trip — and
@@ -580,6 +591,56 @@ export default function DevDagPanel({ projectId, api = devBoardApi }: {
                       {r.tail}
                     </pre>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+          {latest && (latest.advisory?.length ?? 0) > 0 && (
+            // ACP-2226: the checks that watch but do not (yet) hold the door. The
+            // heading carries the difference, because the only thing a reader can
+            // see is the list — if it looked like the block above it, a red 「AC 没
+            // 有测试引用」 would read as a failed acceptance, and 「跑验收」 would
+            // look like it had stopped working when the same record says 通过.
+            <div className="flex flex-col" data-testid="ai-studio-accept-advisory">
+              <div className="px-0.5 pt-1 text-[11px] text-muted">
+                {i18nT(
+                  latest.strict
+                    ? 'apps.aiStudio.devDag.advisory_title_strict'
+                    : 'apps.aiStudio.devDag.advisory_title',
+                )}
+              </div>
+              {(latest.advisory ?? []).map((row) => (
+                <div
+                  key={row.id}
+                  data-testid={`ai-studio-accept-advisory-${row.id}`}
+                  className="flex items-start gap-2 px-0.5 py-1 text-[11px]"
+                >
+                  <span
+                    className={
+                      row.skipped
+                        ? 'text-muted shrink-0'
+                        : row.ok
+                          ? 'text-ok shrink-0'
+                          : 'text-err shrink-0'
+                    }
+                    aria-hidden
+                  >
+                    {row.skipped ? '·' : row.ok ? '✓' : '✗'}
+                  </span>
+                  <span className="text-text min-w-0 flex-1">
+                    {GATE_KEY[row.id] ? i18nT(GATE_KEY[row.id]) : row.id}
+                    {row.detail ? ` — ${row.detail}` : ''}
+                    {/* The count shows even on an ok row: 库表对照需求 is green BY
+                        DESIGN (ACP-2226 §5 reports, never blocks) and its whole
+                        value is the number a human may choose to look at. */}
+                    {(row.missing?.length ?? 0) > 0 && (
+                      <span className="text-muted">
+                        {` (${i18nT('apps.aiStudio.devDag.advisory_count', {
+                          n: row.missing?.length ?? 0,
+                        })})`}
+                      </span>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>
