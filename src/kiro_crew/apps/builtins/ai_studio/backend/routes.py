@@ -15,7 +15,7 @@ import base64
 import json
 import logging
 import threading
-from functools import wraps
+from functools import partial, wraps
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -146,6 +146,47 @@ async def _handle_workspace_retry(request: web.Request) -> web.StreamResponse:
         return _error("当前不是失败状态", "not_failed", 409)
     workspace.start_job(project_id, retry=True)
     return web.json_response({"project": record}, status=202)
+
+
+def _stop_both_servers(record: dict[str, Any], ws: Path) -> None:
+    """删工作区前先停两套服务器；「没在运行」不是失败，是本来就没活儿。
+
+    ``stop()`` 在真没东西可清时抛 409 not_running（那正是停止按钮的语义），而删除
+    一个从来没起过服务器的工作区是常态 —— 所以这里只吞这一个 code，其余原样上抛，
+    让调用方看见「停了但没停干净」。吞掉全部异常就是拿一个删不掉的工作区换一个不报
+    错的按钮：进程、端口、网关卡到的 conf 会跟着目录一起进回收站（那两个类的 stop
+    判据整段写的就是这种泄漏）。
+    """
+    for factory, error_type in (
+        (devserver.dev_server_for, devserver.DevServerError),
+        (prodserver.prod_server_for, prodserver.ProdServerError),
+    ):
+        try:
+            factory(record, ws).stop()
+        except error_type as exc:
+            if exc.code != "not_running":
+                raise
+
+
+async def _handle_project_delete(request: web.Request) -> web.StreamResponse:
+    # DELETE /projects/{id} (ACP-2206): move the workspace AND the record into
+    # .trash, never rm. Order is the contract: stop the servers first (a live
+    # vite holding a directory we just moved is a leak nothing on screen can
+    # clean), then refuse while a development run is in flight, then move.
+    # The remote personal repo stays (RFC) — the local move is cheap and
+    # reversible, deleting the remote is not, and one button must not do both.
+    project_id = request.match_info["project_id"]
+    # keyword-only on the store side (``now`` and ``stop_servers`` are both test
+    # seams), so the thread gets a partial rather than a positional guess.
+    do_delete = partial(projects.delete_project, project_id, stop_servers=_stop_both_servers)
+    try:
+        result = await asyncio.to_thread(do_delete)
+    except (projects.ProjectError, workspace.WorkspaceError) as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError:
+        logger.exception("ai-studio project delete failed")
+        return _error("could not move the project to the trash", "store_write_failed", 503)
+    return web.json_response(result)
 
 
 async def _handle_workspace_log(request: web.Request) -> web.StreamResponse:
@@ -1101,6 +1142,12 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get(f"{_BASE}/projects", _require_enabled(_handle_projects_list))
     app.router.add_post(f"{_BASE}/projects", _require_enabled(_handle_project_create))
     app.router.add_get(f"{_BASE}/projects/{{project_id}}", _require_enabled(_handle_project_get))
+    # ACP-2206: the one write that removes anything. No path collision — this is
+    # a DELETE on the same literal path as the GET/POST above, and aiohttp keys
+    # its table by (method, path).
+    app.router.add_delete(
+        f"{_BASE}/projects/{{project_id}}", _require_enabled(_handle_project_delete)
+    )
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/retry", _require_enabled(_handle_workspace_retry)
     )

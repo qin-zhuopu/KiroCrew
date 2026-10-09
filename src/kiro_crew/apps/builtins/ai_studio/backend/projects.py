@@ -47,7 +47,7 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 #: Hard caps on caller-supplied text. Not a security boundary (the caller is
 #: an authenticated dashboard session) — they bound the directory scan and
@@ -518,6 +518,126 @@ def _workspace_fields(code: str, template: str | None = None) -> dict[str, Any]:
             for name in workspace.STEPS
         ],
     }
+
+
+#: 回收站目录名。删除是**移动**不是删除，所以一个项目坏不了、也还能找回。
+TRASH_DIR = ".trash"
+
+
+def _trash_name(project_id: str, now: float) -> str:
+    """回收站里的那一个目录名：``<代号>-<时间戳>``。
+
+    时间戳是 UTC 定宽的，所以同一代号删两次落两个目录（第二次不会覆盖第一次，
+    「可找回」才有意义）。项目名是中文的，进目录名会变成八进制乱码，所以用 id
+    —— 工作区的 id 就是代号，本来就是 ASCII。
+    """
+    return f"{project_id}-{_stamp(now)}"
+
+
+def _move_into_trash(src: Path, trash_root: Path, name: str) -> Path:
+    """把 ``src`` 移进 ``trash_root/<name>``，返回落地路径。
+
+    先建回收站目录再 ``rename``：同一文件系统上是原子的（不存在「半个项目」），
+    跨设备会 ``EXDEV`` 报错而不是静默复制一半 —— 那比慢一点严重得多。
+    """
+    trash_root.mkdir(parents=True, exist_ok=True)
+    dest = trash_root / name
+    n = 1
+    while dest.exists():
+        dest = trash_root / f"{name}-{n}"
+        n += 1
+    src.rename(dest)
+    return dest
+
+
+def delete_project(
+    project_id: str,
+    *,
+    now: float | None = None,
+    stop_servers: Callable[[dict[str, Any], Path], None] | None = None,
+) -> dict[str, Any]:
+    """删除一个项目：工作区目录与项目记录目录都**移到回收站**，返回
+    ``{"deleted": True, "trash": <工作区落地路径>}``。
+
+    三步的顺序是契约（派工单 ACP-2206）：先停服务器，再看开发在不在跑，最后才动
+    目录。反过来就是「进程还在写一个已经被移走的目录」，而 vite 的 pid 与网关卡
+    到的域名会跟着目录一起进回收站，外面再也清不掉（``devserver.stop`` 的判据就是
+    为这种泄漏写的）。
+
+    开发在跑（``.ai-studio/dev-run.json`` 的 ``runState == "running"``）时 409：
+    这一条是**读文件的判定**，不是 ``_loop_alive()`` —— 路由层的 ``DevRun`` 缓存在
+    这里用不上，而且网关重启后「文件写着 running」正是孤儿，``DevRun.get`` 会把它
+    判成失败，但删除这条路上没人去读那个看板，所以按文件如实拦下让人先去看一眼。
+
+    远端个人仓**不删**（RFC 定的）：本地目录进回收站是廉价可逆的，删远端是不可逆
+    的，两者不该是同一个按钮。
+
+    ``stop_servers`` 是外部世界的注入点（真版见路由）：单测因此不碰进程、不碰网关。
+    """
+    record = get_project(project_id)
+    if record is None:
+        raise ProjectError("project not found", "project_not_found", 404)
+    project_dir = projects_root() / project_id
+    # 与读侧同一个谓词：``requirements.workspace_dir`` 决定 .ai-studio/ 在哪，删除
+    # 若自己另算一套，「记录目录里有 dev-run.json 而工作区里没有」这种现场就会一边
+    # 判在跑一边判没在跑。
+    from kiro_crew.apps.builtins.ai_studio.backend import requirements
+
+    ws = requirements.workspace_dir(record, project_dir)
+
+    if stop_servers is not None:
+        stop_servers(record, ws)
+
+    if _dev_run_state(ws) == "running":
+        raise ProjectError("开发进行中，先等它结束", "dev_running", 409)
+
+    stamp = time.time() if now is None else now
+    name = _trash_name(project_id, stamp)
+    # 一个普通项目（没 workspaceDir）的 ``ws`` 就是记录目录本身，工作区也可能被记在
+    # 记录目录里面。这两种情况下**只移一次**：移外层时内层跟着走，再移第二次会因为
+    # 源目录已经不在而抛 FileNotFoundError —— 列表页每张卡片都有删除按钮，老项目
+    # 就成了 503。
+    inner = ws == project_dir or project_dir in ws.parents
+    # 先移工作区，后移记录：反过来一旦工作区没移成，项目就从列表里消失了，那份代码
+    # 变成没有记录的孤儿，再点删除只会 404。像现在这样坏，记录还在、看板还在，删除
+    # 可以重来一次（工作区不在了就跳过，把记录移走了结）。
+    result: dict[str, Any] = {"deleted": True}
+    if not inner and ws.is_dir():
+        result["trash"] = str(_move_into_trash(ws, _workspaces_root() / TRASH_DIR, name))
+    record_trash = _move_into_trash(project_dir, projects_root() / TRASH_DIR, name)
+    if "trash" in result:
+        result["recordTrash"] = str(record_trash)
+    else:
+        # 没挪工作区（普通项目）：回收站里就一处，`trash` 报它就是全部答案
+        result["trash"] = str(record_trash)
+    return result
+
+
+def _workspaces_root() -> Path:
+    """工作区的根（环境变量 ``AI_STUDIO_WORKSPACES_ROOT``）。
+
+    懒导入：:mod:`workspace` 顶层 import 本模块（派生要写记录），模块级 import 就是
+    循环 —— 和 :func:`_workspace_fields` 读它是同一个理由。
+    """
+    from kiro_crew.apps.builtins.ai_studio.backend import workspace
+
+    return workspace.workspaces_root()
+
+
+def _dev_run_state(ws: Path) -> str:
+    """工作区 ``.ai-studio/dev-run.json`` 里的 ``runState``，读不到就是空串。
+
+    自己读而不是调 ``devdag.DevRun.get``：后者带孤儿改判逻辑，会把 running 改成
+    failed 落盘 —— 删除一条路径不该顺手改写别人的开发状态。这里只要一个事实。
+    """
+    try:
+        raw = json.loads((ws / ".ai-studio" / "dev-run.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    state = raw.get("runState")
+    return state if isinstance(state, str) else ""
 
 
 def update_project(project_id: str, **fields: Any) -> dict[str, Any]:

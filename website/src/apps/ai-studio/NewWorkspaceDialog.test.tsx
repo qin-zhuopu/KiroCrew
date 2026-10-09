@@ -5,7 +5,7 @@
 // the screen says (English catalog: tests pin en; the step names and failure text
 // are backend data and asserted in Chinese, because verbatim is the contract).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const createProject = vi.hoisted(() => vi.fn())
@@ -13,12 +13,13 @@ const getProject = vi.hoisted(() => vi.fn())
 const listProjects = vi.hoisted(() => vi.fn())
 const retryWorkspace = vi.hoisted(() => vi.fn())
 const getWorkspaceLog = vi.hoisted(() => vi.fn())
+const deleteProject = vi.hoisted(() => vi.fn())
 vi.mock('./studioApi', async () => {
   const actual = await vi.importActual('./studioApi')
   return {
     ...actual,
     studioApi: { createProject, getProject, listProjects },
-    workspaceApi: { retryWorkspace, getWorkspaceLog },
+    workspaceApi: { retryWorkspace, getWorkspaceLog, deleteProject },
   }
 })
 
@@ -26,6 +27,7 @@ import NewWorkspaceDialog from './NewWorkspaceDialog'
 import ProjectsListPage from './ProjectsListPage'
 import type { StudioProject, StudioWorkspaceStep } from './studioApi'
 import { renderStudio } from './testUtils'
+import ZH_CATALOG from '../../i18n/locales/zh-CN.json'
 
 /** The four steps exactly as `workspace.STEPS` writes them — Chinese by contract,
  * which is why the assertions match on them: the dialog shows the backend's
@@ -86,6 +88,11 @@ beforeEach(() => {
   })
   getWorkspaceLog.mockResolvedValue({
     lines: ["Cloning into 'sbgl'…", 'fatal: could not read Remote'],
+  })
+  deleteProject.mockResolvedValue({
+    deleted: true,
+    trash: '/workspaces/.trash/sbgl-20261009-150000',
+    recordTrash: '/crew/crew/apps/ai_studio/projects/.trash/sbgl-20261009-150000',
   })
 })
 
@@ -321,5 +328,55 @@ describe('ProjectsListPage with the workspace dialog', () => {
     const card = await screen.findByTestId('project-card-crm-p261008')
     expect(card).toHaveTextContent('老项目')
     expect(screen.queryByTestId('project-status-crm-p261008')).not.toBeInTheDocument()
+  })
+
+  it('删除 asks first, and only the answer 删除 sends the request', async () => {
+    // ACP-2206. One case holds the whole contract because the two halves are one
+    // decision: the button must NOT be the delete, and the dialog's own button
+    // must be. So the click that should do nothing is asserted before the click
+    // that should, against the same call count — which is exactly the pair a
+    // future "simplify by deleting the confirm" change would break.
+    //
+    // The copy is the RFC's, pinned in Chinese: the dialog's job is to say what
+    // is being lost (the workspace goes to the trash, the remote repo stays),
+    // and a re-worded sentence silently changes what an operator agreed to. The
+    // rendered dialog is English (the suite is pinned to `en`), so the pinned
+    // sentence is asserted where it is authored — the zh-CN catalog — and the
+    // rendered one only that it carries the project's name.
+    expect(ZH_CATALOG.apps.aiStudio.projectDelete.confirm).toBe(
+      '删除后工作区移到回收站，远端仓库保留。确定删除「{{name}}」吗？',
+    )
+    listProjects.mockResolvedValue({
+      projects: [wsProject({ status: 'ready', steps: steps(['done', 'done', 'done', 'done']) })],
+      staffId: '14409',
+    })
+    // the fake store drops the project when the delete lands, so the refetch the
+    // invalidation triggers afterwards reads an empty list — the card vanishing
+    // is then the backend's answer, not a second mock the test flipped by hand
+    deleteProject.mockImplementation(async () => {
+      listProjects.mockResolvedValue({ projects: [], staffId: '14409' })
+      return { deleted: true, trash: '/workspaces/.trash/sbgl-20261009-150000' }
+    })
+    const user = userEvent.setup()
+    renderStudio(<ProjectsListPage />, '/workspaces')
+    await user.click(await screen.findByTestId('project-delete-sbgl'))
+
+    const dialog = await screen.findByRole('dialog')
+    // the name is interpolated INTO the sentence (rendered in the suite's
+    // language), so it is matched as part of the line rather than as a line
+    expect(within(dialog).getByText(/设备管理/)).toBeInTheDocument()
+    // the card's own 删除 is a button INSIDE the clickable card: without the
+    // propagation guard this same click would also have opened the workbench
+    expect(screen.queryByTestId('new-ws-dialog')).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(deleteProject).not.toHaveBeenCalled()
+    expect(screen.getByTestId('project-card-sbgl')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('project-delete-sbgl'))
+    const again = await screen.findByRole('dialog')
+    await user.click(within(again).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledWith('sbgl'))
+    await waitFor(() => expect(screen.queryByTestId('project-card-sbgl')).not.toBeInTheDocument())
   })
 })

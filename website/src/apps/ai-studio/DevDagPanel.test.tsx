@@ -159,6 +159,45 @@ describe('DevDagPanel — the four node states', () => {
       apiOver({ getDevDag: vi.fn(async () => dag({ runState: 'done', nodes: [node('a:api', 'done')] })) }),
     )
   })
+
+  it('ACP-2207: an in-flight row names its own worktree, no other row does', async () => {
+    // 并行开发时看板上两行「进行中」长得一模一样，隔离有没有发生就看不出来 ——
+    // 这一格路径就是「它俩真的在两个目录里写」的唯一凭据（07 §四-1 的实测口径）。
+    // 只在 in progress 时渲染：合完并后端就把这一格清空了，已完成还挂着一个已经
+    // 删掉的目录等于撒谎；排队的行更没有目录。
+    const api = apiOver({
+      getDevDag: vi.fn(async () =>
+        dag({
+          runState: 'running',
+          nodes: [
+            node('设备点检记录:api', 'running', {
+              worktree: '/ws/.ai-studio/wt/1',
+              branch: 'dev/设备点检记录-api',
+            }),
+            node('备件台账:api', 'running', {
+              worktree: '/ws/.ai-studio/wt/3',
+              branch: 'dev/备件台账-api',
+            }),
+            // 串行轮次（并行度 1）根本没有 worktree 这一说，后端不回这一格
+            node('备件台账:web', 'running'),
+            node('报废申请:api', 'queued', { worktree: '/ws/.ai-studio/wt/4' }),
+            node('报废申请:web', 'done', { worktree: '/ws/.ai-studio/wt/5' }),
+          ],
+        }),
+      ),
+    })
+    await mountShowing('running', api)
+    const dagBox = screen.getByTestId('ai-studio-dev-dag')
+
+    const tree = (key: string) => within(dagBox).queryByTestId(`ai-studio-dev-dag-node-worktree-${key}`)
+    expect(tree('设备点检记录:api')).toHaveTextContent('/ws/.ai-studio/wt/1')
+    expect(tree('备件台账:api')).toHaveTextContent('/ws/.ai-studio/wt/3')
+    // 两条路径不同这件事，是这一格存在的全部理由
+    expect(tree('设备点检记录:api')!.textContent).not.toBe(tree('备件台账:api')!.textContent)
+    expect(tree('备件台账:web')).not.toBeInTheDocument()
+    expect(tree('报废申请:api')).not.toBeInTheDocument()
+    expect(tree('报废申请:web')).not.toBeInTheDocument()
+  })
 })
 
 describe('DevDagPanel — starting a round', () => {

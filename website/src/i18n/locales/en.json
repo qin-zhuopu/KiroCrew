@@ -245,6 +245,12 @@
         "log_loading": "Reading the log…",
         "log_empty": "No log output yet"
       },
+      "projectDelete": {
+        "label": "Delete",
+        "title": "Delete workspace",
+        "confirm": "Deleting moves the workspace to the trash and keeps the remote repo. Delete “{{name}}”?",
+        "confirm_label": "Delete"
+      },
       "newWorkspace": {
         "title": "New workspace",
         "progress_title": "Creating workspace",

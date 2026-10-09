@@ -176,3 +176,18 @@
   恢复单独验；验「扫过但不碰普通项目」要放一条该改判的记录当栅栏，否则是线程没跑到的假绿。
   附同一症状的第二个根因：`view?.state ?? 'stopped'` 把「还不知道」写成「已停止」，
   需要 `querying` 单独一态（测试得让接口挂着不返回才测得到那一帧）。
+- [20261009-234224-parallel-worktrees-four-silent-nos.md](20261009-234224-parallel-worktrees-four-silent-nos.md) —
+  并行 worktree 四个「什么都不报」的坑：① **拿 git 的英文原文当判据**（本机
+  `LANG=zh_CN.utf8`，`fatal: 一个名为 'dev/x' 的分支已经存在` 让 `if "already exists" in out`
+  永不成立，续跑在中文部署机 100% 失败而英文 CI 全绿）→ 只认退出码和 `--porcelain`/
+  `--diff-filter=U`；② `status --porcelain` 默认折叠目录 + 转义非 ASCII，两个参数都得加；
+  ③ 新增同方向接缝时默认值悄悄回落真实现（注入假 HEAD 的测试去跑了真 git）；④ 并行派发
+  要三趟线程池往返，`asyncio.sleep(0)` 不推进时钟所以等不出来 → 有界真实时间轮询。
+  附一条反面：我先给①编了个「忙等饿死 selector」的根因，探针实测把它否了 —— 根因没做
+  最小复现就别写进笔记。
+- [20261009-235859-dead-proxy-tunnel-still-listens-push-hangs.md](20261009-235859-dead-proxy-tunnel-still-listens-push-hangs.md) —
+  `git push` 推 fork 静默挂死几分钟：`ss` 显示 7777 在听、DNS 能解析、隧道主机 ping 得通，
+  但那条 `ssh -D` 的**上游已经断了** —— 本地监听端口与上游健康是两件事，客户端连上后等一个
+  永远建不起来的远端拨号，于是「连上了但一个字都不回」（`curl --max-time 8` 也会挂过 8 秒，
+  因为 TCP 已连上）。判代理只认一条硬指标：拿它打真请求看状态码。修法是另开一条一次性隧道
+  + `git -c http.proxy=`，不动用户那条；`-D` 转发不是立刻可用，要轮询端口。

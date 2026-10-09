@@ -529,6 +529,17 @@ export interface StudioDevNode {
   endCommit: string
   /** the failure's own line, verbatim from the assistant or the scheduler */
   message: string
+  // ACP-2207: a parallel node writes its code in its own git worktree, so the
+  // board has to say WHICH directory a running row is working in — otherwise
+  // two rows both saying 「in progress」 are indistinguishable, and the operator
+  // cannot tell whether the isolation happened at all. Optional because a serial
+  // round (AI_STUDIO_DEV_PARALLEL=1) builds none, and the backend clears it once
+  // a node's branch has been merged: a done row with a path would point at a
+  // directory that no longer exists.
+  /** the worktree this running node is writing in, '' when it has none */
+  worktree?: string
+  /** its branch, merged into the workspace in the main directory */
+  branch?: string
   // ACP-2085-S6: this task's Jira sub-issue. All three are optional because a
   // deployment with no `AI_STUDIO_JIRA_CMD` configured has none of them, and a
   // board must be able to tell 「Jira is not configured」 (no fields) apart from
@@ -787,6 +798,12 @@ export type StudioWorkspaceApi = {
    * `not_failed` when the job is not failed, which the dialog shows rather than
    * swallows (it means someone else already retried, or the job moved on). */
   retryWorkspace: (id: string) => Promise<{ project: StudioProject }>
+  /** 删除工作区 (ACP-2206): the backend MOVES the workspace and the record into
+   * `.trash` and keeps the remote repo, so the caller's confirm copy says so
+   * rather than implying destruction. `trash` is where it landed — the only
+   * recovery information there is, which is why the response carries it. A 409
+   * `dev_running` means the development board is mid-run and nothing moved. */
+  deleteProject: (id: string) => Promise<{ deleted: boolean; trash: string; recordTrash?: string }>
   /** Tail the derive command's merged output. The backend keeps the file next to
    * `project.json`, not in the workspace, so this answers after a failed clone —
    * which is exactly when it is the only evidence left. */
@@ -1003,6 +1020,14 @@ export const workspaceApi: StudioWorkspaceApi = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+  // No body: the verb and the id are the whole request. The delete is the one
+  // call on this object that can be refused for a reason the operator can act
+  // on (「开发进行中，先等它结束」), so the caller keeps the error's own text.
+  deleteProject: (id: string) =>
+    request<{ deleted: boolean; trash: string; recordTrash?: string }>(
+      `/projects/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
   // 80 lines matches the backend's own default: the file is a command's merged
   // output, and the interesting part is the end of it.
   getWorkspaceLog: (id: string, lines = 80) =>

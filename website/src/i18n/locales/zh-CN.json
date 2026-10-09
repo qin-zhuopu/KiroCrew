@@ -463,6 +463,12 @@
         "log_loading": "读取日志中…",
         "log_empty": "暂无日志输出"
       },
+      "projectDelete": {
+        "label": "删除",
+        "title": "删除工作区",
+        "confirm": "删除后工作区移到回收站，远端仓库保留。确定删除「{{name}}」吗？",
+        "confirm_label": "删除"
+      },
       "newWorkspace": {
         "title": "新建工作区",
         "progress_title": "创建工作区",
