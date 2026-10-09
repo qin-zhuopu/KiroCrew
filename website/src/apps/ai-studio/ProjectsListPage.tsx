@@ -13,13 +13,14 @@ import { AnimatePresence } from 'framer-motion'
 import { Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import Clickable from '../../components/Clickable'
+import { useConfirm } from '../../components/ConfirmDialog'
 import ErrorNotice from '../../components/ErrorNotice'
 import { Btn, ContentSkeleton, EmptyState, PageHeader } from '../../components/ui'
 import { fmtRelative } from '../../i18n/format'
 import { i18nT } from '../../i18n/t'
 import { DevServerBadge } from './DevServerControl'
 import NewWorkspaceDialog from './NewWorkspaceDialog'
-import { studioApi, type StudioProject } from './studioApi'
+import { studioApi, workspaceApi, type StudioProject } from './studioApi'
 
 export default function ProjectsListPage() {
   const navigate = useNavigate()
@@ -29,6 +30,13 @@ export default function ProjectsListPage() {
   // 「点卡片可重新打开进度」 — a card whose job is creating/failed opens the same
   // component seeded with its record, which is why one piece of state covers both.
   const [openFor, setOpenFor] = useState<string | null>(null)
+  // The delete's own refusal (ACP-2206), shown at the top of the list rather
+  // than inside a card: a card is a `Clickable`, so an error box inside one
+  // would be a control that also opens the workbench. Verbatim backend text —
+  // 「开发进行中，先等它结束」 names what to wait for, and paraphrasing it would
+  // lose that.
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const { confirm, confirmDialog } = useConfirm()
 
   // The unwrapped array is this key's shape on purpose: `ProjectsList` in
   // AiStudioPage.tsx observes the SAME key and reads `data[0]` off it for the
@@ -51,6 +59,32 @@ export default function ProjectsListPage() {
 
   const onCreated = () => queryClient.invalidateQueries({ queryKey: ['ai-studio', 'projects'] })
 
+  // 删除工作区 (ACP-2206). The dialog is the whole safety story: the backend
+  // MOVES the workspace and its record into `.trash` and leaves the remote repo
+  // alone, and the copy says exactly that — an operator deciding with this
+  // sentence in front of them does not need to know the ticket to know what
+  // they are losing. The refusal is shown, never swallowed: 409 `dev_running`
+  // means a development run is mid-flight, which is a fact about their board.
+  const onDelete = async (project: StudioProject) => {
+    const confirmed = await confirm({
+      title: i18nT('apps.aiStudio.projectDelete.title'),
+      body: i18nT('apps.aiStudio.projectDelete.confirm', { name: project.name }),
+      confirmLabel: i18nT('apps.aiStudio.projectDelete.confirm_label'),
+    })
+    if (!confirmed) return
+    setDeleteError(null)
+    try {
+      await workspaceApi.deleteProject(project.id)
+      // the list is the whole success state: the card is gone and nothing else
+      // on this screen changes. The response's `trash` path has no screen of
+      // its own yet (this iteration ships no 回收站 view), so it stays in the
+      // response rather than becoming an invented toast.
+      onCreated()
+    } catch (e) {
+      setDeleteError(String((e as Error)?.message ?? e))
+    }
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="ai-studio-projects">
       <PageHeader
@@ -62,6 +96,7 @@ export default function ProjectsListPage() {
         }
       />
       <div className="flex-1 min-h-0 overflow-auto p-4">
+        <ErrorNotice message={deleteError} onDismiss={() => setDeleteError(null)} testId="project-delete-error" />
         {projectsQuery.isLoading ? (
           <ContentSkeleton rows={3} />
         ) : projectsQuery.isError ? (
@@ -91,11 +126,13 @@ export default function ProjectsListPage() {
                     ? setOpenFor(p.id)
                     : navigate(`/workspaces/${encodeURIComponent(p.id)}/ai-studio`)
                 }
+                onDelete={() => onDelete(p)}
               />
             ))}
           </div>
         )}
       </div>
+      {confirmDialog}
 
       <AnimatePresence>
         {openFor !== null && (
@@ -111,7 +148,15 @@ export default function ProjectsListPage() {
   )
 }
 
-function ProjectCard({ project, onOpen }: { project: StudioProject; onOpen: () => void }) {
+function ProjectCard({
+  project,
+  onOpen,
+  onDelete,
+}: {
+  project: StudioProject
+  onOpen: () => void
+  onDelete: () => void
+}) {
   return (
     <Clickable
       onClick={onOpen}
@@ -141,7 +186,28 @@ function ProjectCard({ project, onOpen }: { project: StudioProject; onOpen: () =
             </span>
           )}
         </span>
-        <DevServerBadge projectId={project.id} />
+        {/* `shrink-0` on the pair, not the row: the badge truncates by design and
+            a delete label must never be the thing that gets squeezed away. */}
+        <span className="flex items-center gap-1 shrink-0">
+          <DevServerBadge projectId={project.id} />
+          {/* 删除 (ACP-2206). Every card carries it, including a failed or
+              half-derived one — a botched derive is precisely the project an
+              operator wants gone, and the backend's delete tolerates a
+              workspace directory that was never created. `stopPropagation`
+              because the card itself is the click target: without it the
+              button would open the workbench on the way to the dialog. */}
+          <Btn
+            danger
+            data-testid={`project-delete-${project.id}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete()
+            }}
+            className="px-1.5 py-0.5 text-[11px]"
+          >
+            {i18nT('apps.aiStudio.projectDelete.label')}
+          </Btn>
+        </span>
       </div>
     </Clickable>
   )
