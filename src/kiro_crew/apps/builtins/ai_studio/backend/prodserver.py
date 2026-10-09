@@ -212,7 +212,7 @@ def launch_plan(ws: Path, web_port: int, api_port: int, domains: tuple[str, str]
                     "--filter",
                     "@webapp-template/web",
                     "preview",
-                    "--",
+                    # 不要 `--`：pnpm 会把它原样交给 vite，vite 就不认后面的 --port（落到 4173）
                     "--port",
                     str(web_port),
                     "--strictPort",

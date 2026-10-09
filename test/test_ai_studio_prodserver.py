@@ -922,6 +922,10 @@ def test_launch_plan_ports_are_the_web_preview_port(ws, monkeypatch):
     assert web_entry["env"]["PORT"] == "7001"
     assert STABLE in web_entry["env"]["__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"]
     assert "--strictPort" in web_entry["cmd"]
+    # 实战（2026-10-10）：`pnpm --filter X preview -- --port N` 里的 `--` 会被原样传给 vite，
+    # vite 当成「参数到此为止」，于是 --port 被忽略、落到默认 4173，正式网址永远不通。
+    assert "--" not in web_entry["cmd"]
+    assert web_entry["cmd"][web_entry["cmd"].index("--port") + 1] == "7001"
 
 
 # ---------------------------------------------------------------------------
