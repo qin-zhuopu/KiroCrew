@@ -597,8 +597,13 @@ def test_workspace_log_tail(home):
 # ---------------------------------------------------------------------------
 
 
-def _make_app(monkeypatch, enabled=True):
+def _make_app(monkeypatch, enabled=True, recover=False):
+    """挂路由。默认把开机恢复掐掉：HTTP 测试要控制记录，而那个线程会改同一批记录
+    （它跑多快由调度器定，不由测试定 —— 那就是一场挂钟赛跑）。恢复本身由
+    ``test_register_routes_recovers_on_boot`` 用 ``recover=True`` 单独验。"""
     monkeypatch.setattr(routes, "is_app_enabled", lambda _name: enabled)
+    if not recover:
+        monkeypatch.setattr(routes, "_recover_interrupted_workspaces", lambda: None)
     app = web.Application()
     routes.register_routes(app)
     return app
@@ -789,7 +794,6 @@ def test_start_job_releases_the_id(home):
     assert not workspace.job_running("sbgl")
 
 
-
 # ---- 实战-1 卡点（2026-10-09）：浅克隆推不到新建的空仓库 --------------------------
 
 
@@ -826,18 +830,30 @@ def test_retry_push_unshallows_from_template_before_push(tmp_path):
 
     fixed = subprocess.run(workspace.push_cmd(ws, f"file://{tpl}"), capture_output=True, text=True)
     assert fixed.returncode == 0, fixed.stderr
-    log = subprocess.run(["git", "--git-dir", str(personal), "log", "--oneline", "develop"], capture_output=True, text=True)
+    log = subprocess.run(
+        ["git", "--git-dir", str(personal), "log", "--oneline", "develop"],
+        capture_output=True,
+        text=True,
+    )
     assert len(log.stdout.strip().splitlines()) == 2
-
 
 
 def test_repo_url_read_from_real_jc_envelope_shape(home):
     # 真 jc webapp init 的 personalRepo 是对象，不是字符串（实战实测，之前 repoUrl 一直是空）
-    data = {"target": "/x/sbgl", "personalRepo": {"project": "~14409", "name": "sbgl", "url": "https://h/scm/~14409/sbgl.git", "status": "created"}}
+    data = {
+        "target": "/x/sbgl",
+        "personalRepo": {
+            "project": "~14409",
+            "name": "sbgl",
+            "url": "https://h/scm/~14409/sbgl.git",
+            "status": "created",
+        },
+    }
     _create()
-    workspace.WorkspaceJob("sbgl", runner=FakeDerive(data=data), pusher=FakePush(), devserver_factory=FakeDevServers()).run()
+    workspace.WorkspaceJob(
+        "sbgl", runner=FakeDerive(data=data), pusher=FakePush(), devserver_factory=FakeDevServers()
+    ).run()
     assert _record("sbgl")["repoUrl"] == "https://h/scm/~14409/sbgl.git"
-
 
 
 def test_template_pages_are_baseline_and_skipped_when_dev_names_no_pages(tmp_path, monkeypatch):
@@ -852,7 +868,166 @@ def test_template_pages_are_baseline_and_skipped_when_dev_names_no_pages(tmp_pat
     workspace.write_baseline_pages(tmp_path)  # 已有记录不覆盖
     assert routes.baseline_pages(tmp_path) == {"报价单"}
 
-    monkeypatch.setattr(requirements, "list_pages", lambda ws: [
-        {"page": "报价单", "verdict": "全齐"}, {"page": "设备清单", "verdict": "全齐"}])
+    monkeypatch.setattr(
+        requirements,
+        "list_pages",
+        lambda ws: [{"page": "报价单", "verdict": "全齐"}, {"page": "设备清单", "verdict": "全齐"}],
+    )
     assert routes._resolve_dev_pages(tmp_path, None) == ["设备清单"]
     assert routes._resolve_dev_pages(tmp_path, ["报价单"]) == ["报价单"]  # 点名照做
+
+
+# ---------------------------------------------------------------------------
+# 10. ACP-2111: 网关重启把派生线程带走之后，creating 是句谎话
+# ---------------------------------------------------------------------------
+
+
+def _interrupted(code: str, *, step: int = 1, states: list[str] | None = None) -> dict:
+    """一条「上次网关跑到一半」的记录：creating，某一步停着 running。"""
+    record = projects.create_project("设备管理", "设备点检", code)
+    rows = [dict(s) for s in record["steps"]]
+    if states is None:
+        states = ["done"] * step + ["running"] + ["pending"] * (len(rows) - step - 1)
+    for row, state in zip(rows, states):
+        row["state"] = state
+    return projects.update_project(code, steps=rows)
+
+
+def test_recover_interrupted_fails_the_running_step(home):
+    _interrupted("sbgl")
+    assert workspace.recover_interrupted() == 1
+    got = _record("sbgl")
+    assert (got["status"], got["failedStep"]) == ("failed", "建个人仓")
+    assert got["message"] == "网关重启，中断"
+    assert _states(got) == [
+        ("克隆模板", "done"),
+        ("建个人仓", "failed"),
+        ("推送", "pending"),
+        ("启动开发服务器", "pending"),
+    ]
+    # 幂等：第二遍扫到的是零条，不是一遍遍改同一份记录
+    assert workspace.recover_interrupted() == 0
+
+
+def test_recover_interrupted_freed_retry(home):
+    """改判的全部意义：retry 那条路本来被 409 堵死。"""
+    _interrupted("sbgl")
+    with pytest.raises(workspace.WorkspaceError) as before:
+        workspace.WorkspaceJob("sbgl", runner=FakeDerive()).retry()
+    assert (before.value.code, before.value.status) == ("not_failed", 409)
+
+    workspace.recover_interrupted()
+    derive, dev = FakeDerive(), FakeDevServers()
+    workspace.WorkspaceJob("sbgl", runner=derive, devserver_factory=dev).retry()
+    assert _record("sbgl")["status"] == "ready"
+
+
+def test_recover_interrupted_leaves_a_live_job_alone(home):
+    """新网关自己在跑的那个不许被改 —— 它正在写同一份记录。"""
+    _interrupted("sbgl")
+    with workspace._JOBS_LOCK:
+        workspace._JOBS.add("sbgl")
+    try:
+        assert workspace.recover_interrupted() == 0
+    finally:
+        with workspace._JOBS_LOCK:
+            workspace._JOBS.discard("sbgl")
+    got = _record("sbgl")
+    assert (got["status"], got["failedStep"]) == ("creating", None)
+
+
+def test_recover_interrupted_only_touches_creating(home):
+    """ready、failed、和无代号的普通项目都不在改判之列。"""
+    _create(code="ready1")
+    _job("ready1").run()
+    plain = projects.create_project("无代号", "没有 code")
+    _interrupted("sbgl")
+    _interrupted("other", step=3)
+    assert workspace.recover_interrupted() == 2
+    assert _record("ready1")["status"] == "ready"
+    assert "status" not in _record(plain["id"])
+    assert _record("sbgl")["failedStep"] == "建个人仓"
+    assert _record("other")["failedStep"] == "启动开发服务器"
+
+
+def test_recover_interrupted_names_a_step_when_none_runs(home):
+    """一个 running 都没有（记录被手改过）也要点名，retry 才有 failedStep 可续。"""
+    _interrupted("mid", states=["done", "done", "pending", "pending"])
+    assert workspace.recover_interrupted() == 1
+    got = _record("mid")
+    assert (got["status"], got["failedStep"]) == ("failed", "推送")
+    assert [s["state"] for s in got["steps"]] == ["done", "done", "failed", "pending"]
+
+
+def test_recover_interrupted_says_ready_when_nothing_is_left(home):
+    """四步全 done 而 status 卡在 creating：事已经做成了，判 ready 才是实话。"""
+    _interrupted("sbgl", states=["done", "done", "done", "done"])
+    assert workspace.recover_interrupted() == 1
+    got = _record("sbgl")
+    assert (got["status"], got["failedStep"], got["message"]) == ("ready", None, None)
+
+
+def test_recover_interrupted_survives_a_bad_record(home, monkeypatch):
+    """一条记录写不进去，不许连累其余的 —— 下一个项目还在等。"""
+    _interrupted("bad1")
+    _interrupted("good1")
+    real = projects.update_project
+
+    def boom(project_id: str, **fields: Any) -> dict:
+        if project_id == "bad1":
+            raise OSError("disk gone")
+        return real(project_id, **fields)
+
+    monkeypatch.setattr(projects, "update_project", boom)
+    assert workspace.recover_interrupted() == 1
+    assert _record("bad1")["status"] == "creating"
+    assert _record("good1")["status"] == "failed"
+
+
+def test_recover_interrupted_empty_store_is_zero(home):
+    assert workspace.recover_interrupted() == 0
+
+
+@pytest.mark.asyncio
+async def test_register_routes_recovers_on_boot(home, monkeypatch):
+    """路由注册时调一次：新建的网关不必等谁去点一下才把谎话改过来。
+
+    恢复跑在注册线程里（注册在事件循环上，全盘扫目录不许同步跑），所以这里等它有
+    限次地轮询 —— 没有超时断言的线程测试是一个会挂住的测试（testing-conventions 6）。
+    """
+    _interrupted("sbgl")
+    started = _stub_jobs(monkeypatch)  # retry 不许起真派生线程
+    _make_app(monkeypatch, recover=True)
+    deadline = time.monotonic() + 5
+    while _record("sbgl")["status"] != "failed" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    got = _record("sbgl")
+    assert (got["status"], got["failedStep"], got["message"]) == (
+        "failed",
+        "建个人仓",
+        "网关重启，中断",
+    )
+
+    async with TestClient(TestServer(_make_app(monkeypatch))) as client:
+        resp = await client.post("/api/apps/ai-studio/projects/sbgl/retry")
+        assert resp.status == 202
+    assert started == [("sbgl", True)]
+
+
+@pytest.mark.asyncio
+async def test_register_routes_recovery_leaves_a_plain_project_alone(home, monkeypatch):
+    """开机那一扫（真的开着的）不许碰无代号的普通项目：它没有派生任务可失。
+
+    一条该被改判的记录当栅栏：它翻成 failed 就说明那一趟确实扫完了，这时再断言
+    普通项目一个字段没动，才不是「线程还没跑到所以没改」的假绿。
+    """
+    plain = projects.create_project("CRM", "无代号")
+    before = _record(plain["id"])
+    _interrupted("sbgl")
+    _make_app(monkeypatch, recover=True)
+    _stub_jobs(monkeypatch)
+    deadline = time.monotonic() + 5
+    while _record("sbgl")["status"] != "failed" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert _record("sbgl")["status"] == "failed"
+    assert _record(plain["id"]) == before

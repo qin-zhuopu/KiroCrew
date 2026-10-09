@@ -66,12 +66,10 @@ _STEP_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 #: 项目状态。creating 是建完记录到后台跑完之间的唯一状态，界面据此显示「创建中」。
-#: 已知残留，和 devserver 那句「状态文件孤零零写着 starting 是上次启动跟着网关一起没
-#: 了」是同一种谎：网关在派生跑到一半时重启，这条记录就永远停在 creating —— 界面一直
-#: 转圈，retry 回 409（不是 failed），重新建又回 409（代号已被占用），今天只能手工去
-#: 数据目录里改。修法已经备好：:func:`job_running` 就是 devserver ``_launching`` 的
-#: 对应物，按它把 creating 重算即可；本期没做，是因为改判据要同时改 retry 的 409 语义
-#: （本单第 3 步把「非 failed 一律 409」定死为对外契约），不该由实现顺手放宽。
+#: 它曾经是个谎：派生任务跑在本进程里，网关重启就没了，记录留在 creating —— 界面一直
+#: 转圈，retry 回 409（不是 failed），重新建又回 409（代号已被占用），只能手工去数据
+#: 目录里改。:func:`recover_interrupted` 补的就是这一手（ACP-2111）：creating 加上
+#: 「本进程没有任务在跑」是充分判据，判 failed 正是 retry 那条路的入口。
 STATUS_CREATING = "creating"
 STATUS_READY = "ready"
 STATUS_FAILED = "failed"
@@ -665,3 +663,98 @@ def start_job(project_id: str, *, job: WorkspaceJob | None = None, retry: bool =
 def job_running(project_id: str) -> bool:
     with _JOBS_LOCK:
         return project_id in _JOBS
+
+
+#: 中断判据写进 message 的原文，和 devdag 看板那句一模一样（test_ai_studio_devdag
+#: 断的是同一串）。不套 :func:`_fail_message` 的「<步骤名>失败：」前缀：步骤名已经在
+#: ``failedStep`` 和那一步的行上写着了，用户要的也不是「谁杀的进程」，而是「这一步没
+#: 做完，可以再点一次重试」。
+_INTERRUPTED_MESSAGE = "网关重启，中断"
+
+
+def recover_interrupted() -> int:
+    """把「creating 但本进程没在跑」的工作区判成 failed，返回改了几个。
+
+    派生任务跑在本进程的线程里：网关重启把它带走，记录留在 ``creating``，而它不会
+    自己结束 —— 界面上是一个永远转圈的新建，retry 回 409（判据是 failed），重新建同
+    一个代号也回 409（:data:`STATUS_CREATING` 占着代号）。和 devdag 的
+    ``DevRun.get`` 收孤儿是同一件事，判据也一样：**creating + 本进程无任务**。
+
+    「那一步正在跑」是唯一能改的判据，所以改的是它：前三步在跑之前就被一起置成
+    running（见 :meth:`WorkspaceJob._derive`），第四步在起服务前置 running，任何
+    一刻都恰好有一步是 running。一个 running 都没有（记录被手改过、或创建后线程
+    还没跑到那儿）就退回第一个没做完的步 —— 判 failed 需要一个能点名给用户的
+    ``failedStep``，不许留空。
+
+    幂等，所以被调几次都不出错（钩子按磁盘签名重跑，注册不止一次），但**在跑的那
+    几个绝对不动**：新网关起来时 ``_JOBS`` 是空的，于是它天然只判旧的；而在运行期
+    被调时，正在派生的项目正在写同一份记录，去改它就是让两个写者抢同一个文件。
+    """
+    changed = 0
+    for record in projects.list_projects():
+        if record.get("status") != STATUS_CREATING:
+            continue
+        project_id = record.get("id")
+        if not isinstance(project_id, str) or not project_id:
+            continue
+        if job_running(project_id):
+            continue
+        steps = _read_steps(record)
+        index = _first_running(steps)
+        if index is None:
+            index = _first_unfinished(steps)
+        if index is None:
+            # 四步全 done 而 status 还写着 creating：那是一次成功的派生被写在两处
+            # 的中间打断（``_start_dev_server`` 之后、终态之前）。它没有失败的步，
+            # 判 failed 会让用户去重试一件已经做成了的事 —— 判成 ready 才是实话。
+            try:
+                projects.update_project(
+                    project_id, status=STATUS_READY, failedStep=None, message=None
+                )
+                changed += 1
+            except Exception:
+                logger.warning("ai-studio workspace recover failed: %s", project_id, exc_info=True)
+            continue
+        name = steps[index]["name"]
+        try:
+            # 步上和记录上写的是同一句原文：界面读的是 `step.message || project.message`
+            # （NewWorkspaceDialog），两处一致才不会一个写前缀一个不写。
+            projects.update_project(
+                project_id,
+                steps=_interrupted_steps(steps, index),
+                status=STATUS_FAILED,
+                failedStep=name,
+                message=_INTERRUPTED_MESSAGE,
+            )
+            changed += 1
+        except Exception:
+            # 一个改不动的记录不该让其余的跟着不判：下一个项目还在等。
+            logger.warning("ai-studio workspace recover failed: %s", project_id, exc_info=True)
+    return changed
+
+
+def _first_running(steps: list[dict[str, Any]]) -> int | None:
+    for i, one in enumerate(steps):
+        if one["state"] == STEP_RUNNING:
+            return i
+    return None
+
+
+def _interrupted_steps(steps: list[dict[str, Any]], index: int) -> list[dict[str, Any]]:
+    """那一步置 failed + 说明，之前的步补成 done，之后的步回 pending。
+
+    与 :meth:`WorkspaceJob._fail` 同一个形状，但它是 job 的方法（要写盘），这里要的
+    只是那份 steps 列表 —— 复用它的排布，而不是让 recover 去调 job（job 会重跑派生）。
+    """
+    out = [dict(one) for one in steps]
+    for i in range(index):
+        if out[i]["state"] != STEP_DONE:
+            out[i] = {"name": out[i]["name"], "state": STEP_DONE, "message": None}
+    out[index] = {
+        "name": out[index]["name"],
+        "state": STEP_FAILED,
+        "message": _INTERRUPTED_MESSAGE,
+    }
+    for i in range(index + 1, len(out)):
+        out[i] = {"name": out[i]["name"], "state": STEP_PENDING, "message": None}
+    return out
