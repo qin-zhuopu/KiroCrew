@@ -253,3 +253,17 @@
   改成入口一次决定 `(版本号, 是否沿用)` 一路带到成功那步。顺带两条：沿用的旧号要验
   `v<N>` 形状（台账是外部文件，`v1.0` 会让部署按钮 400 点不动）；HEAD 只读一次，别和
   验收闸门各读一遍
+- [20261010-043759-static-testid-guard-cannot-see-data-driven-ids.md](20261010-043759-static-testid-guard-cannot-see-data-driven-ids.md) —
+  静态 testid 防退化测试第一次跑红 12 条，其中三条冤枉的是对的代码。两个独立原因：
+  派工单表里 `req-verdict` 这个精确 id 从来不存在（实际是 `req-verdict-bar` 和
+  `req-verdict-${page}` 两个，只能前缀匹配）；属性正则扫不到「id 写在对象字面量里 /
+  跨组件用 prop 传」两种写法。不能改成裸子串搜索（注释里的名字会替丢掉名字的控件撑绿），
+  改成给每种形式标 `via` + 各配一条「它真接到了 DOM」的断言（〔信任会话〕那条是 `toBe(2)`，
+  因为 TrustDropdown 有单档按钮和下拉触发器两种形态）。附带一个 id 挂两个名字时别挪到
+  外层容器：`DevDagPanel.test.tsx` 在老名字上断言 `aria-selected`
+- [20261010-043930-jc-stderr-polluted-json-and-a-write-looked-like-a-failure.md](20261010-043930-jc-stderr-polluted-json-and-a-write-looked-like-a-failure.md) —
+  `jc … 2>&1 | python3 -c json.load` 报 `Expecting value: line 1 column 2`，我当成「写失败」
+  把一条不幂等的 Jira 流转重跑了一遍，第二遍才看出来第一遍已经成功（可用流转里
+  「开始进行」已消失）。根因：`jc` 把人类提示走 stderr、JSON 走 stdout，`--force` 的护栏
+  提示污染了管道；而解析失败发生在写请求之后，≠ 没写成。修法：解析 JSON 的管道不带
+  `2>&1`；非幂等写失败后先跑一条只读的 `issue get` 看它到底成了没

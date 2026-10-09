@@ -403,6 +403,11 @@ function ChatEmbed({
           ref={textareaRef}
           rows={1}
           {...composition}
+          // ACP-2222: the composer is the one control every journey step that
+          // talks to an agent needs, and it had only an accessible name — which
+          // is a translated string, so a reword breaks any script that matched
+          // on it. `chat-input` / `chat-send` are the stable handles.
+          data-testid="chat-input"
           aria-label={i18nT('appSdk.chatEmbed.chat_message')}
           className="flex-1 min-w-0 min-h-[38px] resize-none overflow-y-auto px-3 py-2 text-sm bg-bg-elevated border border-border rounded-md text-text outline-hidden focus-visible:border-accent transition-colors"
           value={draft}
@@ -412,6 +417,7 @@ function ChatEmbed({
           disabled={sendMutation.isPending}
         />
         <button
+          data-testid="chat-send"
           className="p-2 rounded-md bg-accent text-accent-fg disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-80 transition-opacity"
           onClick={() => send()}
           disabled={sendMutation.isPending || !draft.trim()}
