@@ -520,9 +520,13 @@
         "accept_run": "跑验收",
         "accept_passed": "通过",
         "accept_failed": "失败 {{n}} 条",
+        "accept_fix": "让助手修复",
+        "accept_fix_exhausted": "已修 {{n}} 次仍未通过，请人工处理",
         "err_no_pages": "没有需求的页可以开发——请先在「需求」页把需求补全",
         "err_run_active": "这个项目已有一轮开发在跑",
-        "err_dev_not_done": "全部任务完成后才能跑验收"
+        "err_dev_not_done": "全部任务完成后才能跑验收",
+        "err_nothing_to_fix": "最近一次验收结果里没有要修的东西",
+        "err_fix_limit": "验收已连续修复三次仍未通过，请人工处理"
       },
       "doc_list": "文档列表",
       "pending_changes": "尚未提交的变更",
