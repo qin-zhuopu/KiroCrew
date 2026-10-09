@@ -441,6 +441,9 @@ class WorkspaceJob:
         if isinstance(target, str) and target:
             fields["workspaceDir"] = target
         repo = data.get("personalRepo")
+        # 真 jc 输出的是对象 {project,name,url,status}（2026-10-09 实测）；也认字符串
+        if isinstance(repo, dict):
+            repo = repo.get("url")
         if isinstance(repo, str) and repo:
             fields["repoUrl"] = repo
         self._set_steps(steps, **fields)

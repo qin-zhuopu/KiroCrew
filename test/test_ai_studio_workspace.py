@@ -828,3 +828,12 @@ def test_retry_push_unshallows_from_template_before_push(tmp_path):
     assert fixed.returncode == 0, fixed.stderr
     log = subprocess.run(["git", "--git-dir", str(personal), "log", "--oneline", "develop"], capture_output=True, text=True)
     assert len(log.stdout.strip().splitlines()) == 2
+
+
+
+def test_repo_url_read_from_real_jc_envelope_shape(home):
+    # 真 jc webapp init 的 personalRepo 是对象，不是字符串（实战实测，之前 repoUrl 一直是空）
+    data = {"target": "/x/sbgl", "personalRepo": {"project": "~14409", "name": "sbgl", "url": "https://h/scm/~14409/sbgl.git", "status": "created"}}
+    _create()
+    workspace.WorkspaceJob("sbgl", runner=FakeDerive(data=data), pusher=FakePush(), devserver_factory=FakeDevServers()).run()
+    assert _record("sbgl")["repoUrl"] == "https://h/scm/~14409/sbgl.git"
