@@ -192,3 +192,15 @@
   另有两条不报错的约束：语种目录键序须保持 en 的子序列（`i18n-translate.mjs merge` 会把
   233 键的补丁炸成 7800 行重排），以及 `*Style.test.ts` 那 1474 行风格断言 `i18n:check`
   完全不看（`qa.test.ts` 的 `edge-whitespace` 15/15、`doubled-space` 10/10 已顶格）。
+- [20261010-001858-worktree-venv-pth-imports-the-main-checkout.md](20261010-001858-worktree-venv-pth-imports-the-main-checkout.md) —
+  worktree 里的 `.venv` 是指向主仓的符号链接，其可编辑安装的 `.pth` 写死
+  `<主仓>/src`：`python -c "import kiro_crew…"` 加载的是**主仓**那份（新模块根本不在），
+  而 pytest 因为 conftest 先插本地 `src` 所以是对的 → 「主仓没有这个模块」不等于「你改坏了」，
+  判 import 归属一律走 pytest 或压住 `.pth`。附带一条：带 `{{n}}` 的文案若走
+  `NOTICE_KEY` → `i18nT(key)`（不带参数），占位符会原样印在界面上
+- [20261010-002120-i18n-parity-debt-masquerades-as-your-diff.md](20261010-002120-i18n-parity-debt-masquerades-as-your-diff.md) —
+  `catalogParity.test.ts` 12 语种全红，看着像新加的 4 条文案改坏了目录，其实 HEAD 上就红
+  （ACP-2113 欠的 233 键）。但数过才知道自己有没有让它更糟：按**同一份 en 键集**度量是
+  233 → 237（10 个语种各多缺 4），直接对各自的新 en 比会把这 4 个从「改前」扣掉，
+  得出「一条没加」的假结论。对照用新建的干净 worktree 不要 `git stash`；
+  `en-XA.json` 是 `gen-pseudolocale.mjs` 的生成物（要在 `website/` 下跑），别手写

@@ -85,12 +85,12 @@ ok   doubled-space          total=  10 /  10   ← 顶格
 ### 根因
 
 `odd-quote-count` 检测的是「成对引号数量不等」，见
-`website/scripts/lib/qa-checks.mjs:104`，它比较的是**该语向自己的**开/闭引号字符
+`website/scripts/lib/qa-checks.mjs` 的 `odd-quote-count` 那条 check，它比较的是**该语向自己的**开/闭引号字符
 （de 是 `„` / `“`）。若某会话在计数前做了 `norm()` —— 把弯引号替换成直引号、
 把连续空白压成单空格 —— 开闭引号就被抹平成同一种字符，**永不相等失败**，
 violation 计数直接归零（或反向虚增，取决于替换方向）。
 
-`website/src/i18n/qa.test.ts:112` 的 `findViolations` **没有任何归一化步骤**：
+`website/src/i18n/qa.test.ts` 的 `findViolations` **没有任何归一化步骤**：
 
 ```ts
 for (const [key, value] of Object.entries(catalog)) {
