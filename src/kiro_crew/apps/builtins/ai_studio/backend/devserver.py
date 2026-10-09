@@ -761,6 +761,8 @@ class DevServer:
                 cmd,
                 cwd=str(cwd),
                 env=env,
+                # 不继承网关的 stdin（tmux 终端）：网关一重启终端就关，vite 读到 EOF 就退出
+                stdin=subprocess.DEVNULL,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
