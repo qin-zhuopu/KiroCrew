@@ -176,3 +176,19 @@
   恢复单独验；验「扫过但不碰普通项目」要放一条该改判的记录当栅栏，否则是线程没跑到的假绿。
   附同一症状的第二个根因：`view?.state ?? 'stopped'` 把「还不知道」写成「已停止」，
   需要 `querying` 单独一态（测试得让接口挂着不返回才测得到那一帧）。
+- [20261009-235147-dnt-case-insensitive-and-replicated-gates.md](20261009-235147-dnt-case-insensitive-and-replicated-gates.md) —
+  预判 `git tag` 会被 `untranslated-script` 判红，实跑不红：`glossary.json` 里有 `Git`，而
+  `doNotTranslate` 剥离正则是**忽略大小写**的，小写 `git` 早被剥掉了——我按 `t === 'git'` 比才漏。
+  推论：单子里点名要防的 `App URL` 之所以命中，是因为 `App` 恰好也在表里，换个没登记的词就漏。
+  主坑是「自己复刻一份判据」：中英西意 440 条里 139 条带拉丁词，用复刻规则算出 12 条必红，
+  直接 import 仓里的 `CHECKS` 判是 **0** 条（引号嵌套、括号内英文、代码跨度都不算违规）。
+  教训：门禁在本地跑不了的语种，检查脚本必须 import 真模块 + 配反向对照（故意写坏一条必须变红）。
+- [20261009-235900-i18n-check-prints-no-catalogparity-row.md](20261009-235900-i18n-check-prints-no-catalogparity-row.md) —
+  任务书让记 `i18n:check` 里 catalogParity 每语种缺几个键，可 826 行输出里这词命中 0 次：
+  它是 `src/i18n/catalogParity.test.ts`（前端测试），门禁脚本链里根本没有，最容易被误当成
+  `[key-refs]` 顶替（方向相反，语种缺键它永远绿）→ 复刻判据只度量。同单另一坑：退路写
+  「没翻译脚本就按英文原文填」，实测会被零容忍的 `changed-passthrough` 新增 **1041** 条
+  （非拉丁文种各 146 条：去噪后 ≥4 字母 ≥2 词且本族文字为 0 即判红，`"App URL"` 照抄就中）。
+  另有两条不报错的约束：语种目录键序须保持 en 的子序列（`i18n-translate.mjs merge` 会把
+  233 键的补丁炸成 7800 行重排），以及 `*Style.test.ts` 那 1474 行风格断言 `i18n:check`
+  完全不看（`qa.test.ts` 的 `edge-whitespace` 15/15、`doubled-space` 10/10 已顶格）。
