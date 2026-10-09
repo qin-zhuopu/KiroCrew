@@ -122,7 +122,13 @@ def test_accept_cmds_reads_workspace_json(ws: Path):
         json.dumps({"acceptCmds": ["pnpm -w check", "bash -c 'pnpm test -- --run'"]}),
         encoding="utf-8",
     )
-    assert accept.accept_cmds(ws) == [["pnpm", "-w", "check"], ["bash", "-c", "pnpm test -- --run"]]
+    # ACP-2226（master 定案）：工作区只能在平台底线之上「加」命令，不能整体替换——
+    # 否则改一个配置文件就能绕过验收。底线在前，工作区的追加在后。
+    assert accept.accept_cmds(ws) == [
+        *accept.DEFAULT_CMDS,
+        ["pnpm", "-w", "check"],
+        ["bash", "-c", "pnpm test -- --run"],
+    ]
 
 
 @pytest.mark.parametrize(
