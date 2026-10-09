@@ -58,7 +58,9 @@ def task_prompt(page: str, kind: str) -> str:
         "（需求图谱），不要参考任何旧系统。",
         "先读工作区根目录的 CLAUDE.md 和 docs/需求标准/使用说明.md（有就读）。",
         _KIND_REQUIREMENT[kind],
-        f"做完跑 pnpm typecheck 和本页单测，都过了再 git commit，提交说明「feat: {page} {label}」。",
+        # 用户定案（2026-10-09）：开发会话**不跑任何测试/类型检查/e2e**——几个会话同时跑会把机器
+        # 资源耗尽（当晚实测 load 到 880）。测试统一由平台〔跑验收〕一次跑。
+        f"不要运行任何测试、类型检查、e2e 或开发服务器（验收由平台统一跑）。写完直接 git commit，提交说明「feat: {page} {label}」。",
         "最后一句只回复：完成 或 失败：<原因>。",
     ]
     return "\n".join(lines)
