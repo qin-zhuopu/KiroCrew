@@ -246,3 +246,14 @@
   refspec 会在远端建一个叫 `HEAD` 的分支。教训：**「推」在 git 里是按引用的**，凡是代码
   要给别人看的流程，收尾要验 `git ls-remote origin refs/heads/<分支>`，而不是验标签、
   更不是验命令退出码；替身 git 复现不了这个现象，用真 git + 临时 bare 仓
+- [20261010-045321-gates-already-red-on-the-branch.md](20261010-045321-gates-already-red-on-the-branch.md) —
+  收尾跑门禁红两处（`tsc` 2 条 + `[manifest-sync]` 7 条），全在我没碰的文件/命名空间里。
+  归属不靠「看着不像我的」：`git log -L <行>,<行>:<文件>` 指到上游提交；typecheck 造一次
+  干净基线（`worktree add --detach HEAD` + 软链同一个 `node_modules`，跑前 `pwd` 自证）
+  实测回**同样两条**；`manifest-sync` 更省，直接 JSON 探测 HEAD 与工作树的 en.json 里
+  `apps.aiStudio.manifest` **两边都不存在**。教训：**长分支上 typecheck / i18n:check 本来就
+  是红的**，`i18n:check` 的 diff 基线默认 `origin/main` 会把整条分支的账算给你（只看自己
+  用 `I18N_BASE_REF=HEAD`），whole-repo 那几行不受它影响；**加了 `en.json` 键必须马上
+  `npm run i18n:pseudo`**，否则 hard-zero 报的是「keys 不匹配」看不出缺哪步。附带：
+  `pytest -p no:xdist` 因仓的 `addopts` 带 `-n/--dist` 直接退出码 4 一条没跑，报错只说
+  参数不认识

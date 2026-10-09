@@ -505,6 +505,92 @@ describe('DevDagPanel — acceptance', () => {
       expect(api.fixAccept).toHaveBeenCalledTimes(1)
     })
   })
+
+  // ACP-2226: the quality gates. The board's job here is one sentence — say these
+  // are advice, so a red 「AC 没有测试引用」 under a 「通过」 record reads as a
+  // report and not as a broken acceptance run.
+  describe('质量检查（仅提示）', () => {
+    const advisory = [
+      { id: 'ac-coverage', ok: false, missing: [{ page: '备件台账', id: 'AC-3' }, { page: '备件台账', id: 'AC-4' }] },
+      { id: 'weakened-tests', ok: true, missing: [] },
+      { id: 'lint', ok: true, skipped: true, detail: '工作区没有 lint 脚本' },
+      { id: 'schema-requirements', ok: true, missing: [{ page: 'p', code: 'spareNo', column: 'spare_no' }] },
+    ]
+    const greenWithAdvisory = {
+      id: 'acc-11',
+      phase: 'full',
+      result: 'passed' as const,
+      voided: false,
+      results: [{ id: 'pnpm typecheck', ok: true, tail: '' }],
+      requirementVersion: 'a:h1',
+      commitHash: 'c11',
+      at: '2026-10-10T12:00:00Z',
+      advisory,
+      strict: false,
+    }
+
+    function withAdvisory(record: object) {
+      return apiOver({
+        getDevDag: vi.fn(async () => doneDag),
+        listAcceptRecords: vi.fn(async () => ({ records: [record] })),
+      })
+    }
+
+    it('lists one row per gate with the advisory heading', async () => {
+      mount(withAdvisory(greenWithAdvisory))
+      const block = await screen.findByTestId('ai-studio-accept-advisory')
+      expect(block).toHaveTextContent('Quality checks (advisory only)')
+      expect(within(block).getByTestId('ai-studio-accept-advisory-ac-coverage')).toHaveTextContent(
+        'Requirement acceptance criteria covered by tests',
+      )
+      expect(within(block).getByTestId('ai-studio-accept-advisory-lint')).toHaveTextContent(
+        '工作区没有 lint 脚本',
+      )
+      // the count is the row's only datum on a red gate: the board cannot name
+      // which ACs without a second read, and a number beats nothing
+      expect(within(block).getByTestId('ai-studio-accept-advisory-ac-coverage')).toHaveTextContent(
+        '2 items',
+      )
+      expect(within(block).getByTestId('ai-studio-accept-advisory-schema-requirements')).toBeInTheDocument()
+    })
+
+    it('the heading becomes 拦截 under strict', async () => {
+      mount(withAdvisory({ ...greenWithAdvisory, strict: true }))
+      const block = await screen.findByTestId('ai-studio-accept-advisory')
+      expect(block).toHaveTextContent('Quality checks (blocking)')
+      expect(block).not.toHaveTextContent('advisory only')
+    })
+
+    it('an advisory red does not rewrite the pass status', async () => {
+      // THE case for the whole feature: the record says passed and a gate says
+      // ✗. If the board derived its colour from the gates, 「跑验收」 would look
+      // broken — the deploy gate reads `result`, and this is the same promise.
+      mount(withAdvisory(greenWithAdvisory))
+      expect(await screen.findByTestId('ai-studio-accept-status')).toHaveTextContent('Passed')
+      expect(screen.getByTestId('ai-studio-accept-advisory-ac-coverage')).toHaveTextContent('✗')
+      // and the pass offered nothing to fix, unchanged by the advisory
+      expect(screen.queryByTestId('ai-studio-accept-fix-btn')).not.toBeInTheDocument()
+    })
+
+    it('a record written before the gates renders no advisory block', async () => {
+      // Additive fields mean records on disk from the previous release have no
+      // `advisory`. A block that rendered 「0 项」 there would claim a check ran.
+      mount(
+        withAdvisory({
+          id: 'acc-old',
+          phase: 'full',
+          result: 'passed' as const,
+          voided: false,
+          results: [{ id: 'pnpm typecheck', ok: true, tail: '' }],
+          requirementVersion: 'a:h1',
+          commitHash: 'c0',
+          at: '2026-10-08T10:00:00Z',
+        }),
+      )
+      expect(await screen.findByTestId('ai-studio-accept-status')).toHaveTextContent('Passed')
+      expect(screen.queryByTestId('ai-studio-accept-advisory')).not.toBeInTheDocument()
+    })
+  })
 })
 
 describe('the board in the 开发 tab (07 §〇-1)', () => {
