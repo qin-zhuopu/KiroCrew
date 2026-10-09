@@ -320,7 +320,7 @@
       "demo_play": "自动播放",
       "demo_prev": "上一步",
       "demo_restart": "重新开始演示",
-      "demo_unknown": "未知的演示剧本「{{scenario}}」。可用剧本见 website/src/apps/ai-studio/demo/steps/ 目录。",
+      "demo_unknown": "未知的演示剧本“{{scenario}}”。可用剧本见 website/src/apps/ai-studio/demo/steps/ 目录。",
       "toggle_panes": "切换栏位",
       "toggle_chat": "显示/隐藏对话栏",
       "toggle_workspace": "显示/隐藏工作区",
@@ -466,7 +466,7 @@
       "projectDelete": {
         "label": "删除",
         "title": "删除工作区",
-        "confirm": "删除后工作区移到回收站，远端仓库保留。确定删除「{{name}}」吗？",
+        "confirm": "删除后工作区移到回收站，远端仓库保留。确定删除“{{name}}”吗？",
         "confirm_label": "删除"
       },
       "newWorkspace": {
@@ -513,8 +513,8 @@
         "node_running": "进行中",
         "node_done": "完成",
         "node_failed": "失败",
-        "no_nodes": "还没有任务 — 点「开始开发」按需求图谱生成任务清单",
-        "no_nodes_plan": "还没有任务 — 点「拆分任务」按需求图谱生成任务清单",
+        "no_nodes": "还没有任务 — 点“开始开发”按需求图谱生成任务清单",
+        "no_nodes_plan": "还没有任务 — 点“拆分任务”按需求图谱生成任务清单",
         "refresh_fast": "每 3 秒自动刷新",
         "refresh_slow": "每 10 秒自动刷新",
         "jira_parent": "Jira 父单：",
@@ -526,7 +526,7 @@
         "accept_run": "跑验收",
         "accept_passed": "通过",
         "accept_failed": "失败 {{n}} 条",
-        "err_no_pages": "没有需求的页可以开发——请先在「需求」页把需求补全",
+        "err_no_pages": "没有需求的页可以开发——请先在“需求”页把需求补全",
         "err_run_active": "这个项目已有一轮开发在跑",
         "err_dev_not_done": "全部任务完成后才能跑验收"
       },
