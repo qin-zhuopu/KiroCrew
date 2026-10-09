@@ -1142,7 +1142,7 @@ class DevRun:
         key = str(node.get("jiraKey") or "")
         page, _, kind = key.partition(":")
         if kind in devplan.KINDS:
-            return devplan.task_prompt(page, kind)
+            return devplan.task_prompt(page, kind, self.ws)
         # 状态文件里的任务 id 被人改过：没有对应提示词就发一句最接近的话，至少
         # 会话里看得见要做什么，而不是发一个空串让助手自己猜。
         return f"你在这个工作区里完成「{node.get('title') or key}」。做完最后一句只回复：完成 或 失败：<原因>。"

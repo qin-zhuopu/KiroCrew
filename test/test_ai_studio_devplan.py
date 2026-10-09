@@ -102,3 +102,14 @@ def test_graph_hashes_are_one_key_per_page(ws: Path):
 
 def test_empty_pages_make_an_empty_plan(ws: Path):
     assert devplan.build_plan(ws, []) == {"tasks": [], "graphHashes": {}}
+
+
+def test_prompt_defers_to_the_page_developer_agent_when_the_workspace_has_it(tmp_path):
+    # ACP-2211：工作区带 .claude/agents/page-developer.md → 只说「先读它」+ 这次的活
+    old = devplan.task_prompt("设备清单", "api", tmp_path)
+    assert "不要运行任何测试" in old  # 没有 agent 文件：老的长提示照旧
+    (tmp_path / ".claude" / "agents").mkdir(parents=True)
+    (tmp_path / ".claude" / "agents" / "page-developer.md").write_text("x")
+    new = devplan.task_prompt("设备清单", "api", tmp_path)
+    assert new.startswith("先完整读 .claude/agents/page-developer.md")
+    assert "「设备清单」" in new and new.rstrip().endswith("完成 或 失败：<原因>。")
