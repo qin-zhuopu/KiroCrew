@@ -169,3 +169,12 @@
   `prodServerApi` 是同一模块里**另一个 export**，spread 没覆盖到，于是发了真请求。
   `!demoStates` 挡不住它（那些用例走的就是非 demo 的真壳子）。新加独立 api export 先
   grep `spyOn(globalThis, 'fetch')` 去登记替身；定位来源直接看 spy 打出的 URL。
+- [20261009-234224-parallel-worktrees-four-silent-nos.md](20261009-234224-parallel-worktrees-four-silent-nos.md) —
+  并行 worktree 四个「什么都不报」的坑：① **拿 git 的英文原文当判据**（本机
+  `LANG=zh_CN.utf8`，`fatal: 一个名为 'dev/x' 的分支已经存在` 让 `if "already exists" in out`
+  永不成立，续跑在中文部署机 100% 失败而英文 CI 全绿）→ 只认退出码和 `--porcelain`/
+  `--diff-filter=U`；② `status --porcelain` 默认折叠目录 + 转义非 ASCII，两个参数都得加；
+  ③ 新增同方向接缝时默认值悄悄回落真实现（注入假 HEAD 的测试去跑了真 git）；④ 并行派发
+  要三趟线程池往返，`asyncio.sleep(0)` 不推进时钟所以等不出来 → 有界真实时间轮询。
+  附一条反面：我先给①编了个「忙等饿死 selector」的根因，探针实测把它否了 —— 根因没做
+  最小复现就别写进笔记。

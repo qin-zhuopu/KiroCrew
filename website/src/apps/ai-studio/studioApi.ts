@@ -529,6 +529,17 @@ export interface StudioDevNode {
   endCommit: string
   /** the failure's own line, verbatim from the assistant or the scheduler */
   message: string
+  // ACP-2207: a parallel node writes its code in its own git worktree, so the
+  // board has to say WHICH directory a running row is working in — otherwise
+  // two rows both saying 「in progress」 are indistinguishable, and the operator
+  // cannot tell whether the isolation happened at all. Optional because a serial
+  // round (AI_STUDIO_DEV_PARALLEL=1) builds none, and the backend clears it once
+  // a node's branch has been merged: a done row with a path would point at a
+  // directory that no longer exists.
+  /** the worktree this running node is writing in, '' when it has none */
+  worktree?: string
+  /** its branch, merged into the workspace in the main directory */
+  branch?: string
   // ACP-2085-S6: this task's Jira sub-issue. All three are optional because a
   // deployment with no `AI_STUDIO_JIRA_CMD` configured has none of them, and a
   // board must be able to tell 「Jira is not configured」 (no fields) apart from

@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 from aiohttp import web
@@ -93,9 +94,160 @@ class FakeGit:
     def __call__(self) -> str:
         return self.head
 
+    def at(self, _path: Any) -> str:
+        """One HEAD for everything — the shape a serial round has anyway.
+
+        Serial runs write code in the main directory, so ``git_at`` and ``git``
+        are the same answer there. A fake without this method would make every
+        serial test drive a run that dies at the first ``worktree add`` and
+        report it as a scheduler bug.
+        """
+        return self.head
+
     def commit(self) -> None:
         self.commits += 1
         self.head = f"c{self.commits}"
+
+
+class PerDirGit(FakeGit):
+    """HEAD per directory: what ``git_at`` exists for (ACP-2207).
+
+    The whole point of the parallel shape is that a node commits on ITS branch,
+    so the main directory's HEAD does not move while it works. A single global
+    counter would hand every node a "changed" HEAD and the delivery check
+    (``endCommit != startCommit``) would pass without the code ever having to
+    look at the right directory — a fixture that cannot fail is worse than none.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.heads: dict[str, str] = {}
+        self.commit_log: list[tuple[str, str]] = []  # (dir, commit) in order
+        self.merges: list[tuple[str, str]] = []  # (branch, commit) in order
+
+    def at(self, path: Any) -> str:
+        return self.heads.get(str(path), self.head)
+
+    def add_worktree(self, path: Any) -> None:
+        """A new worktree starts at the main HEAD — that is what "从当前 HEAD 拉" is."""
+        self.heads.setdefault(str(path), self.head)
+
+    def commit_at(self, path: Any) -> str:
+        self.commits += 1
+        self.heads[str(path)] = f"c{self.commits}"
+        self.commit_log.append((str(path), f"c{self.commits}"))
+        return self.heads[str(path)]
+
+    def merge(self, branch: str) -> str:
+        self.commits += 1
+        self.head = f"m{self.commits}"
+        self.merges.append((branch, self.head))
+        return self.head
+
+
+class FakeWorktrees:
+    """The four git operations a parallel node needs, as pure bookkeeping.
+
+    ``devdag`` calls these as module-level functions, which is the seam
+    monkeypatching uses. They stand in for ``git worktree add/merge/remove/list``
+    — real ones would need a real repo, real branches and a real index.lock,
+    and a test that forks git ten times per case is a slow test that still
+    cannot say which directory it watched (testing-conventions: no host state).
+    """
+
+    def __init__(self, ws: Path, git: PerDirGit) -> None:
+        self.ws = Path(ws)
+        self.git = git
+        self.added: list[tuple[str, str, str]] = []  # (path, branch, base)
+        self.merged: list[tuple[str, str]] = []  # (branch, node key)
+        self.removed: list[str] = []
+        self.listed = 0
+        # branch -> conflict file names to report instead of merging
+        self.conflicts: dict[str, tuple[str, ...]] = {}
+        self.excludes = 0
+        # set by a test that wants to know whether the merge happened inside the
+        # scheduler's own serialisation lock (see ``worktree_merge``)
+        self.merge_lock_held: Callable[[], bool] | None = None
+        self.lock_held_at_merge: list[bool] = []
+        # one ordered timeline shared with the harness: who started, who was
+        # handed a directory, who was merged — the sequence IS the assertion
+        self.timeline: list[str] = []
+        # what the outside world looked like from INSIDE a git call (see below)
+        self.probe: Callable[[], dict[str, str]] | None = None
+        self.states_at_add: list[tuple[str, dict[str, str]]] = []
+        # the main directory's HEAD at the moment each worktree was built
+        self.mains_at_add: list[tuple[str, str]] = []
+
+    def install(self, monkeypatch) -> "FakeWorktrees":
+        for name in (
+            "ensure_local_exclude",
+            "worktree_list",
+            "worktree_reusable",
+            "worktree_add",
+            "worktree_merge",
+            "worktree_remove",
+        ):
+            monkeypatch.setattr(devdag, name, getattr(self, name))
+        return self
+
+    def ensure_local_exclude(self, _repo: Path) -> None:
+        self.excludes += 1
+
+    def worktree_list(self, _repo: Path) -> dict[str, str]:
+        self.listed += 1
+        return {path: branch for path, branch, _base in self.added}
+
+    def worktree_reusable(self, _repo: Path, path: Path, branch: str) -> bool:
+        return any(p == str(path) and b == branch for p, b, _base in self.added)
+
+    def worktree_add(self, _repo: Path, path: Path, branch: str, base: str) -> None:
+        self.added.append((str(path), branch, base))
+        self.git.add_worktree(path)
+        self.mains_at_add.append((branch, self.git.head))
+        self.timeline.append(f"add:{branch}")
+        # Read the file from where a real ``git worktree add`` is: this is the
+        # moment AFTER the scheduler handed this node out and BEFORE its
+        # coroutine writes anything else. A node the file still calls ``queued``
+        # here is one the board would show as not-started while seconds go by
+        # building its directory — and ``running`` in the file is the ONLY thing
+        # a second 〔开始开发〕 checks before opening a competing loop.
+        if self.probe is not None:
+            self.states_at_add.append((branch, self.probe()))
+
+    def worktree_merge(self, _repo: Path, branch: str, label: str) -> None:
+        # git's index holds ONE writer, so two nodes that both finished must not
+        # merge at the same instant; the scheduler serialises that with a lock.
+        # This fake is the only place that moment is observable, so it asks the
+        # lock itself: "was it held while git was called?" A single answer proves
+        # the merge is inside the critical section, which is the whole property —
+        # no timing an overlap, no grace period that passes by luck on an idle box.
+        if self.merge_lock_held is not None:
+            self.lock_held_at_merge.append(self.merge_lock_held())
+        if branch in self.conflicts:
+            self.timeline.append(f"conflict:{branch}")
+            raise devdag.GitOpError(
+                f"merge {branch}: CONFLICT (content): Merge conflict", self.conflicts[branch]
+            )
+        self.merged.append((branch, label))
+        self.git.merge(branch)
+        self.timeline.append(f"merge:{branch}")
+
+    def worktree_remove(self, _repo: Path, path: Path) -> None:
+        self.removed.append(str(path))
+        self.timeline.append(f"remove:{Path(path).name}")
+
+
+@pytest.fixture(autouse=True)
+def serial_by_default(monkeypatch):
+    """Pin the pre-ACP-2207 tests to the shape they were written against.
+
+    The module default is 2, so without this every one of those cases would
+    suddenly get a worktree directory, a merge and a different session cwd —
+    the failures would read like the scheduler went bad rather than like the
+    shape changed. The default itself is pinned by its own test below, the
+    parallel shape by the cases at the foot of this file.
+    """
+    monkeypatch.setenv(devdag.PARALLEL_ENV, "1")
 
 
 @pytest.fixture()
@@ -110,24 +262,49 @@ def ws(tmp_path: Path) -> Path:
 
 
 class Harness:
-    """One DevRun plus the fakes it drives, and the knobs a test flips."""
+    """One DevRun plus the fakes it drives, and the knobs a test flips.
 
-    def __init__(self, ws: Path) -> None:
+    ``parallel=True`` switches the fixture onto the ACP-2207 shape: the git fake
+    starts answering per directory (so a node's commit lands in ITS worktree,
+    not on the main HEAD) and the worktree calls become fakes too. A turn then
+    commits where its own session is sitting, which is the only way a test can
+    observe that two nodes were given two directories.
+    """
+
+    def __init__(self, ws: Path, *, parallel: bool = False) -> None:
         self.state = FakeState()
-        self.git = FakeGit()
+        self.git = PerDirGit() if parallel else FakeGit()
+        self.worktrees = FakeWorktrees(ws, self.git) if parallel else None
         self.calls: list[tuple[str, str]] = []
         # node title -> reply text; default 完成
         self.replies: dict[str, str] = {}
         # slot keys whose turn commits nothing
         self.no_commit: set[str] = set()
         self.dispatcher_block: asyncio.Event | None = None
+        # slot key -> an Event the test sets to let that node's turn finish.
+        # Parallel tests need this: "did B start while A was still working" can
+        # only be asked if a turn can be held open on purpose.
+        self.gates: dict[str, asyncio.Event] = {}
+        # slot keys in the order their turns were entered
+        self.gate_order: list[str] = []
 
         async def dispatch(_state: Any, slot: Any, prompt: str) -> str:
-            self.calls.append((str(slot.key), prompt))
+            key = str(slot.key)
+            self.calls.append((key, prompt))
+            if self.worktrees is not None:
+                self.worktrees.timeline.append(f"start:{key}")
+            gate = self.gates.get(key)
+            if gate is not None:
+                await gate.wait()
             if self.dispatcher_block is not None:
                 await self.dispatcher_block.wait()
-            if str(slot.key) not in self.no_commit:
-                self.git.commit()
+            if key not in self.no_commit:
+                # commit where this session is sitting: a shared HEAD would let
+                # the delivery check pass even when the cwd was the wrong one
+                if self.worktrees is not None:
+                    self.git.commit_at(str(slot.project))
+                else:
+                    self.git.commit()
             return self.replies.get(str(slot.title), "完成")
 
         self.run = devdag.DevRun(
@@ -136,8 +313,29 @@ class Harness:
             ws,
             dispatcher=dispatch,
             git=self.git,
+            git_at=self.git.at,
             clock=lambda: 100.0,
         )
+
+    def install_worktrees(self, monkeypatch, env: str = "2") -> FakeWorktrees:
+        """Put this harness on the parallel path (env + the four git fakes)."""
+        assert self.worktrees is not None, "Harness(ws, parallel=True) first"
+        monkeypatch.setenv(devdag.PARALLEL_ENV, env)
+        fake = self.worktrees.install(monkeypatch)
+        # the fake asks the real lock object, so the answer is the scheduler's
+        # actual critical section and not a copy of the code's own claim
+        fake.merge_lock_held = self.run._merge_lock.locked
+        return fake
+
+    @property
+    def cwds(self) -> list[tuple[str, str]]:
+        """(slot key, the directory its session was opened on) per dispatch.
+
+        Read off the slot rather than recorded in the dispatcher, because
+        ``slot.project`` IS the cwd the harness would run in (``chat_runner``
+        takes it from there) — that is the fact the assertion is about.
+        """
+        return [(str(s.key), str(s.project)) for s in self.state._slots.values()]
 
     async def finish(self) -> None:
         assert self.run._loop_task is not None
@@ -1168,3 +1366,449 @@ async def test_an_interrupted_node_resumes_alone_and_the_run_completes(ws: Path,
     # the node identities survive the resume: one row per task, not one per attempt
     assert [n["jiraKey"] for n in dag["nodes"]] == IDS
     assert first["phase"] == second["phase"] == "full"
+
+
+# ── ACP-2207：独立任务并行，各占一个 worktree，跑完在主目录合并 ──────────────
+#
+# The scheduler's other half. Two things make these cases unlike the ones above:
+# HEAD is answered PER DIRECTORY (a parallel node commits on its own branch, so
+# the main directory does not move until the merge — a single counter would let
+# the delivery check pass without the code ever reading the right directory),
+# and turns are held open with events, because "did B start while A was still
+# working" is a question about an interleaving that no sequential fixture can
+# answer by accident.
+
+
+def _par_harness(ws: Path, monkeypatch, *, env: str = "2") -> Harness:
+    """A harness on the parallel path: env set, git and worktrees faked."""
+    monkeypatch.delenv(devdag.TRUST_ENV, raising=False)
+    h = Harness(ws, parallel=True)
+    h.install_worktrees(monkeypatch, env)
+    return h
+
+
+async def _wait_until(detail: str, predicate: Callable[[], bool]) -> None:
+    """Wait in real time for a parallel node to get that far; fail loudly if it doesn't.
+
+    A parallel node reaches its dispatcher through three thread-pool round trips
+    (the local exclude, the reuse check, ``worktree add``), i.e. milliseconds of
+    real latency. ``asyncio.sleep(0)`` yields but does not advance the clock, so
+    a loop of 50 such yields is over in microseconds and the node has not moved
+    — the pre-2207 tests could get away with that because a serial node needs
+    no subprocess to start. Two seconds of 5 ms ticks, with the failure named,
+    keeps this a bounded wait instead of a hang (testing-conventions: a test
+    that can block forever is a lost run, not a failed test).
+    """
+    for _ in range(400):
+        if predicate():
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError(f"timed out waiting for: {detail}")
+
+
+def _git(repo: Path, *args: str) -> str:
+    """一条真 git（只有那三条真 git 的用例用：它们验的正是 git 自己怎么看这棵树）。
+
+    仓库是 tmp 目录，作者信息就地配死 —— 不读部署机的 ``~/.gitconfig``，否则换台
+    机器（或 CI 容器里没有 user.email）就报「请告诉我你是谁」。
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, f"git {' '.join(args)}: {proc.stdout}{proc.stderr}"
+    return (proc.stdout or "").strip()
+
+
+def test_the_default_parallelism_is_two_and_the_env_says_otherwise(monkeypatch):
+    """默认 2；``AI_STUDIO_DEV_PARALLEL`` 改写它；读不懂的退回默认，上限 8。
+
+    「0 / 负数 / 非数字退回 2 而不是 1」是有立场的一条：读成 1 等于「配置写错了 ⇒
+    悄悄变串行」，那是把一次没人察觉的性能改动塞进一次拼写错误里。
+
+    读空默认值这一半必须先把环境清空：本文件有个 autouse 夹具为了保住改造前那
+    三十来条断言的形状，把 ``AI_STUDIO_DEV_PARALLEL`` 钉成了 1 —— 不摘掉它，这条
+    测的是「夹具设的值」，永远测不到模块的默认值。
+    """
+    monkeypatch.delenv(devdag.PARALLEL_ENV, raising=False)
+    assert devdag.parallel_limit("") == 2
+    assert devdag.parallel_limit(None) == 2
+    assert devdag.parallel_limit("3") == 3
+    assert devdag.parallel_limit(" 4 ") == 4
+    assert devdag.parallel_limit("1") == 1
+    assert devdag.parallel_limit("0") == 2
+    assert devdag.parallel_limit("-3") == 2
+    assert devdag.parallel_limit("two") == 2
+    assert devdag.parallel_limit("99") == devdag.MAX_PARALLEL
+    monkeypatch.setenv(devdag.PARALLEL_ENV, "3")
+    assert devdag.parallel_limit(None) == 3
+    # 显式传值和读环境是两件事：传了就不看环境（部署上默认值要能被单测/调用方指定）
+    assert devdag.parallel_limit("5") == 5
+
+
+def test_a_task_id_becomes_a_branch_and_a_node_index_a_directory():
+    """分支名与 worktree 路径的算法（派工单写死的两条命名）。
+
+    中文名原样保留是刻意的：把它一起换成短横线会让「设备点检记录:api」和「备件台
+    账:api」塌成同一条分支，而两个并行节点共用一条分支就是共用工作 —— 正是这一单
+    要消灭的事。目录按**节点序号**，和看板上第几行、会话名是同一个序号。
+    """
+    assert devdag.branch_name("设备点检记录:api") == "dev/设备点检记录-api"
+    assert devdag.branch_name("My_Page:web") == "dev/my-page-web"
+    assert devdag.branch_name("") == "dev/node"
+    assert devdag.worktree_path(Path("/ws"), 0) == Path("/ws/.ai-studio/wt/1")
+    assert devdag.worktree_path(Path("/ws"), 3) == Path("/ws/.ai-studio/wt/4")
+
+
+def test_the_worktree_tree_is_excluded_locally_never_in_the_repo(tmp_path: Path):
+    """第二棵树在本地忽略掉，且不改 ``.gitignore``（不改被跟踪的文件）。
+
+    模板的 ``.gitignore`` 里没有 ``.ai-studio/``：不加这条，主目录的 ``git status``
+    会多出整份代码的副本，助手一句 ``git add -A`` 就能把另一个节点的现场当成自己的
+    成果提交。写 ``.git/info/exclude`` 而非常规忽略文件：那是本地账本，不进版本库、
+    不进发布包，也不会把主目录改脏（改脏了每次合并前都得先 stash）。
+
+    这条验的是 git 自己怎么看这棵树，所以 fork 真 git —— 替身只会重复代码里已经
+    写着的那个结论。仓库在 tmp 目录里就地 init，作者信息也就地配死，不读部署机的
+    ``~/.gitconfig``。
+    """
+    repo = tmp_path / "ws"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.invalid")
+    _git(repo, "config", "user.name", "test")
+    (repo / "a.txt").write_text("a", encoding="utf-8")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-q", "-m", "init")
+
+    devdag.ensure_local_exclude(repo)
+    devdag.ensure_local_exclude(repo)  # 幂等：不重复追加
+
+    exclude = devdag._git_dir(repo) / "info" / "exclude"
+    assert exclude.read_text(encoding="utf-8").count(devdag._LOCAL_EXCLUDE_ENTRY) == 1
+    (repo / devdag.WORKTREE_SUBDIR / "1" / "src").mkdir(parents=True)
+    (repo / devdag.WORKTREE_SUBDIR / "1" / "src" / "app.tsx").write_text("x", encoding="utf-8")
+    # 只挡 worktree 那一格：需求文档（``docs/需求图谱``）是同目录里要进仓的事实源。
+    # 逐项列（``--untracked-files=all``）而不是看默认输出 —— git 会把整个未跟踪目录
+    # 折成一行 ``?? docs/``，路径名压根不出现。
+    (repo / requirements.REQ_DIR).mkdir(parents=True, exist_ok=True)
+    (repo / requirements.REQ_DIR / "设备点检记录.json").write_text("{}", encoding="utf-8")
+    status = _git(repo, "-c", "core.quotePath=false", "status", "--porcelain", "-uall")
+    assert devdag.WORKTREE_SUBDIR not in status
+    assert f"{requirements.REQ_DIR}/设备点检记录.json" in status
+    # 没碰任何被跟踪的文件，也没往仓里加规则
+    assert _git(repo, "ls-files") == "a.txt"
+
+
+def _fresh_repo(tmp_path: Path, name: str = "设备台账.txt") -> Path:
+    """tmp 目录里一个能提交的最小仓库，里面有一个中文名的文件（那两条验 git 本身的用例共用）。
+
+    作者信息就地配死 —— 不读部署机的 ``~/.gitconfig``，否则换台机器（或 CI 容器里
+    没有 user.email）就报「请告诉我你是谁」。文件名故意是中文：这一单的任务名就是
+    中文，路径能不能原样回显正是这两条要问的事。
+    """
+    repo = tmp_path / "ws"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.invalid")
+    _git(repo, "config", "user.name", "test")
+    (repo / name).write_text("基线版本\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    return repo
+
+
+def test_worktree_add_reuses_an_existing_branch_without_reading_git_words(
+    tmp_path: Path, monkeypatch
+):
+    """续跑同一轮：分支已经在，``-b`` 那条必然失败，直接检出那一条必须顶上。
+
+    真 git，因为这一条验的就是 git 自己的现场 —— 替身只会重复代码里写着的结论。
+
+    判据是**退出码**，不是 git 那句话。这台机器的 ``LANG=zh_CN.utf8``，实测
+    ``worktree add -b`` 撞见已有分支回的是 ``fatal: 一个名为 'dev/x' 的分支已经存在``。
+    旧写法 ``if "already exists" in out`` 在英文 CI 上过、在中文部署机上永远不成立，
+    于是「目录被清掉了、分支还在，点重试」这一类续跑 100% 报「建 worktree 失败」。
+    所以这条故意注入中文 locale：它验的正是「git 换任何一门语言说话，续跑照样起得来」。
+
+    现场是「目录没了但分支还在」，不是「同一个分支开两个目录」—— 后者 git 直接拒
+    （``already used by worktree at ...``，一条分支同时只能有一个检出），那是 git 的
+    规矩不是本模块该绕的东西。真失败也照样要报：给一个不存在的基点，两条命令都不成。
+    """
+    monkeypatch.setenv("LC_ALL", "zh_CN.UTF-8")
+    repo = _fresh_repo(tmp_path)
+    first = repo / devdag.WORKTREE_SUBDIR / "1"
+    devdag.worktree_add(repo, first, "dev/x", "HEAD")
+    assert devdag.worktree_list(repo)[str(first)] == "dev/x"
+
+    # 现场被清掉（人手工删的、或上一轮收掉了 worktree），分支留在仓里
+    devdag.worktree_remove(repo, first)
+    assert str(first) not in devdag.worktree_list(repo)
+
+    second = repo / devdag.WORKTREE_SUBDIR / "2"
+    devdag.worktree_add(repo, second, "dev/x", "HEAD")  # 旧写法在这里抛
+    assert devdag.worktree_list(repo)[str(second)] == "dev/x"
+
+    # 真失败：基点不存在，两条命令都不会成 —— 报的是 git 原文（给人看，不参与判断）
+    with pytest.raises(devdag.GitOpError):
+        devdag.worktree_add(repo, repo / devdag.WORKTREE_SUBDIR / "3", "dev/y", "no-such-base")
+
+
+def test_conflict_names_survive_a_chinese_locale_and_a_chinese_filename(
+    tmp_path: Path, monkeypatch
+):
+    """冲突文件名单要原样可读：不 parse 报错文案，中文路径不被转成八进制。
+
+    merge 的输出按 locale 换语言（本机实测「冲突（添加/添加）：合并冲突于 f.txt」），
+    从里面正则抓文件名会在任何非英文机器上抓空；所以名单来自
+    ``diff --name-only --diff-filter=U``。而这条命令默认把非 ASCII 路径转义，实测
+    ``设备台账.txt`` 出来是 ``"\\350\\256\\276..."`` —— 看板上那句「合并冲突：<文件>」
+    就等于没写。两处都得对，故三条断言都在。locale 用中文，且这条**故意**用中文。
+
+    两条线必须**真的分叉**才谈得上冲突：先开 worktree，再让主目录和分支各改同一个
+    文件一次。只动分支那一边，``merge --no-ff`` 只是补一个合并节点，不冲突（第一版
+    就把顺序写反了，于是 ``pytest.raises`` 收不到异常）。
+    """
+    monkeypatch.setenv("LC_ALL", "zh_CN.UTF-8")
+    name = "设备台账.txt"
+    repo = _fresh_repo(tmp_path, name)
+    # worktree 开在仓库**外面**：开在里面 git 会当它是嵌入式仓库并提示 submodule
+    other = tmp_path / "wt"
+    devdag.worktree_add(repo, other, "dev/conflict", "HEAD")
+
+    (repo / name).write_text("主目录这一版\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "main touched it")
+    (other / name).write_text("任务这一版\n", encoding="utf-8")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "the branch touched it too")
+
+    with pytest.raises(devdag.GitOpError) as got:
+        devdag.worktree_merge(repo, "dev/conflict", "设备点检记录:api")
+    assert got.value.conflict_files == (name,)
+    assert name in str(got.value)
+    # 主目录退回合并之前：不留半合并状态给别人（下一个节点的 merge 会撞上去）
+    assert _git(repo, "status", "--porcelain") == ""
+
+
+@pytest.mark.asyncio
+async def test_two_pages_dispatch_both_api_nodes_at_once(ws: Path, monkeypatch):
+    """并行度 2 + 两页四节点：第一轮同时派出两个 api 节点，各占一个目录。
+
+    节点 1 和 3 是两页的 api（互不依赖），2 和 4 是各自的 web。两个 gate 各自按住
+    一个会话，所以「同时」不是调度器碰巧跑得快，而是它在两个会话都没结束的时候
+    就把两个都派了出去。三件事叠在一起才成立：两个会话都被派出、它们的 cwd 是
+    **两条不同**的路径、而第三个节点在两个 gate 放开之前根本没开始。少断一条都会
+    放过一种假并行：只看调用列表会放过串行，只看路径不同会放过「串行但换了目录」。
+    """
+    h = _par_harness(ws, monkeypatch)
+    api_slots = (SLOT_NAMES[0], SLOT_NAMES[2])
+    h.gates = {slot: asyncio.Event() for slot in api_slots}
+
+    await h.run.start(PAGES)
+    await _wait_until("both api sessions dispatched", lambda: len(h.calls) >= 2)
+
+    mid = h.run.get()
+    assert sorted(key for key, _ in h.calls) == sorted(api_slots)
+    assert [n["state"] for n in mid["nodes"]] == ["running", "queued", "running", "queued"]
+    # 会话的 cwd 就是它自己的工作区，两条不同路径（07 §四-1 的实测路径口径）
+    cwds = {slot: str(h.state._slots[slot].project) for slot in api_slots}
+    assert cwds[api_slots[0]] != cwds[api_slots[1]]
+    assert sorted(cwds.values()) == sorted(
+        [str(devdag.worktree_path(ws, 0)), str(devdag.worktree_path(ws, 2))]
+    )
+    # 看板上的进行中节点看得见这个目录（前端 testid 的数据源）
+    by_key = _nodes_by_key(mid)
+    assert by_key[IDS[0]]["worktree"] == str(devdag.worktree_path(ws, 0))
+    assert by_key[IDS[2]]["worktree"] == str(devdag.worktree_path(ws, 2))
+    assert by_key[IDS[0]]["branch"] == devdag.branch_name(IDS[0])
+    # 都从主目录当时的 HEAD 拉的
+    assert [b for _p, _b, b in h.worktrees.added] == ["c0", "c0"]
+    # 第二棵树不会把主目录搞脏，靠的是开工前先补那一条本地忽略
+    assert h.worktrees.excludes == 2
+    # 没跑的那两个还没有目录
+    assert h.run._data()["nodes"][1]["worktree"] == ""
+
+    for slot in api_slots:
+        h.gates[slot].set()
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert [n["state"] for n in dag["nodes"]] == ["done"] * 4
+    # 一个任务一个合并（--no-ff：看板上第几行 = git 图里第几个合并）
+    assert sorted(b for b, _k in h.worktrees.merged) == sorted(devdag.branch_name(k) for k in IDS)
+    # 每次合并都在串行闸里面：git 的 index 只容得下一个写者，两个并行节点同时
+    # merge 只有一个能成，另一个会撞 index.lock 被判失败（替身不报这个错，所以
+    # 只能直接问那把闸当时是不是锁着的）
+    assert len(h.worktrees.lock_held_at_merge) == 4
+    assert all(h.worktrees.lock_held_at_merge)
+    # 合干净了就收掉（07 §四-4：不许目录爆炸，条目数 ≤ 并行度峰值）
+    assert sorted(h.worktrees.removed) == sorted(str(devdag.worktree_path(ws, i)) for i in range(4))
+    for node in dag["nodes"]:
+        assert node["worktree"] == ""
+        assert node["endCommit"] != node["startCommit"]
+
+
+@pytest.mark.asyncio
+async def test_a_web_node_waits_for_its_own_api_merge_then_starts_from_it(ws: Path, monkeypatch):
+    """web 节点在自己的 api **合进主目录之后**才开始，且从合并之后的 HEAD 拉。
+
+    并行度放到 4 是为了让「不等」变得可能：不守依赖的话四个节点会一起派出去，前端
+    调的接口还躺在别人的分支上。所以断的是时间线顺序，不是最终状态 —— 最终状态在
+    两种跑偏下都是一片绿。
+    """
+    h = _par_harness(ws, monkeypatch, env="4")
+    await h.run.start(PAGES)
+    await h.finish()
+
+    tl = h.worktrees.timeline
+    bases = {branch: base for _path, branch, base in h.worktrees.added}
+    # 合并落地的顺序（并行度 4 时两个 api 谁先合是调度决定的，所以不能按序号写死）
+    merge_order = [head for _branch, head in h.git.merges]
+    merged_head = dict(h.git.merges)
+    for api_index, web_index in ((0, 1), (2, 3)):
+        api_branch = devdag.branch_name(IDS[api_index])
+        # 自己那一个 api 合并之前，它的 web 会话一次都没进过 dispatch
+        assert tl.index(f"merge:{api_branch}") < tl.index(f"start:{SLOT_NAMES[web_index]}"), tl
+        # web 的 worktree 拉的是**合并之后**的主目录 HEAD，不是轮次开始那一刻的 c0
+        # —— 从 c0 拉等于在需求文档上重写，接口一行都没有。晚于自己那个 api 的合并
+        # 即可：期间若兄弟的合并也落了地，那一部分代码 web 也一起拿到，是对的。
+        base = bases[devdag.branch_name(IDS[web_index])]
+        assert base in merge_order, bases
+        assert merge_order.index(base) >= merge_order.index(merged_head[api_branch]), bases
+    # 两个 api 谁都不等谁，各自从轮次开始时的 HEAD 拉
+    assert [bases[devdag.branch_name(k)] for k in IDS[::2]] == ["c0", "c0"]
+    assert h.run.get()["runState"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_a_merge_conflict_fails_that_node_and_keeps_its_worktree(ws: Path, monkeypatch):
+    """合并冲突 → 该节点 failed，原因「合并冲突：<文件>」，worktree 留着。
+
+    先只放开那个会冲突的节点，等它判完再放开兄弟 —— 顺序不钉住的话，兄弟节点跑完
+    后循环会顺手派下一批，「后继有没有被派」就变成看调度运气了。三个后遗都断：后
+    续节点不再派（没合进去的接口，前端拿什么调）；在跑的兄弟不被取消，各归各的状
+    态；目录不回收 —— 现场就在 ``.ai-studio/wt/<序号>``，人 cd 进去看得完，而「保留
+    worktree 供人看」是派工单写死的。
+    """
+    h = _par_harness(ws, monkeypatch)
+    conflict_branch = devdag.branch_name(IDS[0])
+    h.worktrees.conflicts[conflict_branch] = ("src/api/device.ts", "src/db.ts")
+    jira = JiraSpy().install(monkeypatch)
+    h.gates = {SLOT_NAMES[0]: asyncio.Event(), SLOT_NAMES[2]: asyncio.Event()}
+
+    await h.run.start(PAGES)
+    h.gates[SLOT_NAMES[0]].set()  # the conflicting one goes first
+    await _wait_until(
+        "the conflicting node judged failed", lambda: h.run._data()["nodes"][0]["state"] == "failed"
+    )
+    h.gates[SLOT_NAMES[2]].set()
+    await h.finish()
+
+    dag = h.run.get()
+    by_key = _nodes_by_key(dag)
+    assert dag["runState"] == "failed"
+    assert by_key[IDS[0]]["state"] == "failed"
+    assert by_key[IDS[0]]["message"] == "合并冲突：src/api/device.ts、src/db.ts"
+    # 现场留着：这一格还写着路径，目录也没被回收
+    assert by_key[IDS[0]]["worktree"] == str(devdag.worktree_path(ws, 0))
+    assert str(devdag.worktree_path(ws, 0)) not in h.worktrees.removed
+    # 后继永远排不进来，一次都没派
+    assert by_key[IDS[1]]["state"] == "queued"
+    assert SLOT_NAMES[1] not in [key for key, _ in h.calls]
+    # 兄弟节点照跑完（不取消正在写代码的会话），但整轮仍是 failed
+    assert by_key[IDS[2]]["state"] == "done"
+    assert by_key[IDS[3]]["state"] == "queued"
+    # 失败的那张单子只评论、不流转成完成（Jira 里它就该还挂在「进行中」）。
+    # 断的是**那一张**的流转记录：兄弟节点跑完了，它自己的单子照流转，所以「全部
+    # transitions 里没有 done」会把正常行为也算成 bug。
+    failed_issue = by_key[IDS[0]]["jira"]
+    assert jirasync.done_state() not in [to for key, to in jira.transitions if key == failed_issue]
+    assert any("合并冲突" in text for key, text in jira.comments if key == failed_issue)
+    # 主目录没被写坏：兄弟的合并照常进得去
+    assert devdag.branch_name(IDS[2]) in [b for b, _ in h.worktrees.merged]
+
+
+@pytest.mark.asyncio
+async def test_parallel_one_runs_in_the_main_directory_with_no_worktree(ws: Path, monkeypatch):
+    """``AI_STUDIO_DEV_PARALLEL=1`` 退回串行：一个 worktree 都不建，一次跑一个。
+
+    这条是「可回退」的凭据，不是一个开关的名字。断的是**一次都没调** worktree 相
+    关函数、会话的 cwd 就是主目录、顺序回到计划顺序 —— 出问题时把环境变量设成 1
+    就能拿到改造前的行为，这比加一个「禁用并行」的开关值钱。
+    """
+    h = _par_harness(ws, monkeypatch, env="1")
+    await h.run.start(PAGES)
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert h.worktrees.added == []
+    assert h.worktrees.merged == []
+    assert h.worktrees.excludes == 0
+    assert [key for key, _ in h.calls] == SLOT_NAMES
+    for slot in h.state._slots.values():
+        assert str(slot.project) == str(ws)
+    for node in dag["nodes"]:
+        assert node["worktree"] == ""
+
+
+@pytest.mark.asyncio
+async def test_the_file_never_shows_a_node_queued_while_its_dir_is_built(ws: Path, monkeypatch):
+    """派出去就落盘 running：建 worktree 的那一刻，状态文件里它已经是 running。
+
+    要钉的是「决定派它」和「文件说它在跑」之间不许有时间差。这个差有多长不由代码
+    决定，由 ``git worktree add`` 决定 —— 真实工作区里几秒。差之内的崩溃会被
+    :meth:`get` 的孤儿改判读成什么，取决于文件里写了什么：写着 running ⇒「网关重启，
+    中断」，重试这一个节点（对）；写着 queued ⇒ 它从没开始过，可盘上已经多了一条分支
+    和一个目录（更糟，而且没人知道）。所以在**建目录的那一刻**读盘（真 git 也就是这
+    个时机），读到的必须已经是 running。
+    """
+    h = _par_harness(ws, monkeypatch)
+    h.worktrees.probe = lambda: {str(n["jiraKey"]): str(n["state"]) for n in h.run._data()["nodes"]}
+
+    await h.run.start(PAGES)
+    await h.finish()
+
+    assert len(h.worktrees.states_at_add) == 4
+    for branch, states in h.worktrees.states_at_add:
+        key = next(k for k in IDS if devdag.branch_name(k) == branch)
+        assert states[key] == "running", (branch, states)
+    assert h.run.get()["runState"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_a_second_start_cannot_slip_in_between_two_dispatches(ws: Path, monkeypatch):
+    """两个节点都在跑时再点〔开始开发〕= 409，且一个字节都没改。
+
+    互斥靠的是文件里的 ``runState=running``（:meth:`start` 读盘判的就是它），不是内存
+    里的循环对象 —— 网关重启之后内存什么都没有，文件还在。并行让这一条更值得单独测
+    一次：在跑的对象从 1 个变成 limit 个，而派工之间的窗口是新的（串行时循环全程只有
+    一个节点在跑，没有「刚派完一个还剩名额」的时刻）。挡不住的后果是两个循环、两套
+    worktree、同一个 ``.git``。
+    """
+    h = _par_harness(ws, monkeypatch)
+    h.gates = {SLOT_NAMES[0]: asyncio.Event(), SLOT_NAMES[2]: asyncio.Event()}
+    await h.run.start(PAGES)
+    await _wait_until("both api sessions dispatched", lambda: len(h.calls) >= 2)
+    before = h.run._data()
+    assert [n["state"] for n in before["nodes"]] == ["running", "queued", "running", "queued"]
+
+    with pytest.raises(devdag.DevDagError) as exc:
+        await h.run.start(PAGES)
+    assert (exc.value.code, exc.value.status) == ("run_active", 409)
+    assert h.run._data()["nodes"] == before["nodes"]
+
+    for gate in h.gates.values():
+        gate.set()
+    await h.finish()
+    assert h.run.get()["runState"] == "done"
+    # 挡下来的那一次没有留下第二个循环：一个任务一次会话，一个合并
+    assert [key for key, _ in h.calls].count(SLOT_NAMES[0]) == 1
+    assert len(h.worktrees.merged) == 4
