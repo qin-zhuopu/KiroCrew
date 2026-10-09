@@ -238,3 +238,11 @@
   （三方 test 名字集合：45 + 44 − 33 共有 = 56，无重名）——**「pytest 全绿」证明不了这个**。
   另一半：`_loop` 的冲突不是二选一，「修完自动再验收」原来挂在「每个节点跑完」后面，并行
   时那个位置等于测半份代码（不报错，只是结论对它没跑过的代码负责），要搬到整轮收口之前
+- [20261010-023549-tag-pushed-but-branch-never-published.md](20261010-023549-tag-pushed-but-branch-never-published.md) —
+  开发全绿、部署成功、`推 tag` 也没报错，个人仓 `develop` 却还是模板那一版。根因：
+  `git push origin v1` 只推那**一个引用**，远端因此「有对象、有标签、零分支」，clone
+  出来是空目录 + `remote HEAD refers to nonexistent ref`（实测）。补 `push_branch` 时又
+  撞上 `rev-parse --abbrev-ref HEAD` 在 detached 下原样回 `HEAD`（退出码 0），照字面拼
+  refspec 会在远端建一个叫 `HEAD` 的分支。教训：**「推」在 git 里是按引用的**，凡是代码
+  要给别人看的流程，收尾要验 `git ls-remote origin refs/heads/<分支>`，而不是验标签、
+  更不是验命令退出码；替身 git 复现不了这个现象，用真 git + 临时 bare 仓

@@ -32,7 +32,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from kiro_crew.apps.builtins.ai_studio.backend import accept, devserver, publish
+from kiro_crew.apps.builtins.ai_studio.backend import accept, devserver, gitpush, publish
 
 #: 端口段：正式服务器专用，和开发服务器的 6800~6999 分开，一个项目的两套
 #: 服务器可以同时活着。
@@ -639,7 +639,7 @@ class ProdServer:
         domains: tuple[str, str],
         record: dict[str, Any],
     ) -> None:
-        """三步里只有「落 running」是硬要求：打 tag / 推 tag / 记台账失败只写日志。
+        """四步里只有「落 running」是硬要求：推分支 / 打 tag / 推 tag / 记台账失败只写日志。
 
         网址已经通了，实例是真活着的。因为一个推不出去的 tag（fork 没配凭据是
         常态）把一套跑起来的正式服务器报成「部署失败」，会让人去点停止，那才是
@@ -660,6 +660,18 @@ class ProdServer:
             deployedAt=devserver.now_iso(),
         )
         self._log(f"[prod] 部署成功：https://{domains[0]}/ 版本 {version}")
+        # 先推分支，再打标签（ACP-2218）。顺序就是这一单的原因：``push origin
+        # <tag>`` 只搬那一个引用（连带对象），不搬分支引用 —— 只推过标签的个人仓里，
+        # 别人 clone 下来是一个空工作区加一句 `remote HEAD refers to nonexistent ref`。
+        # 走 :func:`gitpush.push_branch` 而不是自己拼命令：开发轮次收尾推的是同一
+        # 条规则（当前分支、不挂代理、失败只写日志），两处必须同生同死。
+        gitpush.push_branch(
+            self.ws,
+            self._log,
+            # 走自己这条 git（注入替身时一个真 git 都不跑），超时用推送那一条的
+            # 120 秒 —— 推整条分支要走远端协商，比打标签慢。
+            run=lambda argv: self._run_git(argv, timeout=gitpush.PUSH_TIMEOUT_S),
+        )
         code, out = self._run_git(
             ["tag", "-a", version, "-m", f"完整版通过验收（验收记录 {record.get('id')}）"]
         )
@@ -769,8 +781,12 @@ class ProdServer:
             state="failed", step=None, failedStep=step, message=f"{step}失败：{detail}"
         )
 
-    def _run_git(self, argv: list[str]) -> tuple[int, str]:
-        """``git -C <ws> …``。注入替身时一个真 git 都不跑。"""
+    def _run_git(self, argv: list[str], timeout: int = 60) -> tuple[int, str]:
+        """``git -C <ws> …``。注入替身时一个真 git 都不跑。
+
+        超时按命令给：打标签/推标签是本地或单引用操作，60 秒够；推整条分支要走远端
+        协商，最坏 120 秒（:data:`gitpush.PUSH_TIMEOUT_S`，两处同一个数）。
+        """
         if self._git is not None:
             return self._git(list(argv))
         try:
@@ -779,7 +795,7 @@ class ProdServer:
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=60,
+                timeout=timeout,
                 check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:

@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from kiro_crew.apps.builtins.ai_studio.backend import devplan, jirasync
+from kiro_crew.apps.builtins.ai_studio.backend import devplan, gitpush, jirasync
 
 logger = logging.getLogger(__name__)
 
@@ -1023,8 +1023,20 @@ class DevRun:
                 # 事实。此时盘上仍是 running，与串行那一版的取舍一致（见
                 # :meth:`_re_accept_after_fix`）。
                 if _round_all_done_with_fix(data):
+                    # 修复的代码先推上去，再跑那一次自动验收（ACP-2218）：验收要几分钟，
+                    # 期间网关重启会把这一轮判成中断，而已经提交的修复不该跟着一起只在
+                    # 本地存在。
+                    await self._push_branch()
                     await self._re_accept_after_fix(data)
                 self._close_run(data)
+                # 整轮 done 才推（ACP-2218）：failed 的一轮推上去的是「编译不过的
+                # develop」，而看板上明明写着失败。放在 `_close_run` **之后**而不是
+                # 之前，是因为这一推最坏要 120 秒：写在 done 之前，中途网关重启会被
+                # :meth:`get` 的孤儿判定改成一轮失败，把已经全部交付完的活重新排队。
+                # 代价是这几秒里〔开始开发〕不再被 running 挡住 —— 而推送只读对象、
+                # 不碰 index，与新轮次的合并抢不起来。
+                if data.get("runState") == "done":
+                    await self._push_branch()
                 return
             finished, running = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
             # 节点的**结局**（done/failed + 原因）由它自己落盘，循环不看它；能冒到
@@ -1060,6 +1072,33 @@ class DevRun:
         self._save(data)
         if "failed" not in states:
             self._log("no runnable node, stopping", "")
+
+    async def _push_branch(self) -> None:
+        """把工作区当前分支推上远端（ACP-2218），成不成都不改本轮结论。
+
+        推的是**主目录**：并行节点的合并全在主目录完成，节点分支上的提交只有合进来
+        之后才是这一轮的全部成果，推 worktree 里那条 ``dev/*`` 反而少一个合并节点。
+
+        放线程里跑：一次推送是子进程，最坏 120 秒（远端握手挂住），而事件循环上别的
+        轮次可能正要写状态。:func:`gitpush.push_branch` 自己从不抛，这一层兜底只为
+        「兜底的兜底」也不把已经跑完的一轮改判成失败 —— 代码在盘上，服务也在跑。
+
+        查的是模块属性（``gitpush.push_branch``，不是 self 上缓存的引用）：单测靠
+        monkeypatch 它来数「这一轮推了几次」，和 :func:`grant_trust` 同一个理由。
+        """
+        try:
+            await asyncio.to_thread(gitpush.push_branch, self.ws, self._log_push)
+        except Exception as exc:  # noqa: BLE001: 见上
+            self._log(f"push unexpected: {type(exc).__name__}: {exc}", "")
+
+    def _log_push(self, line: str) -> None:
+        """推送那一行进 ``dev-run.log``。
+
+        日志行是「时间 事件 任务 id」三段，而推送整轮一次、不属于任何节点，第三段
+        留空（:meth:`_log` 自己会把尾随空格去掉）。措辞按派工单：「推送 develop：
+        成功 / 失败：<git 原文>」，看板和日志对着读时不用换算。
+        """
+        self._log(line, "")
 
     async def _re_accept_after_fix(self, data: dict[str, Any]) -> None:
         """修复节点交付之后自动再跑一次验收（ACP-2210）。

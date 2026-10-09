@@ -145,6 +145,7 @@ class World:
         build_tail: str = "built ok",
         git_code: int = 0,
         push_code: int | None = None,
+        branch_push_code: int = 0,
         ports: FakePorts | None = None,
         gateway: FakeGateway | None = None,
         fail_release: bool = False,
@@ -171,6 +172,9 @@ class World:
         self.git_calls: list[list[str]] = []
         self.git_code = git_code
         self.push_code = git_code if push_code is None else push_code
+        # 推分支（ACP-2218）与推标签是两条 push，成败分开给：默认推分支成功，好让
+        # 「推标签被拒」那几条老断言说的还是推标签那一件事
+        self.branch_push_code = branch_push_code
         self.releases: list[dict[str, Any]] = []
         self.fail_release = fail_release
         self.ports = ports if ports is not None else FakePorts()
@@ -215,11 +219,25 @@ class World:
 
     def git(self, argv: list[str]) -> tuple[int, str]:
         self.git_calls.append(list(argv))
+        if argv[:2] == ["rev-parse", "--abbrev-ref"]:
+            # 推分支前要问一次「当前在哪个分支」（ACP-2218）。答 develop 而不是
+            # 那 40 位 sha：断言里看得见分支名，才知道推的是分支不是标签
+            return 0, "develop\n"
         if argv[0] == "rev-parse":
             return 0, HEAD + "\n"
         if argv[0] == "push":
+            if len(argv) > 2 and str(argv[2]).startswith("HEAD:"):
+                return self.branch_push_code, "branch push rejected: read-only fork"
             return self.push_code, "push rejected: remote fork has no credentials"
         return self.git_code, "" if self.git_code == 0 else "tag already exists"
+
+    def pushes(self, refspec_prefix: str = "") -> list[list[str]]:
+        """所有 ``push origin …``，可按 refspec 前缀筛（分支推的是 ``HEAD:<分支>``）。"""
+        return [
+            call
+            for call in self.git_calls
+            if call[:2] == ["push", "origin"] and " ".join(call[2:]).startswith(refspec_prefix)
+        ]
 
     def recorder(self, project_id: str, **kwargs: Any) -> dict:
         if self.fail_release:
@@ -486,7 +504,14 @@ def test_deploy_success_runs_seven_steps_in_order(ws, monkeypatch, traced):
     tag_index = world.git_verbs().index("tag")
     assert world.git_calls[tag_index][:3] == ["tag", "-a", "v1"]
     assert world.git_calls[tag_index + 1] == ["push", "origin", "v1"]
-    assert world.git_verbs().count("push") == 1
+    # 两条 push：分支（ACP-2218，refspec 是 HEAD:<当前分支>）在前，标签在后。
+    # 「先推分支再推标签」是这一单的全部原因 —— 只推标签的仓里 develop 一动不动。
+    assert world.git_verbs().count("push") == 2
+    branch_pushes = world.pushes("HEAD:")
+    tag_pushes = [c for c in world.pushes() if c not in branch_pushes]
+    assert branch_pushes == [["push", "origin", "HEAD:develop"]]
+    assert tag_pushes == [["push", "origin", "v1"]]
+    assert world.git_calls.index(branch_pushes[0]) < tag_index
     assert len(world.releases) == 1
     release = world.releases[0]
     assert release["project_id"] == "p1"
@@ -723,7 +748,29 @@ def test_tag_creation_failure_still_deploys(ws, monkeypatch):
     assert "打 tag 失败" in server.log_path.read_text(encoding="utf-8")
     # a tag that could not be created must not be pushed
     assert world.git_verbs().count("tag") == 1
-    assert world.git_verbs().count("push") == 0
+    # 只剩推分支那一条 push：标签没打成就不该推它，而分支推的是代码不是标签，
+    # 打 tag 失败与它无关（ACP-2218）
+    assert world.pushes() == [["push", "origin", "HEAD:develop"]]
+
+
+def test_branch_push_failure_keeps_the_deploy_running(ws, monkeypatch):
+    """推分支失败（远端只读、没凭据）：部署照样算成功，日志留原文。
+
+    和推标签失败同一条取舍 —— 网址已经通了。这一条断言的是**不要因为推不上代码
+    就把一套跑着的正式服务器报成失败**，那会引导人去点停止。
+    """
+    world = World(monkeypatch, branch_push_code=1)
+    world.accept(ws)
+    server = world.make(ws)
+    server.deploy()
+    assert server.status()["state"] == "running"
+    log = server.log_path.read_text(encoding="utf-8")
+    assert "推送 develop：失败" in log
+    assert "read-only fork" in log
+    # 分支没推成也不挡住打 tag：版本号是这一版的身份，与远端可达无关
+    assert world.git_verbs().count("tag") == 1
+    assert world.pushes("v1") == [["push", "origin", "v1"]]
+    assert len(world.releases) == 1
 
 
 def test_release_ledger_failure_keeps_the_deploy_running(ws, monkeypatch):

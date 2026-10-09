@@ -27,6 +27,7 @@ from kiro_crew.apps.builtins.ai_studio.backend import (
     accept,
     devdag,
     devplan,
+    gitpush,
     jirasync,
     projects,
     requirements,
@@ -1700,7 +1701,129 @@ async def test_a_fix_prompt_survives_a_restart(ws: Path, monkeypatch):
     assert ".ai-studio/accept/acc-1-1.log" in prompt
 
 
-def test_fix_limit_matches_the_boards_copy():
+@pytest.fixture(autouse=True)
+def no_real_gitpush(monkeypatch):
+    """No test here may fork a real ``git push`` (ACP-2218).
+
+    Every round that reaches ``done`` now pushes its branch, so without this the
+    pre-2218 cases would each spawn real git against a tmp directory that is not a
+    repo — a real child per test, and an answer that depends on whether the tmp
+    path happens to sit inside someone's repository (testing-conventions). The
+    default fake succeeds and records, so a test that does not care about pushing
+    still does not have to think about it; the three cases that DO care flip
+    :attr:`PushSpy.ok` or read :attr:`PushSpy.calls`.
+    """
+    spy = PushSpy()
+    monkeypatch.setattr(gitpush, "push_branch", spy)
+    return spy
+
+
+class PushSpy:
+    """``gitpush.push_branch`` as the scheduler sees it: calls counted, result chosen.
+
+    它**不复读真措辞**。早先它写的是「推送 develop：成功」，于是下面那几条断言
+    测的是「替身写了替身会写的字」—— 真模块哪天改了措辞，这里照样全绿。现在它只
+    写一个别的代码不可能产生的标记，断言因此是**管线**：传进来的那个 ``log`` 回调
+    确实落到 ``dev-run.log``。措辞本身由 ``test_ai_studio_gitpush.py`` 钉住。
+    """
+
+    def __init__(self, ok: bool = True) -> None:
+        self.ok = ok
+        self.calls: list[Path] = []
+
+    def __call__(self, ws: Path, log: Callable[[str], None]) -> bool:
+        # the workspace is the argument under test too: pushing a node's worktree
+        # instead of the main directory would ship a branch missing its merge
+        self.calls.append(Path(ws))
+        log(f"[push-spy] n={len(self.calls)} ok={self.ok}")
+        return self.ok
+
+
+@pytest.mark.asyncio
+async def test_a_finished_round_pushes_the_branch_once(ws: Path, h: Harness, no_real_gitpush):
+    """整轮 done ⇒ 推一次，推的是**主目录**，且它写的日志进了 ``dev-run.log``。
+
+    断「一次」而不是「至少一次」：每个节点跑完都推一遍会把同一个提交推 N 遍（远端
+    每次都要协商一遍 ref），而看板上看不出来。断的是 ``ws`` 而不是某个 worktree：
+    并行节点的合并全在主目录完成，推 ``dev/*`` 会少掉那个合并节点。
+    """
+    await h.run.start(PAGES)
+    await h.finish()
+
+    assert h.run.get()["runState"] == "done"
+    assert no_real_gitpush.calls == [ws]
+    assert "[push-spy] n=1 ok=True" in "\n".join(h.run.log_lines(50))
+
+
+@pytest.mark.asyncio
+async def test_a_failed_round_pushes_nothing(h: Harness, no_real_gitpush):
+    """failed ⇒ 一次都不推。
+
+    半轮代码推上去，别人 clone 下来拿到的是「编译不过的 develop」，而看板上明明写的
+    是失败。这一条也是「不推」唯一的证据：failed 的路径上没有任何别的信号会说话。
+    """
+    h.no_commit.add(SLOT_NAMES[1])
+    await h.run.start(PAGES)
+    await h.finish()
+
+    assert h.run.get()["runState"] == "failed"
+    assert no_real_gitpush.calls == []
+    assert "[push-spy]" not in "\n".join(h.run.log_lines(50))
+
+
+@pytest.mark.asyncio
+async def test_a_refused_push_does_not_change_the_round(h: Harness, no_real_gitpush):
+    """推不出去（fork 没配凭据是常态）：整轮还是 done，节点一个都不改判。
+
+    推分支是记账，不是开发本身：代码已经提交在工作区里，看板上的「完成」是 git 的
+    事实。因为远端不可达就把这一轮判失败，会让人重跑一轮已经交付完的活。
+    """
+    no_real_gitpush.ok = False
+    await h.run.start(PAGES)
+    await h.finish()
+
+    dag = h.run.get()
+    assert dag["runState"] == "done"
+    assert [n["state"] for n in dag["nodes"]] == ["done"] * 4
+    assert "[push-spy] n=1 ok=False" in "\n".join(h.run.log_lines(50))
+
+
+@pytest.mark.asyncio
+async def test_a_fix_pushes_before_the_re_acceptance(
+    h: Harness, monkeypatch, no_real_gitpush: "PushSpy"
+):
+    """修复节点跑完：先推分支，再自动验收。
+
+    顺序是这一条的全部内容，所以让验收替身在被调用的那一刻回头读日志：它跑起来时
+    日志里必须已经有那一行推送。反过来写（验收之后再推）在这里会红 —— 而那种写法
+    真的有代价：验收要几分钟，期间网关重启会把这一轮判成中断，那时已经提交的修复还
+    只活在本地。
+
+    这一轮因此推**两次**（再验收前一次、收口 done 时一次），是刻意的：前一次可能因
+    为远端抖动没成，收口那一次就是它的重试，而「已经 up-to-date」的重复推送 git 只
+    回一句话。省下它要在循环里多带一个「我推过了」的布尔，那才是新的事实来源。
+    """
+    seen_push: list[int] = []
+
+    def spy_accept(_ws: Path, _state: dict[str, Any], **_kw: Any) -> dict[str, Any]:
+        seen_push.append(len(no_real_gitpush.calls))
+        return {"id": "acc-new", "result": "passed", "voided": False}
+
+    monkeypatch.setattr(accept, "run_accept", spy_accept)
+    await h.run.start(PAGES)
+    await h.finish()
+    assert len(no_real_gitpush.calls) == 1  # the plain round pushed once
+
+    await h.run.fix(failed_record())
+    await h.finish()
+
+    # 验收那一刻已经推过（1 = 普通轮那一次，2 = 修复后这一次；0 才是修好了没推）
+    assert seen_push == [2], "re-acceptance ran before the fix was pushed"
+    assert len(no_real_gitpush.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_fix_limit_matches_the_boards_copy():
     # the board hides its button at the same number the backend refuses at; a
     # drifted constant here is a click that 409s, which is what the notice says
     assert devdag.FIX_LIMIT == 3
