@@ -298,15 +298,13 @@ describe('graph loop row (real workbench vs demo, T7)', () => {
     expect(api.getGraph).not.toHaveBeenCalled()
   })
 
-  it('the dev tab offers the real gate-driven run row and 开始开发 calls the api (T7 step 4)', async () => {
+  it('the real dev tab is the development board, not the unwired gate loop (ACP-2085 实战-4)', async () => {
     const user = userEvent.setup()
     renderAt('/workspaces/p1/ai-studio')
     await screen.findByTestId('ai-studio')
     await user.click(await screen.findByRole('tab', { name: 'Dev' }))
-    await screen.findByTestId('dev-loop-panel')
-    expect(api.listDevRuns).toHaveBeenCalledWith('p1')
-    await user.click(screen.getByTestId('dev-start-btn'))
-    await waitFor(() => expect(api.startDevRun).toHaveBeenCalledWith('p1', 'v1'))
+    expect(await screen.findByTestId('ai-studio-dev-dag-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('dev-loop-panel')).not.toBeInTheDocument()
   })
 
   it('a dev frame shows its snapshot run, not the real loop row', async () => {

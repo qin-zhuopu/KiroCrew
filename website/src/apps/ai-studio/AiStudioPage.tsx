@@ -48,6 +48,7 @@ import type { StateSnapshot } from './demo/states'
 import ReleaseJobPage from './ReleaseJobPage'
 import DevRunPanel, { RunPreviewScreen } from './DevRunView'
 import DemoEntryButton from './DemoEntryButton'
+import DevDagPanel from './DevDagPanel'
 import { studioApi, StudioApiError, type StudioDoc } from './studioApi'
 
 // The demo surface (steps, fixtures, overlay, fake) loads ONLY on the
@@ -711,7 +712,11 @@ export function StudioWorkspace({ projectId, demoStates = false }: {
               // as bgdd gate stages through the backend. Real workbench only
               // (a demo frame passes `dev` instead, and its fake throws on
               // the real calls anyway).
-              devLoop={demoStates ? undefined : (
+              // ACP-2085（实战-4 卡点）：真实工作台的「开发」页签 = 开发看板（拆任务→每任务一个
+              // 助手会话→验收）。旧的 bgdd 四关面板在本实例没接线，只会显示「not wired」并
+              // 让用户点一个永远没反应的〔开始开发〕，所以不再挂在这里。
+              devBoard={demoStates ? undefined : <DevDagPanel projectId={projectId} />}
+              devLoop={undefined && (
                 <DevLoopPanel
                   projectId={projectId}
                   api={studioApi}
