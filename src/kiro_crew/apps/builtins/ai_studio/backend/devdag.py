@@ -35,11 +35,12 @@ import os
 import re
 import subprocess
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
-from kiro_crew.apps.builtins.ai_studio.backend import devplan, gitpush, jirasync
+from kiro_crew.apps.builtins.ai_studio.backend import devplan, gitpush, jirasync, requirements
 
 logger = logging.getLogger(__name__)
 
@@ -114,11 +115,22 @@ def worktree_path(ws: Path, index: int) -> Path:
 
 
 class GitOpError(Exception):
-    """一条 git 命令没办成，带 git 自己那句话（原文，看板/日志照抄）。"""
+    """一条 git 命令没办成，带 git 自己那句话（原文，看板/日志照抄）。
 
-    def __init__(self, message: str, conflict_files: tuple[str, ...] = ()) -> None:
+    ``advice`` 是给看板的**结论句**（ACP-2227 第 3 条）：git 那句原文在「未跟踪文件
+    会被合并覆盖」这一类现场里是没法照着做的 —— 它按 locale 换语言、路径还可能被转成
+    八进制，而且只说「会被覆盖」不说该先做什么。有 advice 时看板写它，没有才退回原文。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        conflict_files: tuple[str, ...] = (),
+        advice: str = "",
+    ) -> None:
         super().__init__(message)
         self.conflict_files = conflict_files
+        self.advice = advice
 
 
 def _git_run(repo: Path, args: list[str], timeout: int = 120) -> tuple[int, str]:
@@ -194,6 +206,113 @@ def ensure_local_exclude(repo: Path) -> None:
         logger.warning("ai-studio could not write .git/info/exclude", exc_info=True)
 
 
+#: 开发前快照的提交说明（ACP-2227）。写成 ``docs(需求图谱)`` 是为了在 ``git log``
+#: 里和助手写的代码提交一眼分得开：这一条不是交付物，是「平台在开工前把人已经
+#: 写好、但助手从没见过的需求文件钉成一个提交」。
+SNAPSHOT_MESSAGE = "docs(需求图谱): 开发前快照"
+
+
+def snapshot_requirements(
+    repo: Path, run: Callable[[list[str]], tuple[int, str]] | None = None
+) -> tuple[bool, str]:
+    """开工前把主目录里需求文件的改动提交掉，回 ``(有没有坏, 坏时的原文)``。
+
+    为什么必须有这一条（实战二号卡点，2026-10-10 的 sbjh）：写需求助手把
+    ``docs/需求图谱/<页>.json/.md`` **写在主目录里但不提交**，而 ACP-2207 的并行
+    副本是从 ``HEAD`` 拉的 —— 未跟踪的文件不在任何提交里，于是副本里根本没有这两
+    个文件。开发助手看不见需求，只能自己再造一份，两边各写一份同名文件；合回主目
+    录时 git 报「未跟踪的工作区文件将被合并覆盖」，节点判「合并冲突」，重试一次还是
+    同样撞墙（冲突的是文件存在性，不是内容，重试多少次都存在）。
+
+    三条 git，一条比一条窄：
+
+    * ``add -- <需求目录>``：**带路径限定制**，不是 ``add -A``。主目录里同时躺着开
+      发助手留下的别的改动（半截代码、日志），把它们一起提交进「需求快照」等于让平
+      台替人做一次他没见过也没批准的提交，而且提交说明在骗人。目录不存在时这条会
+      报「路径规格未匹配任何文件」—— 那是新工作区还没写需求的正常空态，不算坏，
+      所以下一条用 ``diff --cached`` 判断，不猜这句话。
+    * ``diff --cached --name-only -- <需求目录>``：空就是没改动，**直接返回，不提交**。
+      没改动还提交一次，等于每点一次〔开始开发〕就在历史里塞一个空提交。
+    * ``commit -m <说明> -- <需求目录>``：再一次带路径限制，兜住「add 之后又有人往
+      索引里塞了别的东西」。不加 ``--no-verify``：走正常提交检查是这一单的硬要求，
+      钩子拒了就是拒了，把钩子绕过去只是让下一个人在他自己的机器上撞同一堵墙。
+
+    ``run`` 是跑 git 的那一条（同 :func:`gitpush.push_branch` 的口径）：默认走
+    :func:`_git_run`，单测传替身 —— 这一层要断的是「先提交、再建副本」的顺序和「提
+    交失败不起副本」，用真 git 就得在 tmp 里造一整个仓，而报出来的失败会先像 git 的
+    坏消息，不像调度的坏消息。
+    """
+    runner = run if run is not None else (lambda args: _git_run(repo, args))
+    req = requirements.REQ_DIR
+    code, out = runner(["add", "--", req])
+    if code != 0:
+        # 目录还不存在（新工作区一条需求都没写）不是坏：那时索引里必然没有该路径的
+        # 改动，下一条的名单是空的，这一条就当作「没得提交」放过去。判据是退出码加
+        # 「索引里到底有没有东西」，不是 git 那句话 —— 本机 LANG=zh_CN.utf8，它说中文。
+        _, staged_now = runner(["diff", "--cached", "--name-only", "--", req])
+        if not staged_now.strip() and not _has_requirement_files(repo):
+            return True, ""
+        return False, _git_failure("add", out)
+    code, staged = runner(["diff", "--cached", "--name-only", "--", req])
+    if code != 0:
+        return False, _git_failure("diff --cached", staged)
+    if not staged.strip():
+        return True, ""
+    code, out = runner(["commit", "-m", SNAPSHOT_MESSAGE, "--", req])
+    if code != 0:
+        return False, _git_failure("commit", out)
+    return True, ""
+
+
+def _has_requirement_files(repo: Path) -> bool:
+    """需求目录里有没有文件（存在且非空）。
+
+    只给上面那条「``add`` 失败了但到底是为什么」用：目录在、里面有文件、``add`` 还
+    是失败，那是真坏了（权限、index.lock、被别的进程锁住），必须报；目录根本不存在
+    才是「还没写需求」。判存在用文件系统而不是 git —— 未跟踪的目录在 git 眼里本来
+    就不存在，这一问的对象是磁盘。
+    """
+    try:
+        return any((Path(repo) / requirements.REQ_DIR).glob("*"))
+    except OSError:
+        return True
+
+
+def _untracked_blockers(
+    repo: Path, branch: str, run: Callable[[list[str]], tuple[int, str]] | None = None
+) -> tuple[str, ...]:
+    """这条分支要带进来的文件里，哪些在主目录是**未跟踪**的（合并必被它们挡下）。
+
+    ``git merge`` 撞上这种文件的回话是按 locale 换语言的，而它给出的文件名还会被
+    ``core.quotePath`` 转成八进制（这两条本模块前面各踩过一次）。所以不听它说什么，
+    自己算交集：主目录的未跟踪名单（``ls-files --others --exclude-standard``）∩
+    这条分支改动的文件名单。两个都是纯数据命令，配 ``-c core.quotePath=false`` 原样
+    输出中文路径。
+
+    基线取 ``merge-base``：分支相对共同祖先改了什么，才是「合并会往主目录放什么」。
+    任何一步读不出来就回空元组 —— 这是一个**给更好坏消息**的辅助判断，它自己坏了不
+    许把一次正常的合并改成失败（真正的挡路还是 git 自己拒，那时退回原来的「合并冲突
+    ：<git 原文>」写法）。
+    """
+    runner = run if run is not None else (lambda args: _git_run(repo, args))
+    code, out = runner(["merge-base", "HEAD", branch])
+    base = out.strip().splitlines()[0].strip() if code == 0 and out.strip() else ""
+    if not base:
+        return ()
+    code, others = runner(
+        ["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"]
+    )
+    if code != 0:
+        return ()
+    untracked = {line.strip() for line in others.splitlines() if line.strip()}
+    if not untracked:
+        return ()
+    code, changed = runner(["-c", "core.quotePath=false", "diff", "--name-only", base, branch])
+    if code != 0:
+        return ()
+    return tuple(f for f in (line.strip() for line in changed.splitlines()) if f in untracked)
+
+
 def worktree_add(repo: Path, path: Path, branch: str, base: str) -> None:
     """从 ``base``（主目录当前 HEAD）拉出 ``branch``，检出到 ``path``。
 
@@ -250,15 +369,25 @@ def worktree_reusable(repo: Path, path: Path, branch: str) -> bool:
     return worktree_list(repo).get(str(path)) == branch
 
 
-def worktree_abort(repo: Path) -> None:
-    """把主目录退回合并之前的样子（``git merge --abort``，失败不抛）。"""
+def worktree_abort(repo: Path, run: Callable[[list[str]], tuple[int, str]] | None = None) -> None:
+    """把主目录退回合并之前的样子（``git merge --abort``，失败不抛）。
+
+    ``run`` 同 :func:`worktree_merge`：合并失败之后紧接着就是这一条，替身用例若只
+    换掉 merge 那一条，这里照样会 fork 真 git（在 tmp 目录里它只会报「不是仓库」，
+    但那是一次真子进程，测试不允许）。
+    """
     try:
-        _git_run(repo, ["merge", "--abort"], timeout=60)
+        if run is None:
+            _git_run(repo, ["merge", "--abort"], timeout=60)
+        else:
+            run(["merge", "--abort"])
     except GitOpError as exc:
         logger.warning("ai-studio merge abort failed: %s", exc)
 
 
-def worktree_merge(repo: Path, branch: str, label: str) -> None:
+def worktree_merge(
+    repo: Path, branch: str, label: str, run: Callable[[list[str]], tuple[int, str]] | None = None
+) -> None:
     """在**主目录**里 ``merge --no-ff <branch>``。
 
     ``--no-ff`` 是这一单的形态而非形式：一个任务一个合并节点，看板上第 3 行对应
@@ -271,6 +400,17 @@ def worktree_merge(repo: Path, branch: str, label: str) -> None:
     ``-c core.quotePath=false``：模板的页名是中文，默认输出会把「设备台账.txt」变成
     ``"\\350\\256\\276\\345\\244\\207..."``，实测过 —— 人看到八进制就等于没看到文件名。
 
+    ``run`` 是跑 git 的那一条（同 :func:`snapshot_requirements`）：真 git 用例照默认
+    走，替身用例传一个假的，好用**非 git 的 tmp 目录**去验那句建议的措辞 —— 否则那
+    条断言就得先造一整个仓，而它要看的只是一句话怎么写。
+
+    **但「没成」不一定「冲突」**（ACP-2227 第 3 条）。主目录里有未跟踪文件、而这
+    条分支恰好新建了同路径的文件时，git 连合并都不开始，回一句「未跟踪的工作区文件
+    将被合并覆盖」，此时 ``--diff-filter=U`` 是**空的** —— 于是看板上一路写成「合并
+    冲突：git」这种既没名字也没出路的句子，人重试多少次都是同一堵墙（实战二号卡点
+    就是这么失败的）。所以失败之后自己算一遍交集（:func:`_untracked_blockers`），
+    算出来就把文件名和建议写进 ``advice``。
+
     冲突之后**把主目录 abort 回原样**，这是刻意反着「留在冲突态更直观」的直觉做的：
     主目录是这一轮唯一的公共目录，停在半合并状态时〔预览〕端看到的是两个任务混在
     一起的代码、下一个节点的 ``merge`` 会撞一句看不出所以然的「concluded your
@@ -278,17 +418,26 @@ def worktree_merge(repo: Path, branch: str, label: str) -> None:
     在原地**（``.ai-studio/wt/<序号>``），人 ``cd`` 进去 ``git log``/``git diff``
     看得完，而「保留 worktree 供人看」正是这一单写死的那句话。
     """
-    rc, out = _git_run(repo, ["merge", "--no-ff", "-m", f"Merge {branch} ({label})", branch])
+    runner = run if run is not None else (lambda args: _git_run(repo, args))
+    # 取名单那一条原先是 30 秒（纯本地读，等满就是仓库被锁），不因为多了一个注入点
+    # 就悄悄跟着 merge 的 120 秒走。
+    listed_get = run if run is not None else (lambda args: _git_run(repo, args, timeout=30))
+    rc, out = runner(["merge", "--no-ff", "-m", f"Merge {branch} ({label})", branch])
     if rc == 0:
         return
-    _, listed = _git_run(
-        repo,
-        ["-c", "core.quotePath=false", "diff", "--name-only", "--diff-filter=U"],
-        timeout=30,
-    )
+    _, listed = listed_get(["-c", "core.quotePath=false", "diff", "--name-only", "--diff-filter=U"])
     conflict = tuple(f for f in listed.splitlines() if f.strip())
-    worktree_abort(repo)
-    raise GitOpError(_git_failure("merge", out), conflict)
+    # 三个下游调用都接同一个 run：None 时各自走自己那条带超时的默认路径（abort 原先
+    # 是 60 秒，不能因为多了注入点就悄悄换成 120），传了才复用替身。
+    blockers = () if conflict else _untracked_blockers(repo, branch, run)
+    worktree_abort(repo, run)
+    advice = ""
+    if blockers:
+        advice = (
+            f"主目录有未跟踪文件会被这次合并覆盖：{'、'.join(blockers)}。"
+            "请先在主目录 git add 这些文件并提交，再点〔从失败处继续〕"
+        )
+    raise GitOpError(_git_failure("merge", out), conflict, advice)
 
 
 def worktree_remove(repo: Path, path: Path) -> None:
@@ -537,6 +686,9 @@ class DevRun:
             self._git_at = git_head
         self._clock = clock if clock is not None else time.time
         self._loop_task: asyncio.Task[Any] | None = None
+        # 「文件已经写着 running，但循环任务还没建出来」这段窗口的闸门，语义见
+        # :meth:`_latch`。它不是状态的一部分：不落盘、不进快照，进程内一次性。
+        self._starting = False
         # 合并串行化：两个并行节点同时成功时会在同一个 `.git` 上各合一次，而 git 的
         # index.lock 只容得下一个。谁先合无所谓，一起冲上去只会让第二个报错失败。
         self._merge_lock = asyncio.Lock()
@@ -749,6 +901,26 @@ class DevRun:
         if err:
             self._log(f"jira void transition failed {key}: {err}", key)
 
+    async def _snapshot_or_reason(self) -> str:
+        """开工前那一次需求快照；成了回空串，坏了回那句给人看的原因（ACP-2227）。
+
+        放线程里跑：三条 git 是子进程，事件循环上这会儿可能正有另一轮在写状态。
+
+        **只回话，不写盘、不抛** —— 成不成之后怎么办是两个调用方的事，它们站的位置
+        不一样（见 :meth:`start` 与 :meth:`fix` 里各自那段注释）。把「写 failed」焊进
+        这里，等于替 ``fix`` 也做了一个它不该做的决定。
+
+        日志两个调用方都要，所以只有这一条留在这里。一行一条是 :meth:`_log` 的格式
+        约定（``log_lines`` 按行取尾巴），而 git 的原文最多 5 行 —— 压成一行，中间用
+        ``|`` 分开，别让一次事件在日志里占五行，那会让人以为发生了五件事。
+        """
+        ok, detail = await asyncio.to_thread(snapshot_requirements, self.ws)
+        if ok:
+            return ""
+        message = f"需求快照提交失败：{detail}"
+        self._log("snapshot failed: " + " | ".join(message.splitlines()), "")
+        return message
+
     async def start(self, pages: list[str]) -> dict[str, Any]:
         """起一轮（或从失败处续跑），立即返回 ``{"runId","phase"}``。
 
@@ -810,6 +982,10 @@ class DevRun:
         data = {
             "runId": run_id,
             "phase": PHASE,
+            # 先写 running 再做快照提交：这一条是**故意的顺序**。快照是子进程，最坏
+            # 要几十秒（钩子在跑），期间文件若还不是 running，第二个〔开始开发〕就能
+            # 挤进来开出第二个循环；而快照失败时下面会把它改回 failed，那一档对孤儿
+            # 判定和看板都是老实的（`get` 只在「循环不在了」时才改判 running）。
             "runState": "running",
             "startedAt": _iso(self._clock()),
             "graphHashes": hashes,
@@ -818,9 +994,41 @@ class DevRun:
         parent = str(current.get("jiraParent") or self.project.get("jiraParent") or "")
         if parent:
             data["jiraParent"] = parent
-        _write(_state_path(self.ws), data)
-        self._log(f"start phase={PHASE} resumed={resume_plan} nodes={len(nodes)}", "")
-        self._loop_task = asyncio.create_task(self._run_safe())
+        # 需求快照（派工单第 1 步：start / 从失败处继续 都算「一轮开发开始之前」）。
+        # 放在**闸门之内**：快照是子进程（钩子在跑，几秒到几十秒），若把闸门（写
+        # ``running``）留在它后面，就是往原本几毫秒的「读盘 → 写盘」窗口里塞进一次子
+        # 进程，第二次点〔开始开发〕会读到还不是 running，于是同一个工作区上长出两个
+        # 循环、两套 worktree、同一个 ``.git``。
+        #
+        # 坏了判 failed 并抛，两件事都做，因为它们是两个人在看：文件是唯一真相（看板刷
+        # 新、别人 ``GET dev/dag``、重启后的孤儿判定读的都是它），而抛出去的那句让**点
+        # 下这一刀的人**当场看见原因 —— 只落盘的话，按钮转一圈什么都没发生，看板上一
+        # 格「失败」加零个失败节点，没人知道为什么。抛之前先落盘，顺序不能反：路由翻成
+        # HTTP 之后前端会立刻重读一次 ``dev/dag``，盘上还是旧状态会把刚写的失败盖回去。
+        #
+        # 判 failed 而不是回滚（与 :meth:`fix` 相反）：这一档没有「只有 done 才进得来」
+        # 的前提，〔从失败处继续〕就是为它留的出路 —— 人把需求文件提交掉再点一次，就是
+        # 这条出路。起了副本才是坏选择：副本里没有需求，几个助手在各自动不动自己的目录
+        # 里重想一遍同一页，最后炸成几行「合并冲突」，那时没人想得到根因是一次没成功的
+        # 提交。
+        #
+        # 整段圈进 _latch：从写下 running 的那一秒起，到循环任务存在为止。这一头漏下去
+        # 的 bug 长得最不像 bug —— 看板每 3 秒轮询一次 ``GET dev/dag``，轮询落进这段窗
+        # 口，:meth:`get` 就认定「文件说 running，可这个进程没有循环」，判成孤儿、写回
+        # failed、日志留一句「网关重启，中断」。于是每轮开发都有「快照耗时 ÷ 3 秒」的
+        # 概率被自己的看板掐死，报的还是压根没发生过的重启。改动前这段只有几微秒（写盘
+        # 到 create_task 之间没有 await），所以缺陷一直潜伏着，是快照把它变成现实的。
+        async with self._latch():
+            _write(_state_path(self.ws), data)
+            refused = await self._snapshot_or_reason()
+            if refused:
+                data["runState"] = "failed"
+                data["message"] = refused
+                self._save(data)
+                raise DevDagError(refused, "snapshot_failed", 500)
+            self._log(f"start phase={PHASE} resumed={resume_plan} nodes={len(nodes)}", "")
+            # 清 _starting 与这一行之间**不能有 await**，见 _latch 的文档。
+            self._loop_task = asyncio.create_task(self._run_safe())
         return {"runId": run_id, "phase": PHASE}
 
     # ── 修（ACP-2210）──
@@ -850,56 +1058,98 @@ class DevRun:
         if ordinal > FIX_LIMIT:
             raise DevDagError(f"already fixed {FIX_LIMIT} times without passing", "fix_limit", 409)
 
-        nodes = [dict(n) for n in prior]
-        node: dict[str, Any] = {
-            "jiraKey": f"fix:{ordinal}",
-            "title": f"修复验收失败（第 {ordinal} 次）",
-            "kind": "fix",
-            "dependsOn": [],
-            "state": "queued",
-            "slotKey": "",
-            "startCommit": "",
-            "endCommit": "",
-            "message": "",
-            # 失败命令与 log 路径存进节点，不只在提示词里用一次：中断之后重启，
-            # 提示词得能从盘上重新算出来，否则「网关重启 → 继续」会发一句没有
-            # 失败证据的修复提示，助手只能自己猜哪条命令红了。
-            "acceptCmds": [
-                {"id": str(r.get("id") or ""), "logPath": str(r.get("logPath") or "")}
-                for r in (accept_record.get("results") or [])
-                if isinstance(r, dict) and not r.get("ok")
-            ],
-            "jira": "",
-        }
-        nodes.append(node)
+        # 需求快照（ACP-2227）。人改需求最常见的时机就是验收红了之后 ——「测试要的字
+        # 段我没写进去」，而那些改动照样只躺在主目录里；不钉成提交，这一次修复的助手拿
+        # 的还是同一份缺文件的副本，而它面对的正是「代码和测试谁也不认谁」。
+        #
+        # 位置在两难里挑出来的，两个都不肯让：
+        #
+        # * **要在建 Jira 单之前**。先建单再快照，快照一坏就留下一张没人会去做的子单挂
+        #   在父单下，比留一个坏消息脏得多。
+        # * **也要在闸门之内**。这一档的前提是整轮 ``done``，而快照是子进程（钩子在跑，
+        #   几秒到几十秒）。若把闸门（写 ``running``）放在快照之后，就是往原本几毫秒的
+        #   「读盘 → 写盘」窗口里塞进一次子进程 —— 第二次点〔修复〕会读到还是 ``done``，
+        #   于是同一个工作区上长出两个循环、两张 Jira 子单。所以先落 ``running`` 占住闸
+        #   门，再跑快照。
+        #
+        # 于是失败必须**回滚**而不是判 failed：``fix`` 只接受 ``done``，把 done 改写成
+        # failed 会同时毁掉「这一轮已经交付完」这个事实和〔修复〕按钮本身 —— 唯一正确
+        # 的出路（人把需求文件提交了、再点一次修复）就被永久锁死，只能整轮重跑。回滚到
+        # 原样 = 这一次点击从未发生过，那句话由 HTTP 回到点按钮的人眼前。
+        #
+        # 剩下一条残余如实记下：网关正好死在快照那几秒里，文件停在 ``running``，重启后
+        # :meth:`get` 的孤儿判定会把这一轮改成 ``failed``（〔修复〕因此不再可用，得走
+        # 〔开始开发〕续跑）。窗口是秒级，且那一档说的是「有个东西确实没跑完」，不算谎。
+        # 整段圈进 _latch，**不是**只圈快照那一步。写下 ``running`` 的那一刻起，文件就
+        # 在说「这一轮在跑」，而循环任务要等建 Jira 单之后才存在 —— 中间隔着两次 await
+        # （快照 + 建单，各是秒级子进程/网络请求），看板的 3 秒轮询随时可能落进来，把
+        # 这一轮判成「网关重启，中断」并写回文件（见 :meth:`_loop_alive`）。改动前这段
+        # 窗口不存在：``done`` 不参与孤儿判定，而 Jira 建单之前文件里根本没有 ``running``
+        # —— 是这次为快照加闸门，才把这段窗口造出来的。
+        async with self._latch():
+            guard = self._data()
+            guard["runState"] = "running"
+            self._save(guard)
+            refused = await self._snapshot_or_reason()
+            if refused:
+                rolled = self._data()
+                rolled["runState"] = str(current.get("runState") or "done")
+                self._save(rolled)
+                raise DevDagError(refused, "snapshot_failed", 500)
 
-        run_id = f"dev-{int(self._clock())}-{os.getpid()}"
-        data = {
-            "runId": run_id,
-            "phase": PHASE,
-            "runState": "running",
-            "startedAt": _iso(self._clock()),
-            "graphHashes": (
-                current.get("graphHashes") if isinstance(current.get("graphHashes"), dict) else {}
-            ),
-            "nodes": nodes,
-        }
-        parent = str(current.get("jiraParent") or self.project.get("jiraParent") or "")
-        if parent:
-            data["jiraParent"] = parent
-            # 建单在起循环之前：和普通节点不同，修复节点这张单是一次性的记账，而
-            # _run_node 那条路只**流转**已有号的节点（它假设号是 plan 建的）。放在
-            # 这里才能沿用同一个父单，且建单失败的原因写在节点上而不是只留在日志里。
-            created, err = await self._jira(
-                "create_task_checked", str(parent), node["title"], self._jira_code()
-            )
-            node["jira"] = str(created or "")
-            if err:
-                node["jiraError"] = err
-        node["jiraUrl"] = jirasync.browse_url(node["jira"]) if node["jira"] else ""
-        _write(_state_path(self.ws), data)
-        self._log(f"fix start ordinal={ordinal} record={accept_record.get('id') or '-'}", "")
-        self._loop_task = asyncio.create_task(self._run_safe())
+            nodes = [dict(n) for n in prior]
+            node: dict[str, Any] = {
+                "jiraKey": f"fix:{ordinal}",
+                "title": f"修复验收失败（第 {ordinal} 次）",
+                "kind": "fix",
+                "dependsOn": [],
+                "state": "queued",
+                "slotKey": "",
+                "startCommit": "",
+                "endCommit": "",
+                "message": "",
+                # 失败命令与 log 路径存进节点，不只在提示词里用一次：中断之后重启，
+                # 提示词得能从盘上重新算出来，否则「网关重启 → 继续」会发一句没有
+                # 失败证据的修复提示，助手只能自己猜哪条命令红了。
+                "acceptCmds": [
+                    {"id": str(r.get("id") or ""), "logPath": str(r.get("logPath") or "")}
+                    for r in (accept_record.get("results") or [])
+                    if isinstance(r, dict) and not r.get("ok")
+                ],
+                "jira": "",
+            }
+            nodes.append(node)
+
+            run_id = f"dev-{int(self._clock())}-{os.getpid()}"
+            data = {
+                "runId": run_id,
+                "phase": PHASE,
+                "runState": "running",
+                "startedAt": _iso(self._clock()),
+                "graphHashes": (
+                    current.get("graphHashes")
+                    if isinstance(current.get("graphHashes"), dict)
+                    else {}
+                ),
+                "nodes": nodes,
+            }
+            parent = str(current.get("jiraParent") or self.project.get("jiraParent") or "")
+            if parent:
+                data["jiraParent"] = parent
+                # 建单在起循环之前：和普通节点不同，修复节点这张单是一次性的记账，而
+                # _run_node 那条路只**流转**已有号的节点（它假设号是 plan 建的）。放在
+                # 这里才能沿用同一个父单，且建单失败的原因写在节点上而不是只留在日志里。
+                created, err = await self._jira(
+                    "create_task_checked", str(parent), node["title"], self._jira_code()
+                )
+                node["jira"] = str(created or "")
+                if err:
+                    node["jiraError"] = err
+            node["jiraUrl"] = jirasync.browse_url(node["jira"]) if node["jira"] else ""
+            _write(_state_path(self.ws), data)
+            self._log(f"fix start ordinal={ordinal} record={accept_record.get('id') or '-'}", "")
+            # 清 _starting 与这一行之间**不能有 await**，见 _latch 的文档。
+            self._loop_task = asyncio.create_task(self._run_safe())
         return {"runId": run_id, "phase": PHASE}
 
     def fix_attempts(self) -> int:
@@ -941,7 +1191,43 @@ class DevRun:
         data["runState"] = run_state
         self._save(data)
 
+    @asynccontextmanager
+    async def _latch(self) -> AsyncIterator[None]:
+        """圈住「文件已经写着 running，但循环任务还没建出来」这段窗口。
+
+        用法：``async with self._latch():`` 包住「快照 → create_task」这一段。里面
+        的 await 期间 :meth:`_loop_alive` 保持为真，所以并发的 :meth:`get` 不会把
+        这一轮判成孤儿；出了这个块，``_starting`` 一定已经清掉。
+
+        用上下文管理器而不是两处手写 ``= True`` / ``= False``，是为了**快照抛异常时也
+        要清**。抛的时候块里的 ``raise DevDagError`` 会先经 ``finally`` 清标志，再照常
+        往路由上传；忘清一次就是永久后果：``_starting`` 永远为真 → :meth:`get` 永远不
+        做孤儿判定 → 下一次网关重启留下的每一份 ``running`` 都再也判不掉，看板上永远
+        转圈。而这种「再也不会红」的坏法没有任何报错，只有一个人对着转圈的看板发愁。
+        一个 ``finally`` 比一条纪律可靠。
+        """
+        self._starting = True
+        try:
+            yield
+        finally:
+            self._starting = False
+
     def _loop_alive(self) -> bool:
+        """这个进程现在**拥有**这一轮吗（循环在跑，或者正要跑）。
+
+        ``_starting`` 那一半是 ACP-2227 加的必要条件，不是装饰：需求快照是子进程，它
+        站在「文件已经写着 running」和「循环任务建出来了」中间，把原本几毫秒的窗口拉
+        到秒级。而 :meth:`get` 的孤儿判据正是「文件说 running，但这个进程没有循环」——
+        看板那 3 秒一次的轮询只要落进这段窗口，就会把这一轮判成「网关重启，中断」并
+        **写回文件**，紧接着循环起来读到的就是自己刚被判的 failed，于是一个节点都不派、
+        整轮空转收场。没有任何报错，看板上只有一句来历不明的中断。
+
+        所以「拥有」必须是 starting 或 running 两者之一。清 ``_starting`` 与
+        ``create_task`` 之间没有 await（见 :meth:`_latch` 的用法），因此不存在两边都
+        false 的那一瞬间。
+        """
+        if self._starting:
+            return True
         return self._loop_task is not None and not self._loop_task.done()
 
     def _crash(self, where: str) -> None:
@@ -1268,6 +1554,9 @@ class DevRun:
         冲突的写法照派工单：该节点 failed，message「合并冲突：<文件>」。**worktree
         留着**（只 ``merge --abort`` 回干净树）—— 现场就在 ``.ai-studio/wt/<序号>``，
         人 cd 进去就能看这一条到底改了些什么；自动收干净等于把现场抹了。
+
+        ``exc.advice`` 优先于「合并冲突：<文件>」：那种失败根本不是冲突（未跟踪文件
+        挡路，git 连合都没开始），照冲突的模板写出来是一句假结论。
         """
         key = str(node.get("jiraKey") or "")
         async with self._merge_lock:
@@ -1276,7 +1565,7 @@ class DevRun:
             except GitOpError as exc:
                 files = "、".join(exc.conflict_files) or str(exc)
                 self._log(f"merge conflict files={len(exc.conflict_files)}", key)
-                await self._set_failed(data, node, f"合并冲突：{files}")
+                await self._set_failed(data, node, exc.advice or f"合并冲突：{files}")
                 return False
         # 合并提交是这一条任务真正的交付物（分支上的提交在主目录的历史里看不全），
         # 所以 ``endCommit`` 改成合并之后的 HEAD —— 看板上这一行显示的提交，就是

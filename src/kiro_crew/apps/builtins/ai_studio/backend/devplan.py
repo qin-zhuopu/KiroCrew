@@ -58,11 +58,13 @@ def task_prompt(page: str, kind: str, ws: Path | None = None) -> str:
     # ACP-2211：开发 Agent 与写需求 Agent 成对。工作区带 page-developer.md 时，规矩全在那份
     # 文件里，这里只说「先读它」+ 这次的活，不再在提示语里重复一遍规矩（两处写必然漂移）。
     if ws is not None and (ws / AGENT_FILE).is_file():
-        return "\n".join([
-            f"先完整读 {AGENT_FILE}，之后完全按它工作。",
-            f"这次的活：{label}，页面「{page}」。",
-            "最后一句只回复：完成 或 失败：<原因>。",
-        ])
+        return "\n".join(
+            [
+                f"先完整读 {AGENT_FILE}，之后完全按它工作。",
+                f"这次的活：{label}，页面「{page}」。",
+                "最后一句只回复：完成 或 失败：<原因>。",
+            ]
+        )
     lines = [
         f"你在这个工作区里开发「{page}」页面的{label}。",
         f"只看 {requirements.REQ_DIR}/{page}.md（需求文档）和 {requirements.REQ_DIR}/{page}.json"
