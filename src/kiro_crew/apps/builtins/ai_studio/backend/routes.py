@@ -879,7 +879,25 @@ def _resolve_dev_pages(ws: Path, raw_pages: Any) -> list[str]:
                 422,
             )
         return pages
-    return [page for page, entry in by_page.items() if entry.get("verdict") in DEV_READY_VERDICTS]
+    return [
+        page
+        for page, entry in by_page.items()
+        if entry.get("verdict") in DEV_READY_VERDICTS and page not in baseline_pages(ws)
+    ]
+
+
+#: 复制模板时就已经在的需求页 = 模板里**已经做好的页面**（它们的需求文档描述的是现状）。
+#: 不点名时「拆分任务 / 开始开发」只拿新需求，不许把这些页重做一遍（2026-10-09 实战：
+#: 不点名拆出了全部 21 页 42 个任务，第一个就去改模板现有的 AI场景台账）。
+BASELINE_FILE = ".ai-studio/baseline-pages.json"
+
+
+def baseline_pages(ws: Path) -> set[str]:
+    try:
+        data = json.loads((ws / BASELINE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return {str(p) for p in data} if isinstance(data, list) else set()
 
 
 async def _handle_dev_plan(request: web.Request) -> web.StreamResponse:

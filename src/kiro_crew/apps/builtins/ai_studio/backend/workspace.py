@@ -440,6 +440,7 @@ class WorkspaceJob:
         target = data.get("target")
         if isinstance(target, str) and target:
             fields["workspaceDir"] = target
+            write_baseline_pages(Path(target))
         repo = data.get("personalRepo")
         # 真 jc 输出的是对象 {project,name,url,status}（2026-10-09 实测）；也认字符串
         if isinstance(repo, dict):
@@ -521,6 +522,20 @@ class WorkspaceJob:
             self._fail(steps, index, str(exc))
             raise
         _mark(steps, index, STEP_DONE, None)
+
+
+def write_baseline_pages(ws: Path) -> None:
+    """记下复制模板时已有的需求页（= 模板里已经做好的页面）。开发不点名时跳过它们。
+    已有记录就不覆盖（重试不能把用户后来新写的页也算进去）。"""
+    path = ws / ".ai-studio" / "baseline-pages.json"
+    if path.exists():
+        return
+    try:
+        pages = sorted(p.stem for p in (ws / "docs" / "需求图谱").glob("*.json"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(pages, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        logger.warning("ai-studio baseline pages write failed for %s", ws, exc_info=True)
 
 
 def push_cmd(ws: Path, template: str | None = None) -> list[str]:

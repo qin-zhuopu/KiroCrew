@@ -837,3 +837,22 @@ def test_repo_url_read_from_real_jc_envelope_shape(home):
     _create()
     workspace.WorkspaceJob("sbgl", runner=FakeDerive(data=data), pusher=FakePush(), devserver_factory=FakeDevServers()).run()
     assert _record("sbgl")["repoUrl"] == "https://h/scm/~14409/sbgl.git"
+
+
+
+def test_template_pages_are_baseline_and_skipped_when_dev_names_no_pages(tmp_path, monkeypatch):
+    # 实战：不点名拆出了模板全部 21 页；复制时已有的页是做好的，只开发新页
+    from kiro_crew.apps.builtins.ai_studio.backend import requirements, routes
+
+    req = tmp_path / "docs" / "需求图谱"
+    req.mkdir(parents=True)
+    (req / "报价单.json").write_text("{}")
+    workspace.write_baseline_pages(tmp_path)
+    (req / "设备清单.json").write_text("{}")
+    workspace.write_baseline_pages(tmp_path)  # 已有记录不覆盖
+    assert routes.baseline_pages(tmp_path) == {"报价单"}
+
+    monkeypatch.setattr(requirements, "list_pages", lambda ws: [
+        {"page": "报价单", "verdict": "全齐"}, {"page": "设备清单", "verdict": "全齐"}])
+    assert routes._resolve_dev_pages(tmp_path, None) == ["设备清单"]
+    assert routes._resolve_dev_pages(tmp_path, ["报价单"]) == ["报价单"]  # 点名照做
