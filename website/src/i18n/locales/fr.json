@@ -550,7 +550,7 @@
         "advisory_title": "Contrôles qualité (informatifs uniquement)",
         "advisory_title_strict": "Contrôles qualité (bloquants)",
         "advisory_count": "{{n}} élément(s)",
-        "gate_ac_coverage": "Critères d’acceptation des exigences couverts par des tests",
+        "gate_ac_coverage": "Critères de recette des exigences couverts par des tests",
         "gate_weakened_tests": "Tests non affaiblis ce cycle",
         "gate_lint": "Style de code (lint)",
         "gate_schema_requirements": "Colonnes de la base alignées sur les champs des exigences",
