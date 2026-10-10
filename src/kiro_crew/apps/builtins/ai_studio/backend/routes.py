@@ -838,7 +838,7 @@ def _dev_run_for(project_id: str, record: dict[str, Any], ws: Path, state: Any) 
 async def _dev_target(
     request: web.Request,
 ) -> tuple[devdag.DevRun, dict[str, Any], Path] | web.Response:
-    # Shared prologue for the six dev/accept routes: the project must exist,
+    # Shared prologue for the seven dev/accept routes: the project must exist,
     # its workspace must resolve (that is where .ai-studio/ lives), and the
     # dashboard state must be reachable — a dev task IS a chat session, so
     # without it there is nothing to open one on.
@@ -1037,6 +1037,29 @@ async def _handle_accept_records(request: web.Request) -> web.StreamResponse:
     _run, _record, ws = target
     records = await asyncio.to_thread(accept.list_records, ws)
     return web.json_response({"records": records})
+
+
+async def _handle_accept_fix(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/accept/fix: hand a FAILED acceptance back to the
+    # assistant (ACP-2210). The record is whatever the board's own read says is
+    # newest (list_records is newest-first) rather than an id from the body:
+    # the UI has exactly one candidate in view, and taking an id would let a
+    # stale tab "fix" a record the operator has since re-run.
+    target = await _dev_target(request)
+    if isinstance(target, web.Response):
+        return target
+    run, _record, ws = target
+    records = await asyncio.to_thread(accept.list_records, ws)
+    if not records:
+        return _error("no acceptance record to fix", "nothing_to_fix", 409)
+    try:
+        result = await run.fix(records[0])
+    except devdag.DevDagError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    except OSError as exc:
+        logger.exception("ai-studio accept fix start failed")
+        return _error(f"could not start the fix run: {exc}", "dev_run_write_failed", 503)
+    return web.json_response(result, status=202)
 
 
 async def _prod_server_target(request: web.Request) -> prodserver.ProdServer | web.Response:
@@ -1243,6 +1266,10 @@ def register_routes(app: web.Application) -> None:
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/accept/run",
         _require_enabled(_handle_accept_run),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/accept/fix",
+        _require_enabled(_handle_accept_fix),
     )
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/accept/records",

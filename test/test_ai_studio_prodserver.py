@@ -145,13 +145,18 @@ class World:
         build_tail: str = "built ok",
         git_code: int = 0,
         push_code: int | None = None,
+        branch_push_code: int = 0,
         ports: FakePorts | None = None,
         gateway: FakeGateway | None = None,
         fail_release: bool = False,
         real_ledger: bool = False,
+        head: str = HEAD,
     ) -> None:
         self.block: Park | None = None
         self.real_ledger = real_ledger
+        # 工作区当前的提交。版本号沿用与否看它（ACP-2219），所以「换了代码再部署」
+        # 那种用例改这个数 + 补一条对得上它的验收记录，而不是另造一套假 git
+        self.head = head
         # inline = the seven steps run inside deploy(). Only the test that needs a
         # deploy still in flight clears it, and then parks it in the build step.
         self.inline = True
@@ -171,6 +176,9 @@ class World:
         self.git_calls: list[list[str]] = []
         self.git_code = git_code
         self.push_code = git_code if push_code is None else push_code
+        # 推分支（ACP-2218）与推标签是两条 push，成败分开给：默认推分支成功，好让
+        # 「推标签被拒」那几条老断言说的还是推标签那一件事
+        self.branch_push_code = branch_push_code
         self.releases: list[dict[str, Any]] = []
         self.fail_release = fail_release
         self.ports = ports if ports is not None else FakePorts()
@@ -215,11 +223,25 @@ class World:
 
     def git(self, argv: list[str]) -> tuple[int, str]:
         self.git_calls.append(list(argv))
+        if argv[:2] == ["rev-parse", "--abbrev-ref"]:
+            # 推分支前要问一次「当前在哪个分支」（ACP-2218）。答 develop 而不是
+            # 那 40 位 sha：断言里看得见分支名，才知道推的是分支不是标签
+            return 0, "develop\n"
         if argv[0] == "rev-parse":
-            return 0, HEAD + "\n"
+            return 0, self.head + "\n"
         if argv[0] == "push":
+            if len(argv) > 2 and str(argv[2]).startswith("HEAD:"):
+                return self.branch_push_code, "branch push rejected: read-only fork"
             return self.push_code, "push rejected: remote fork has no credentials"
         return self.git_code, "" if self.git_code == 0 else "tag already exists"
+
+    def pushes(self, refspec_prefix: str = "") -> list[list[str]]:
+        """所有 ``push origin …``，可按 refspec 前缀筛（分支推的是 ``HEAD:<分支>``）。"""
+        return [
+            call
+            for call in self.git_calls
+            if call[:2] == ["push", "origin"] and " ".join(call[2:]).startswith(refspec_prefix)
+        ]
 
     def recorder(self, project_id: str, **kwargs: Any) -> dict:
         if self.fail_release:
@@ -253,11 +275,11 @@ class World:
         world = self
 
         class SyncServer(prodserver.ProdServer):
-            def _start_deploy(self, generation, label, domains, record) -> None:
+            def _start_deploy(self, generation, label, domains, record, reuse_version) -> None:
                 if world.inline:
-                    self._deploy(generation, label, domains, record)
+                    self._deploy(generation, label, domains, record, reuse_version)
                 else:
-                    super()._start_deploy(generation, label, domains, record)
+                    super()._start_deploy(generation, label, domains, record, reuse_version)
 
         return SyncServer
 
@@ -486,7 +508,14 @@ def test_deploy_success_runs_seven_steps_in_order(ws, monkeypatch, traced):
     tag_index = world.git_verbs().index("tag")
     assert world.git_calls[tag_index][:3] == ["tag", "-a", "v1"]
     assert world.git_calls[tag_index + 1] == ["push", "origin", "v1"]
-    assert world.git_verbs().count("push") == 1
+    # 两条 push：分支（ACP-2218，refspec 是 HEAD:<当前分支>）在前，标签在后。
+    # 「先推分支再推标签」是这一单的全部原因 —— 只推标签的仓里 develop 一动不动。
+    assert world.git_verbs().count("push") == 2
+    branch_pushes = world.pushes("HEAD:")
+    tag_pushes = [c for c in world.pushes() if c not in branch_pushes]
+    assert branch_pushes == [["push", "origin", "HEAD:develop"]]
+    assert tag_pushes == [["push", "origin", "v1"]]
+    assert world.git_calls.index(branch_pushes[0]) < tag_index
     assert len(world.releases) == 1
     release = world.releases[0]
     assert release["project_id"] == "p1"
@@ -550,6 +579,12 @@ def test_second_deploy_stops_the_old_one_and_bumps_version(home, ws, monkeypatch
     ops_before = len(world.gateway.ops)
     assert old_ports and conf in world.gateway.written
 
+    # 第二次部署前先换提交：同一份代码重复点部署不升版（ACP-2219，见
+    # test_redeploying_the_same_head_keeps_the_version），这条要的是「代码变了才
+    # 升版」，所以 HEAD 与新验收记录都得挪
+    world.head = "b" * 40
+    world.accept(ws, id="acc-2", at="2026-10-10T00:00:00Z", commitHash=world.head)
+
     world.spawned.clear()
     second = server.deploy()
     assert second["version"] == "v2"
@@ -589,8 +624,10 @@ def test_version_counts_the_release_ledger(ws, monkeypatch, home):
     assert server.deploy()["version"] == "v1"  # empty ledger
     publish.record_release(
         project["id"],
+        # 另一份代码的记录（不是 HEAD）：同提交的最新记录会被**沿用**版本号
+        # （ACP-2219），这条测的是「新提交按台账条数 +1」，两件事别搅在一起
         version="v1",
-        commit_hash=HEAD,
+        commit_hash="b" * 40,
         form="full",
         requirement_version="req-3",
         jira_task_ids=[],
@@ -598,6 +635,83 @@ def test_version_counts_the_release_ledger(ws, monkeypatch, home):
         deployment_id="dep-test",
     )
     world.spawned.clear()
+    assert server.deploy()["version"] == "v2"
+
+
+def test_redeploying_the_same_head_keeps_the_version(home, ws, monkeypatch):
+    """同一份代码重复点部署：沿用版本号、不打 tag、不新增记录，实例照常重启。
+
+    实战（ACP-2219）：设备管理同一份代码连点 5 次，v3~v7 五个标签五条台账。用户点
+    〔重新部署〕要的是重启，不是给同一份代码发一个新身份。台账用真的
+    （``real_ledger``）：「没多记一条」只有对着真存储断言才算数，假计数器怎么接都过。
+    """
+    from kiro_crew.apps.builtins.ai_studio.backend import publish
+
+    world = World(monkeypatch, real_ledger=True)
+    project = projects.create_project("equipment", "", code="eqp")
+    _point_workspace_at(project["id"], ws)
+    world.accept(ws)
+    server = world.make(ws, project)
+    assert server.deploy()["version"] == "v1"
+    old_pids = [c["pid"] for c in world.spawned]
+
+    world.spawned.clear()
+    second = server.deploy()
+    assert second["state"] == "running"
+    assert second["version"] == "v1"
+    assert second["versionUrl"] == f"https://v1-{STABLE}/"
+    assert second["commit"] == HEAD
+    # 台账一条、tag 一个、标签推一次 —— 这一单的全部内容
+    assert [r["version"] for r in publish.list_release_records(project["id"])] == ["v1"]
+    assert [r["version"] for r in world.releases] == ["v1"]
+    assert world.git_verbs().count("tag") == 1
+    assert world.pushes("v1") == [["push", "origin", "v1"]]
+    # 实例是真重启的：旧进程组被信号杀过，这次起的两个孩子 pid 全新
+    for pid in old_pids:
+        assert (pid, devserver.platform_compat.SIGTERM) in world.signals
+    assert len(world.spawned) == 2
+    assert {c["pid"] for c in world.spawned}.isdisjoint(old_pids)
+    log = server.log_path.read_text(encoding="utf-8")
+    assert "代码没变，沿用版本 v1" in log
+    # 代码没变≠代码不推：上一次的推送可能因为没凭据失败过，这次照样补一次
+    assert world.pushes("HEAD:") == [
+        ["push", "origin", "HEAD:develop"],
+        ["push", "origin", "HEAD:develop"],
+    ]
+
+    # 台账没长条数 → 换了代码是 v2 而不是 v3（否则「沿用」只是把升版往后推一格）
+    world.head = "c" * 40
+    world.accept(ws, id="acc-2", at="2026-10-10T00:00:00Z", commitHash=world.head)
+    world.spawned.clear()
+    assert server.deploy()["version"] == "v2"
+
+
+def test_a_reused_version_must_still_be_a_tag_name(home, ws, monkeypatch):
+    """台账是磁盘上的旧文件：里面一个 ``v1.0`` 不许把部署变成 400 起不来。
+
+    沿用来的版本号照样要过 :func:`prod_domains` 那道 ``v<N>`` 校验（它同时是 DNS
+    标签的守卫），照字面沿用坏值，用户拿到的是「版本号不合规：v1.0」—— 按钮一个
+    都点不动，直到有人去手改台账。退回按条数 +1：部署照常跑，代价只是这一版升个号。
+    """
+    from kiro_crew.apps.builtins.ai_studio.backend import publish
+
+    world = World(monkeypatch)
+    project = projects.create_project("equipment", "", code="eqp")
+    _point_workspace_at(project["id"], ws)
+    publish.record_release(
+        project["id"],
+        version="v1.0",
+        commit_hash=HEAD,
+        form="full",
+        requirement_version="req-3",
+        jira_task_ids=[],
+        url=f"https://{STABLE}/",
+        deployment_id="dep-legacy",
+    )
+    server = world.make(ws, {"id": project["id"], "code": "eqp"})
+    assert server._version_plan(HEAD) == ("v2", False)
+    # 真跑一遍才算数：坏台账下按钮还能点，跑起来的是 v2
+    world.accept(ws)
     assert server.deploy()["version"] == "v2"
 
 
@@ -723,7 +837,29 @@ def test_tag_creation_failure_still_deploys(ws, monkeypatch):
     assert "打 tag 失败" in server.log_path.read_text(encoding="utf-8")
     # a tag that could not be created must not be pushed
     assert world.git_verbs().count("tag") == 1
-    assert world.git_verbs().count("push") == 0
+    # 只剩推分支那一条 push：标签没打成就不该推它，而分支推的是代码不是标签，
+    # 打 tag 失败与它无关（ACP-2218）
+    assert world.pushes() == [["push", "origin", "HEAD:develop"]]
+
+
+def test_branch_push_failure_keeps_the_deploy_running(ws, monkeypatch):
+    """推分支失败（远端只读、没凭据）：部署照样算成功，日志留原文。
+
+    和推标签失败同一条取舍 —— 网址已经通了。这一条断言的是**不要因为推不上代码
+    就把一套跑着的正式服务器报成失败**，那会引导人去点停止。
+    """
+    world = World(monkeypatch, branch_push_code=1)
+    world.accept(ws)
+    server = world.make(ws)
+    server.deploy()
+    assert server.status()["state"] == "running"
+    log = server.log_path.read_text(encoding="utf-8")
+    assert "推送 develop：失败" in log
+    assert "read-only fork" in log
+    # 分支没推成也不挡住打 tag：版本号是这一版的身份，与远端可达无关
+    assert world.git_verbs().count("tag") == 1
+    assert world.pushes("v1") == [["push", "origin", "v1"]]
+    assert len(world.releases) == 1
 
 
 def test_release_ledger_failure_keeps_the_deploy_running(ws, monkeypatch):
@@ -922,6 +1058,10 @@ def test_launch_plan_ports_are_the_web_preview_port(ws, monkeypatch):
     assert web_entry["env"]["PORT"] == "7001"
     assert STABLE in web_entry["env"]["__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"]
     assert "--strictPort" in web_entry["cmd"]
+    # 实战（2026-10-10）：`pnpm --filter X preview -- --port N` 里的 `--` 会被原样传给 vite，
+    # vite 当成「参数到此为止」，于是 --port 被忽略、落到默认 4173，正式网址永远不通。
+    assert "--" not in web_entry["cmd"]
+    assert web_entry["cmd"][web_entry["cmd"].index("--port") + 1] == "7001"
 
 
 # ---------------------------------------------------------------------------

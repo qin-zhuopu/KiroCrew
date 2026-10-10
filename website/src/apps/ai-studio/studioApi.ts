@@ -550,6 +550,10 @@ export interface StudioDevNode {
   jiraUrl?: string
   /** why there is no issue, verbatim from the command */
   jiraError?: string
+  /** `'fix'` on a node the platform appended after a FAILED acceptance
+   * (ACP-2210). Absent on a task the split built: the board must be able to tell
+   * the two apart without parsing `jiraKey`, because 「已修 N 次」 counts these. */
+  kind?: string
 }
 
 /** `GET …/dev/dag` — the whole board in one read. */
@@ -571,11 +575,35 @@ export interface StudioAcceptResult {
   id: string
   ok: boolean
   tail: string
+  /** the command's FULL output, written under the workspace (ACP-2210). The
+   * board shows the 40-line 尾巴 because a failing tsc runs to thousands of
+   * lines; this is the path the 让助手修复 prompt hands the assistant instead of
+   * pasting them. Optional because records written before that change have none. */
+  logPath?: string
+}
+
+/** One quality gate's outcome (ACP-2226). `ok` is the gate's own verdict, which
+ * the record's `result` may legitimately ignore — see `strict`. `missing` is the
+ * items it wants a human to look at (uncovered AC ids, weakened test files,
+ * absent columns), and `detail` carries the one-line explanation for the gates
+ * that report in prose (「工作区没有 lint 脚本」). */
+export interface StudioAcceptAdvisory {
+  id: string
+  ok: boolean
+  missing?: unknown[]
+  detail?: string
+  skipped?: boolean
+  /** this gate can report but never blocks, even under strict (ACP-2226 §5) */
+  advisoryOnly?: boolean
 }
 
 /** One acceptance record (`POST …/accept/run`). `voided` is always present and
  * always false in this version: 07 §三 B4 requires the field to EXIST so a
- * downstream reader never guesses at a missing default. */
+ * downstream reader never guesses at a missing default.
+ *
+ * `advisory` / `strict` / `skippedCmds` are additive (ACP-2226) and OPTIONAL in
+ * the type: a record written before that change has none of them, and the board
+ * must render those exactly as it did. */
 export interface StudioAcceptRecord {
   id: string
   phase: string
@@ -585,6 +613,11 @@ export interface StudioAcceptRecord {
   requirementVersion: string
   commitHash: string
   at: string
+  advisory?: StudioAcceptAdvisory[]
+  /** whether the advisory rows were allowed to fail the record */
+  strict?: boolean
+  /** commands held back by a switch, e.g. a `kind: "e2e"` run */
+  skippedCmds?: string[]
 }
 
 export type StudioDevBoardApi = {
@@ -602,6 +635,13 @@ export type StudioDevBoardApi = {
   /** 409 `dev_not_done` until every node is done; 201 with the new record. */
   runAccept: (id: string) => Promise<{ record: StudioAcceptRecord }>
   listAcceptRecords: (id: string) => Promise<{ records: StudioAcceptRecord[] }>
+  /** 〔让助手修复〕 (ACP-2210): schedule a fix node for the NEWEST acceptance
+   * record and run it; the platform re-runs acceptance by itself once that node
+   * lands, so the caller only refreshes the board. Same 202-as-scheduled contract
+   * as `startDev`. 409 `nothing_to_fix` (round not `done`, or that record did not
+   * fail) and 409 `fix_limit` (three repairs already) are the refusals the UI
+   * pre-empts by not offering the button at all. */
+  fixAccept: (id: string) => Promise<{ runId: string; phase: string }>
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,4 +1104,9 @@ export const devBoardApi: StudioDevBoardApi = {
     ),
   listAcceptRecords: (id: string) =>
     request<{ records: StudioAcceptRecord[] }>(`/projects/${encodeURIComponent(id)}/accept/records`),
+  fixAccept: (id: string) =>
+    request<{ runId: string; phase: string }>(
+      `/projects/${encodeURIComponent(id)}/accept/fix`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
 }

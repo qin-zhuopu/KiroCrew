@@ -10,6 +10,10 @@
 状态文件读写 / 代号-工号规则），一份逻辑只有一份。真要复用必须改 devserver 的，
 只把它的私有函数提成公开名，行为一字不改。
 
+版本号也不由人填（= 发布记录条数 + 1），但**同一份代码重复点部署不许升版**：
+本次 HEAD 与最新那条发布记录同提交时沿用它的版本号，不打新 tag、不新增记录，
+实例照常重启（ACP-2219，用户点〔重新部署〕要的就是重启）。
+
 事实源是工作区里的 ``.ai-studio/prod-server.json``（部署 id、pid、端口、网址、
 版本、提交号、部署时间），日志 ``.ai-studio/prod-server.log``，正式数据库放在
 ``.ai-studio/prod/app.db``（与工作区的开发库分开）。
@@ -32,7 +36,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from kiro_crew.apps.builtins.ai_studio.backend import accept, devserver, publish
+from kiro_crew.apps.builtins.ai_studio.backend import accept, devserver, gitpush, publish
 
 #: 端口段：正式服务器专用，和开发服务器的 6800~6999 分开，一个项目的两套
 #: 服务器可以同时活着。
@@ -212,7 +216,7 @@ def launch_plan(ws: Path, web_port: int, api_port: int, domains: tuple[str, str]
                     "--filter",
                     "@webapp-template/web",
                     "preview",
-                    "--",
+                    # 不要 `--`：pnpm 会把它原样交给 vite，vite 就不认后面的 --port（落到 4173）
                     "--port",
                     str(web_port),
                     "--strictPort",
@@ -378,10 +382,13 @@ class ProdServer:
         # 扫目录 + 跑 git）。一个没配代号的项目应该拿到 400 代号不合规，而不是
         # 先被验收闸门弹一个 409 —— 那会让人以为「补个代号就能部署」。
         staff = devserver.staff_id()
-        version = self._next_version()
+        # HEAD 读一次就够（ACP-2219）：版本号要不要沿用本次提交，和验收闸门比对的是
+        # 同一个提交，分两次读会在两次读之间被工作区里的提交劈开。
+        head = self._head()
+        version, reused = self._version_plan(head)
         domains = prod_domains(self.project, staff, version)
         label = devserver.domain_label(self.project, staff)
-        record = self._acceptance()
+        record = self._acceptance(head)
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self._generation += 1
         generation = self._generation
@@ -407,7 +414,7 @@ class ProdServer:
         )
         self._busy_gen = generation
         try:
-            self._start_deploy(generation, label, domains, record)
+            self._start_deploy(generation, label, domains, record, reused)
         except Exception as exc:
             # 连后台线程都起不来：什么都没起，退回 stopped 让人重试，不许留一条
             # 没人认领的 deploying。
@@ -426,26 +433,34 @@ class ProdServer:
         return self.status()
 
     def _start_deploy(
-        self, generation: int, label: str, domains: tuple[str, str], record: dict[str, Any]
+        self,
+        generation: int,
+        label: str,
+        domains: tuple[str, str],
+        record: dict[str, Any],
+        reuse_version: bool,
     ) -> None:
         """后台起一次部署。单测覆盖它改成同步跑，断言就不必等线程。"""
         threading.Thread(
             target=self._deploy,
-            args=(generation, label, domains, record),
+            args=(generation, label, domains, record, reuse_version),
             name=f"ai-studio-prodserver-{self.project.get('id')}",
             daemon=True,
         ).start()
 
-    def _acceptance(self) -> dict[str, Any]:
-        """最新一条验收必须「通过 + 未作废 + 之后没有新提交」。"""
+    def _acceptance(self, head: str | None = None) -> dict[str, Any]:
+        """最新一条验收必须「通过 + 未作废 + 之后没有新提交」。
+
+        ``head`` 由调用方给（同一次部署里版本号也要它），没给才自己去读。
+        """
         records = accept.list_records(self.ws)
         latest = records[0] if records else None
         if latest is None:
             raise ProdServerError(NOT_ACCEPTED, "not_accepted", 409)
         if latest.get("result") != "passed" or latest.get("voided"):
             raise ProdServerError(NOT_ACCEPTED, "not_accepted", 409)
-        head = self._head()
-        if not head or latest.get("commitHash") != head:
+        current = self._head() if head is None else head
+        if not current or latest.get("commitHash") != current:
             raise ProdServerError(NOT_ACCEPTED, "not_accepted", 409)
         return latest
 
@@ -453,15 +468,31 @@ class ProdServer:
         code, out = self._run_git(["rev-parse", "HEAD"])
         return out.strip() if code == 0 else ""
 
-    def _next_version(self) -> str:
-        """``v<N>``，N = 已发布记录条数 + 1（版本号不由人填）。"""
+    def _version_plan(self, head: str) -> tuple[str, bool]:
+        """``(这一版的版本号, 是否沿用旧版)``。
+
+        默认 ``v<N>``，N = 已发布记录条数 + 1（版本号不由人填）。**唯一例外**
+        （ACP-2219）：最新那条记录的 ``commitHash`` 就是本次 HEAD —— 代码一个字节
+        都没变，那这个版本号已经存在过（tag 打过、台账记过），再 +1 就是给同一份
+        代码发新身份：实战里同一份代码连点 5 次部署，v3~v7 五个 tag 五条记录。
+        沿用它的版本号，后面就不打 tag、不记台账。
+
+        沿用还要求那条记录的版本号本身是 ``v<N>`` 形状：台账是外部文件，一个写坏的
+        值（``v1.0``）会把后面拼域名时那次 ``bad_version`` 400 变成部署起不来。
+        """
         project_id = str(self.project.get("id") or "")
         try:
-            n = len(publish.list_release_records(project_id)) + 1
+            records = publish.list_release_records(project_id)
         except publish.PublishError:
             # 项目目录还没建好（或 id 认不出）：从 v1 起，部署本身照样能跑
-            n = 1
-        return f"v{n}"
+            return "v1", False
+        if head and records:
+            latest = records[0]
+            if latest.get("commitHash") == head:
+                version = _text(latest.get("version")).strip().lower()
+                if _VERSION_RE.match(version):
+                    return version, True
+        return f"v{len(records) + 1}", False
 
     def _deploy(
         self,
@@ -469,11 +500,13 @@ class ProdServer:
         label: str,
         domains: tuple[str, str],
         record: dict[str, Any],
+        reuse_version: bool = False,
     ) -> None:
         """七步：检查验收 → 构建 → 停旧实例 → 起后端 → 起前端 → 挂网址 → 检查网址。
 
         任一步失败就回滚**本次**新起的东西（旧实例已停的就保持停，在 message 里
-        写明），并落 failed。
+        写明），并落 failed。``reuse_version`` 是部署入口算出来的「代码没变，沿用
+        现有版本号」，一路带到成功那步。
         """
         spawned: list[dict[str, Any]] = []
         claimed: list[int] = []
@@ -524,7 +557,7 @@ class ProdServer:
                 if self._probe_ok(url):
                     if not devserver.children_alive({"procs": spawned}):
                         raise _StepError(STEP_PROBE, "进程已退出")
-                    self._succeed(generation, domains, record)
+                    self._succeed(generation, domains, record, reuse_version)
                     return
                 self._nap(devserver.PROBE_INTERVAL_S)
             raise _StepError(STEP_PROBE, f"{self._probe_timeout_s:.0f} 秒内网址没通")
@@ -616,6 +649,8 @@ class ProdServer:
                 cmd,
                 cwd=str(cwd),
                 env=env,
+                # 不继承网关的 stdin（tmux 终端）：网关一重启终端就关，vite 读到 EOF 就退出
+                stdin=subprocess.DEVNULL,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
@@ -638,12 +673,18 @@ class ProdServer:
         generation: int,
         domains: tuple[str, str],
         record: dict[str, Any],
+        reuse_version: bool = False,
     ) -> None:
-        """三步里只有「落 running」是硬要求：打 tag / 推 tag / 记台账失败只写日志。
+        """四步里只有「落 running」是硬要求：推分支 / 打 tag / 推 tag / 记台账失败只写日志。
 
         网址已经通了，实例是真活着的。因为一个推不出去的 tag（fork 没配凭据是
         常态）把一套跑起来的正式服务器报成「部署失败」，会让人去点停止，那才是
         真损失。发布记录同理：它是台账，不是服务本身。
+
+        ``reuse_version``（代码没变）时**跳过**打 tag / 推 tag / 记台账：那个版本号
+        的 tag 与记录在上一版部署里已经有了，再打一次是 ``tag already exists``，
+        再记一条就是同一份代码两条台账（ACP-2219）。推分支照旧 —— 上一次的推送
+        可能因为没凭据失败过，重启一次正好补上。
         """
         del generation  # 调用方已确认这一代没被作废；写状态前的再一次检查在 _write_state 之上
         state = self._read_state()
@@ -660,6 +701,22 @@ class ProdServer:
             deployedAt=devserver.now_iso(),
         )
         self._log(f"[prod] 部署成功：https://{domains[0]}/ 版本 {version}")
+        if reuse_version:
+            self._log(f"[prod] 代码没变，沿用版本 {version}（不打 tag、不新增发布记录）")
+        # 先推分支，再打标签（ACP-2218）。顺序就是这一单的原因：``push origin
+        # <tag>`` 只搬那一个引用（连带对象），不搬分支引用 —— 只推过标签的个人仓里，
+        # 别人 clone 下来是一个空工作区加一句 `remote HEAD refers to nonexistent ref`。
+        # 走 :func:`gitpush.push_branch` 而不是自己拼命令：开发轮次收尾推的是同一
+        # 条规则（当前分支、不挂代理、失败只写日志），两处必须同生同死。
+        gitpush.push_branch(
+            self.ws,
+            self._log,
+            # 走自己这条 git（注入替身时一个真 git 都不跑），超时用推送那一条的
+            # 120 秒 —— 推整条分支要走远端协商，比打标签慢。
+            run=lambda argv: self._run_git(argv, timeout=gitpush.PUSH_TIMEOUT_S),
+        )
+        if reuse_version:
+            return
         code, out = self._run_git(
             ["tag", "-a", version, "-m", f"完整版通过验收（验收记录 {record.get('id')}）"]
         )
@@ -769,8 +826,12 @@ class ProdServer:
             state="failed", step=None, failedStep=step, message=f"{step}失败：{detail}"
         )
 
-    def _run_git(self, argv: list[str]) -> tuple[int, str]:
-        """``git -C <ws> …``。注入替身时一个真 git 都不跑。"""
+    def _run_git(self, argv: list[str], timeout: int = 60) -> tuple[int, str]:
+        """``git -C <ws> …``。注入替身时一个真 git 都不跑。
+
+        超时按命令给：打标签/推标签是本地或单引用操作，60 秒够；推整条分支要走远端
+        协商，最坏 120 秒（:data:`gitpush.PUSH_TIMEOUT_S`，两处同一个数）。
+        """
         if self._git is not None:
             return self._git(list(argv))
         try:
@@ -779,7 +840,7 @@ class ProdServer:
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=60,
+                timeout=timeout,
                 check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:

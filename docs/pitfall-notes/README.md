@@ -185,12 +185,59 @@
   要三趟线程池往返，`asyncio.sleep(0)` 不推进时钟所以等不出来 → 有界真实时间轮询。
   附一条反面：我先给①编了个「忙等饿死 selector」的根因，探针实测把它否了 —— 根因没做
   最小复现就别写进笔记。
+- [20261009-235147-dnt-case-insensitive-and-replicated-gates.md](20261009-235147-dnt-case-insensitive-and-replicated-gates.md) —
+  预判 `git tag` 会被 `untranslated-script` 判红，实跑不红：`glossary.json` 里有 `Git`，而
+  `doNotTranslate` 剥离正则是**忽略大小写**的，小写 `git` 早被剥掉了——我按 `t === 'git'` 比才漏。
+  推论：单子里点名要防的 `App URL` 之所以命中，是因为 `App` 恰好也在表里，换个没登记的词就漏。
+  主坑是「自己复刻一份判据」：中英西意 440 条里 139 条带拉丁词，用复刻规则算出 12 条必红，
+  直接 import 仓里的 `CHECKS` 判是 **0** 条（引号嵌套、括号内英文、代码跨度都不算违规）。
+  教训：门禁在本地跑不了的语种，检查脚本必须 import 真模块 + 配反向对照（故意写坏一条必须变红）。
 - [20261009-235859-dead-proxy-tunnel-still-listens-push-hangs.md](20261009-235859-dead-proxy-tunnel-still-listens-push-hangs.md) —
   `git push` 推 fork 静默挂死几分钟：`ss` 显示 7777 在听、DNS 能解析、隧道主机 ping 得通，
   但那条 `ssh -D` 的**上游已经断了** —— 本地监听端口与上游健康是两件事，客户端连上后等一个
   永远建不起来的远端拨号，于是「连上了但一个字都不回」（`curl --max-time 8` 也会挂过 8 秒，
   因为 TCP 已连上）。判代理只认一条硬指标：拿它打真请求看状态码。修法是另开一条一次性隧道
   + `git -c http.proxy=`，不动用户那条；`-D` 转发不是立刻可用，要轮询端口。
+- [20261009-235900-i18n-check-prints-no-catalogparity-row.md](20261009-235900-i18n-check-prints-no-catalogparity-row.md) —
+  任务书让记 `i18n:check` 里 catalogParity 每语种缺几个键，可 826 行输出里这词命中 0 次：
+  它是 `src/i18n/catalogParity.test.ts`（前端测试），门禁脚本链里根本没有，最容易被误当成
+  `[key-refs]` 顶替（方向相反，语种缺键它永远绿）→ 复刻判据只度量。同单另一坑：退路写
+  「没翻译脚本就按英文原文填」，实测会被零容忍的 `changed-passthrough` 新增 **1041** 条
+  （非拉丁文种各 146 条：去噪后 ≥4 字母 ≥2 词且本族文字为 0 即判红，`"App URL"` 照抄就中）。
+  另有两条不报错的约束：语种目录键序须保持 en 的子序列（`i18n-translate.mjs merge` 会把
+  233 键的补丁炸成 7800 行重排），以及 `*Style.test.ts` 那 1474 行风格断言 `i18n:check`
+  完全不看（`qa.test.ts` 的 `edge-whitespace` 15/15、`doubled-space` 10/10 已顶格）。
+- [20261010-001858-worktree-venv-pth-imports-the-main-checkout.md](20261010-001858-worktree-venv-pth-imports-the-main-checkout.md) —
+  worktree 里的 `.venv` 是指向主仓的符号链接，其可编辑安装的 `.pth` 写死
+  `<主仓>/src`：`python -c "import kiro_crew…"` 加载的是**主仓**那份（新模块根本不在），
+  而 pytest 因为 conftest 先插本地 `src` 所以是对的 → 「主仓没有这个模块」不等于「你改坏了」，
+  判 import 归属一律走 pytest 或压住 `.pth`。附带一条：带 `{{n}}` 的文案若走
+  `NOTICE_KEY` → `i18nT(key)`（不带参数），占位符会原样印在界面上
+- [20261010-002120-i18n-parity-debt-masquerades-as-your-diff.md](20261010-002120-i18n-parity-debt-masquerades-as-your-diff.md) —
+  `catalogParity.test.ts` 12 语种全红，看着像新加的 4 条文案改坏了目录，其实 HEAD 上就红
+  （ACP-2113 欠的 233 键）。但数过才知道自己有没有让它更糟：按**同一份 en 键集**度量是
+  233 → 237（10 个语种各多缺 4），直接对各自的新 en 比会把这 4 个从「改前」扣掉，
+  得出「一条没加」的假结论。对照用新建的干净 worktree 不要 `git stash`；
+  `en-XA.json` 是 `gen-pseudolocale.mjs` 的生成物（要在 `website/` 下跑），别手写
+- [20261010-003700-inherited-green-copy-merge-red-and-the-wrong-fix.md](20261010-003700-inherited-green-copy-merge-red-and-the-wrong-fix.md) —
+  审计报告说 `destructiveConfirm` 在 main 上本来就红、本分支「丢了 9 个豁免」、合并会复活成红，
+  修法是搬回那 22 行。三点全错，同一个根因：把「本分支 en 目录没这些键」当成「测试丢了豁免」。
+  本分支**一次没碰过**该测试文件（`git diff <merge-base> HEAD --` 为空 → 合并直接取 main 那份，丢不了），
+  而照那修法会把 main 的 9 个键名搬进一个「没有这 9 个键」的目录，撞上同文件的
+  `exists in English` → 造 9 个新红。教训：**「合并会不会红」别推理，用一次性 worktree
+  `merge --no-commit` + 软链 node_modules 真跑整目录**（main 0 红 / 本分支 6 文件 16 红 /
+  合并树 8 文件 18 红）。我第一遍只跑「相关的那几个文件」、还把分支目录拷进合并结果，
+  于是报了个假数：既多出 5 条假红又藏掉 1 条真红。唯一「只在合并里红」的是
+  `localeFormatting` —— main 把 `BASELINE` 从 25 收到 16，本地绿不代表合并绿
+- [20261010-010304-audit-a-merge-in-place-black-outside-the-repo-lies.md](20261010-010304-audit-a-merge-in-place-black-outside-the-repo-lies.md) —
+  自查合并结果时把 `git show HEAD:…` 拷到 `/tmp` 跑 black，报「134 行要重排」，据此差点
+  回去重做冲突解决。假的：**black 的配置是从文件所在位置往上找 `pyproject.toml`**，拷出
+  仓库就读不到 `line-length = 100`，退回默认 88，于是每个超 88 列的签名都算违规（同一个
+  文件放回仓里再跑 = 0 行）。自查合并一律原地做：`git checkout -m -- <路径>` 重新造出冲突
+  现场，再和已提交版本 diff，才是「我对合并做的全部改动」。同一轮顺手证明两边用例没丢
+  （三方 test 名字集合：45 + 44 − 33 共有 = 56，无重名）——**「pytest 全绿」证明不了这个**。
+  另一半：`_loop` 的冲突不是二选一，「修完自动再验收」原来挂在「每个节点跑完」后面，并行
+  时那个位置等于测半份代码（不报错，只是结论对它没跑过的代码负责），要搬到整轮收口之前
 - [20261010-010657-non-latin-spelling-gate-false-acquittals.md](20261010-010657-non-latin-spelling-gate-false-acquittals.md) —
   孟加拉文真错拼（`সংস্করণ` 多一个 U+09C7）混在 43 条嫌疑里，而三道「自动判拼写对错」的门各自失效：
   词形门把正常变格报成嫌疑（打印出的码位差异是空的）；「同骨架只差一个码位」规则会把 `খোলেনি`
@@ -232,3 +279,57 @@
   去核。压缩摘要会留下数字与语义、丢掉 hash/分支/路径，而「真实回报长什么样」的先验会自动补全
   这些槽位，产出的假 hash 形态完全合法。指控别人前先跑 role 归属回溯；标识符没有命令回显就当问号。
   附带还清掉一条我自己编的「7 语种丢了 `{{name}}`」：逐字 `git show` 出来 11 个语种占位符全好。
+- [20261010-023549-tag-pushed-but-branch-never-published.md](20261010-023549-tag-pushed-but-branch-never-published.md) —
+  开发全绿、部署成功、`推 tag` 也没报错，个人仓 `develop` 却还是模板那一版。根因：
+  `git push origin v1` 只推那**一个引用**，远端因此「有对象、有标签、零分支」，clone
+  出来是空目录 + `remote HEAD refers to nonexistent ref`（实测）。补 `push_branch` 时又
+  撞上 `rev-parse --abbrev-ref HEAD` 在 detached 下原样回 `HEAD`（退出码 0），照字面拼
+  refspec 会在远端建一个叫 `HEAD` 的分支。教训：**「推」在 git 里是按引用的**，凡是代码
+  要给别人看的流程，收尾要验 `git ls-remote origin refs/heads/<分支>`，而不是验标签、
+  更不是验命令退出码；替身 git 复现不了这个现象，用真 git + 临时 bare 仓
+- [20261010-034741-same-commit-redeploy-inflated-the-version.md](20261010-034741-same-commit-redeploy-inflated-the-version.md) —
+  同一份代码连点 5 次部署，v3~v7 五个标签五条台账，全程零报错。根因：版本号是
+  「台账条数 + 1」算出来的，所以「不升版」必须同时「不记台账」，而这两件事原本分在
+  入口与成功那步两处 —— 只在成功那步加判断会自相矛盾（号已按 +1 算完，标签上一轮已打）。
+  改成入口一次决定 `(版本号, 是否沿用)` 一路带到成功那步。顺带两条：沿用的旧号要验
+  `v<N>` 形状（台账是外部文件，`v1.0` 会让部署按钮 400 点不动）；HEAD 只读一次，别和
+  验收闸门各读一遍
+- [20261010-043759-static-testid-guard-cannot-see-data-driven-ids.md](20261010-043759-static-testid-guard-cannot-see-data-driven-ids.md) —
+  静态 testid 防退化测试第一次跑红 12 条，其中三条冤枉的是对的代码。两个独立原因：
+  派工单表里 `req-verdict` 这个精确 id 从来不存在（实际是 `req-verdict-bar` 和
+  `req-verdict-${page}` 两个，只能前缀匹配）；属性正则扫不到「id 写在对象字面量里 /
+  跨组件用 prop 传」两种写法。不能改成裸子串搜索（注释里的名字会替丢掉名字的控件撑绿），
+  改成给每种形式标 `via` + 各配一条「它真接到了 DOM」的断言（〔信任会话〕那条是 `toBe(2)`，
+  因为 TrustDropdown 有单档按钮和下拉触发器两种形态）。附带一个 id 挂两个名字时别挪到
+  外层容器：`DevDagPanel.test.tsx` 在老名字上断言 `aria-selected`
+- [20261010-043930-jc-stderr-polluted-json-and-a-write-looked-like-a-failure.md](20261010-043930-jc-stderr-polluted-json-and-a-write-looked-like-a-failure.md) —
+  `jc … 2>&1 | python3 -c json.load` 报 `Expecting value: line 1 column 2`，我当成「写失败」
+  把一条不幂等的 Jira 流转重跑了一遍，第二遍才看出来第一遍已经成功（可用流转里
+  「开始进行」已消失）。根因：`jc` 把人类提示走 stderr、JSON 走 stdout，`--force` 的护栏
+  提示污染了管道；而解析失败发生在写请求之后，≠ 没写成。修法：解析 JSON 的管道不带
+  `2>&1`；非幂等写失败后先跑一条只读的 `issue get` 看它到底成了没
+- [20261010-051500-untracked-requirements-invisible-to-dev-worktrees.md](20261010-051500-untracked-requirements-invisible-to-dev-worktrees.md) —
+  写需求助手把需求文件写在主目录**不提交**，并行副本从 HEAD 拉 → 副本里根本看不见，
+  助手自己再造一份，合回来时看板四个节点各挂一句「合并冲突」却没有一个字的名字，重试
+  照旧。根因第二层才挖到：这种现场 git **连合并都不开始**，`diff --diff-filter=U` 回
+  空，本模块原来那套「从 git 拿冲突文件名」的机制彻底失灵。修法是开工前做一次带路径
+  限制的「需求快照提交」+ 失败后自己算「未跟踪 ∩ 分支新建」的交集写进 advice。教训：
+  **合并失败是一大类，冲突只是其中一种**，别指望 `--diff-filter=U` 非空；顺带一条测试
+  纪律 —— autouse 替身会把它自己那条真函数测试吃掉，要真函数得在导入时抓引用
+- [20261010-045321-gates-already-red-on-the-branch.md](20261010-045321-gates-already-red-on-the-branch.md) —
+  收尾跑门禁红两处（`tsc` 2 条 + `[manifest-sync]` 7 条），全在我没碰的文件/命名空间里。
+  归属不靠「看着不像我的」：`git log -L <行>,<行>:<文件>` 指到上游提交；typecheck 造一次
+  干净基线（`worktree add --detach HEAD` + 软链同一个 `node_modules`，跑前 `pwd` 自证）
+  实测回**同样两条**；`manifest-sync` 更省，直接 JSON 探测 HEAD 与工作树的 en.json 里
+  `apps.aiStudio.manifest` **两边都不存在**。教训：**长分支上 typecheck / i18n:check 本来就
+  是红的**，`i18n:check` 的 diff 基线默认 `origin/main` 会把整条分支的账算给你（只看自己
+  用 `I18N_BASE_REF=HEAD`），whole-repo 那几行不受它影响；**加了 `en.json` 键必须马上
+  `npm run i18n:pseudo`**，否则 hard-zero 报的是「keys 不匹配」看不出缺哪步。附带：
+  `pytest -p no:xdist` 因仓的 `addopts` 带 `-n/--dist` 直接退出码 4 一条没跑，报错只说
+  参数不认识
+- [20261010-050253-bash-hook-eats-multiline-command-bodies.md](20261010-050253-bash-hook-eats-multiline-command-bodies.md) —
+  完工评论 `jc jira issue comment … <<EOF` 连拒三次「禁止 head/tail 管道截断」，而命令里
+  根本没有管道。根因：钩子字符级扫**整条命令文本**，正文里那条门禁 JSON 样例的英文
+  「输出 tail」就是命中点——heredoc / 提交信息 / 脚本注释一样在扫。教训：**塞多行正文前先
+  自查这两个英文词**，改成中文（「输出末尾」）；带 `detail`/`snippet` 示例值时最容易中招；
+  被拒先读正文措辞，不要先改命令结构，更不要拆字符绕钩子
