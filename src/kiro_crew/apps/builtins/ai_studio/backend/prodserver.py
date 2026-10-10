@@ -432,6 +432,67 @@ class ProdServer:
         # button it just pressed).
         return self.status()
 
+    def cut_version(self) -> dict:
+        """只升版不发布（ACP-2231）：验闸门 → 推分支 → 打 tag → 推 tag → 记台账。
+
+        界面只需要〔确认需求，开始开发〕和〔确认发布〕两个按钮，后者就是
+        :meth:`deploy`，行为一字不改；这一条是给后台和命令行的细颗粒度 —— 想先把
+        版本号定下来（给测试、给验收单、给外部的人一个明确的版本），但不想把这套
+        正式服务器重启一遍。**它不碰任何进程**：不构建、不停旧、不起新的、不挂网址、
+        不写状态文件（只往日志追加）。
+
+        为什么这样就够（不必再补一条「发布时别重复升版」的逻辑）：版本号是
+        :meth:`_version_plan` 按「最新那条台账的 commit 是否等于 HEAD」决定沿用还是
+        +1 的（ACP-2219）。这一条把台账记在 HEAD 上，之后点 deploy 看到同一条记录，
+        沿用同一个版本号、不再打 tag、不再记第二条 —— 于是「先升版再发布」和
+        「直接确认发布」落到的终态完全一样（同一个版本号、一个 tag、一条台账）。
+
+        前置与 :meth:`deploy` 同一套、同一个顺序：部署在跑 → 409
+        ``already_deploying``；代号/工号不合规 → 400（先于验收，否则一个没配代号
+        的项目会被验收弹一个 409，看着像「补个验收就能升版」）；没过验收 → 409
+        ``not_accepted``。git 与台账的失败照 :meth:`_succeed` 的口径**只写日志不抛**：
+        tag 推不出去（个人仓没配凭据是常态）不该让人以为版本号没升。
+        """
+        if self.status()["state"] == "deploying":
+            raise ProdServerError("部署正在进行中", "already_deploying", 409)
+        staff = devserver.staff_id()
+        # HEAD 只读一次（同 ACP-2219 给 deploy 定的规矩）：闸门比对的是它，台账记的
+        # 也得是它，分两次读会被工作区里的一次新提交劈开 —— 闸门过了、台账记错提交，
+        # 下一次 deploy 就会当成新代码再升一版。
+        head = self._head()
+        version, reused = self._version_plan(head)
+        domains = prod_domains(self.project, staff, version)
+        record = self._acceptance(head)
+        if reused:
+            # 台账里最新那条就记在这个提交上：tag 和记录都已经存在，重打一次是
+            # ``tag already exists``，再记一条就是同一份代码两条台账（ACP-2219）。
+            self._log(f"[prod] 升版：代码没变，{version} 已经存在，什么都不做")
+            return {"version": version, "commit": head, "reused": True}
+        # 先推分支再打标签，理由与 :meth:`_succeed` 里那条一样（ACP-2218）：
+        # ``push origin <tag>`` 只搬那一个引用，只推过标签的仓 clone 出来是空工作区。
+        gitpush.push_branch(
+            self.ws,
+            self._log,
+            run=lambda argv: self._run_git(argv, timeout=gitpush.PUSH_TIMEOUT_S),
+        )
+        code, out = self._run_git(
+            ["tag", "-a", version, "-m", f"通过验收升版（验收记录 {record.get('id')}）"]
+        )
+        if code != 0:
+            self._log(f"[prod] 打 tag 失败（不影响升版）：{devserver.tail_text(out)}")
+        else:
+            code, out = self._run_git(["push", "origin", version])
+            if code != 0:
+                self._log(f"[prod] 推 tag 失败（不影响升版）：{devserver.tail_text(out)}")
+        try:
+            # ``deploymentId`` 给空串：这一条没有部署，台账里那一位本来就没有归属。
+            # 它是台账字段，不是网址也不是进程，留空比编一个假 id 诚实。
+            self._record_release(version, head, domains[0], record, {"deploymentId": ""})
+        except Exception as exc:
+            self._log(f"[prod] 发布记录没记上（不影响升版）：{exc}")
+        self._log(f"[prod] 升版：{version} @ {head[:12]}（未发布）")
+        return {"version": version, "commit": head, "reused": False}
+
     def _start_deploy(
         self,
         generation: int,

@@ -1863,6 +1863,7 @@ Examples:
 
     register_perf_parser(sub)
     register_bench_parser(sub)
+    register_studio_parser(sub)
     register_desktop_parser(sub)
 
     kn_parser = cli_help.add_command(sub, "knowledge")
@@ -3329,6 +3330,10 @@ The dashboard port is set with the KIROCREW_PORT env var, not a config key.
         rc = bench_cmd(args)
         if rc:
             raise SystemExit(rc)
+    elif args.command == "studio":
+        rc = studio_cmd(args)
+        if rc:
+            raise SystemExit(rc)
     elif args.command == "desktop":
         rc = desktop_cmd(args)
         if rc:
@@ -3386,3 +3391,4 @@ from kiro_crew.cli_setup import (  # noqa: E402, F401
     _manifest,
     _setup,
 )
+from kiro_crew.cli_studio import register_studio_parser, studio_cmd  # noqa: E402
