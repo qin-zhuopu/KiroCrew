@@ -22,7 +22,8 @@
 // same reason: its autosave-draft tier belongs to an authored doc, and silently
 // dropping it from a shared component would break the project tabs.
 //
-// The read re-runs every 5s: the graph is a file the assistant edits while the
+// The read re-runs once a minute (REQ_REFRESH_MS), and 〔刷新〕 re-reads on
+// demand: the graph is a file the assistant edits while the
 // owner is looking at this page, and the owner's whole point is that the page
 // says NOW what the graph says NOW (ACP-2085 S2 / RFC §7 B4). A new graphHash
 // therefore re-renders both the bar and the document, and while the backend is
@@ -63,6 +64,16 @@ function isStartRefusal(err: unknown): boolean {
     && (err.code === 'graph_changed' || err.code === 'not_ready')
 }
 
+/** ACP-2231: the tab's own refresh period (owner: once a minute). */
+export const REQ_REFRESH_MS = 60_000
+
+/** 「上次更新 09:12:30」 — local wall-clock time of the last successful read. */
+function hhmmss(epochMs: number): string {
+  const d = new Date(epochMs)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 export default function RequirementPage({ projectId, page, api = studioApi, onStarted }: {
   projectId: string
   /** the page name, which IS the graph file's stem in the workspace */
@@ -79,18 +90,26 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
   const [showGraph, setShowGraph] = useState(false)
   // 直改 buffer: null while the owner has typed nothing, else the Markdown they
   // typed. Holding it separately from the document is what makes "dirty" a fact
-  // rather than a guess, and what lets a 5s refresh replace the VIEW while the
+  // rather than a guess, and what lets the once-a-minute refresh replace the VIEW while the
   // unsaved edit stays put.
   const [buffer, setBuffer] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'conflict' | 'error'>('idle')
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [startState, setStartState] = useState<'idle' | 'starting' | 'requested' | 'refused'>('idle')
+  // ACP-2231: 'checking' = the click's own re-read is in flight; 'blocked' = that
+  // re-read said this page cannot start, and why is on screen (`blockedBy`).
+  const [startState, setStartState] = useState<
+    'idle' | 'checking' | 'starting' | 'requested' | 'refused' | 'blocked'
+  >('idle')
+  const [blockedBy, setBlockedBy] = useState<'incomplete' | 'pending' | 'generating' | null>(null)
   const queryClient = useQueryClient()
 
-  const { data, error, isFetching } = useQuery({
+  // ACP-2231 (owner, 2026-10-10): the tab refreshes once a minute, says when it
+  // last did, and has a 〔刷新〕 the owner can press. Readiness is NOT read off
+  // this view — every 〔确认需求，开始开发〕 click re-reads first (see onStartClick).
+  const { data, error, isFetching, dataUpdatedAt, refetch } = useQuery({
     queryKey: ['ai-studio', 'requirement', projectId, page],
     queryFn: () => api.getRequirement(projectId, page),
-    refetchInterval: 5000,
+    refetchInterval: REQ_REFRESH_MS,
   })
 
   // A page change re-mounts (WorkArea keys on project+page) rather than resetting
@@ -101,6 +120,7 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
     setBuffer(null)
     setSaveState('idle')
     setStartState('idle')
+    setBlockedBy(null)
     setConfirmOpen(false)
   }, [projectId, page])
 
@@ -114,7 +134,7 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
   // Only the WORDS change while regenerating; the bar keeps the colour of the
   // verdict it is holding, so a poll does not read as the readiness flipping.
   // A pending direct edit OUTRANKS 「生成中」. The pending sentence is the fact the
-  // owner just caused and can act on; letting a 5s poll replace it for the length
+  // owner just caused and can act on; letting the minute poll replace it for the length
   // of a subprocess makes the one state that gates 开始开发 flicker.
   const generating = !data?.pendingEdit
     && (Boolean(data?.stale) || (isFetching && data !== undefined))
@@ -146,33 +166,40 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
     void queryClient.invalidateQueries({ queryKey: ['ai-studio', 'requirement', projectId, page] })
   }, [queryClient, projectId, page])
 
-  // One gate, three readings (B6): 不齐 cannot start; 「有缺口」 confirms first;
-  // 全齐 goes straight through. `pendingEdit` and 「生成中」 are the two states
-  // where the answer is not knowable yet, so they block too.
-  const blockReason = !data
-    ? 'loading'
-    : unavailable
-      ? 'unavailable'
-      : generating
-        ? 'generating'
-        : data.pendingEdit
-          ? 'pending'
-          : data.verdict === '不齐'
-            ? 'incomplete'
-            : null
-  const startDisabled = blockReason !== null || startState === 'starting'
-  const startTitle = blockReason === 'incomplete'
-    ? i18nT('apps.aiStudio.req_start_blocked', {
-      gap: [...data!.errors, ...data!.missing][0] ?? '',
-    })
-    : blockReason === 'pending'
-      ? i18nT('apps.aiStudio.req_bar_pending')
-      : blockReason === 'generating'
-        ? i18nT('apps.aiStudio.req_generating')
-        : blockReason === 'unavailable'
-          ? i18nT('apps.aiStudio.req_service_unavailable')
-          : undefined
+  // ACP-2231: the button is no longer greyed by the view's verdict — a view can be
+  // up to a minute old. Only "nothing to check against yet" and "a click already
+  // in flight" disable it; everything else is decided by the click's re-read.
+  const startDisabled = !data || unavailable
+    || startState === 'checking' || startState === 'starting'
+  const startTitle = unavailable ? i18nT('apps.aiStudio.req_service_unavailable') : undefined
   const alreadyStarted = data?.devState === 'started'
+
+  /** Why a FRESH read cannot start (null = it can). Same order the bar reads. */
+  const freshBlock = (d: NonNullable<typeof data>): 'incomplete' | 'pending' | 'generating' | null =>
+    d.pendingEdit ? 'pending' : d.stale ? 'generating' : d.verdict === '不齐' ? 'incomplete' : null
+
+  const onStartClick = async () => {
+    if (startDisabled) return
+    setStartState('checking')
+    setBlockedBy(null)
+    // every click re-checks: re-read the page now (check + render on the current
+    // graph), then decide on THAT answer, not on what the screen was showing
+    const fresh = (await refetch()).data
+    if (!fresh) {
+      setStartState('idle')
+      return
+    }
+    const why = freshBlock(fresh)
+    if (why) {
+      setBlockedBy(why)
+      setStartState('blocked')
+      if (why === 'incomplete') setGapsOpen(true)
+      return
+    }
+    setStartState('idle')
+    if (fresh.verdict === '可以开工但有已知缺口') setConfirmOpen(true)
+    else void runStart(fresh.graphHash)
+  }
 
   const save = async () => {
     if (!data || buffer === null || saveState === 'saving') return
@@ -194,16 +221,14 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
     }
   }
 
-  const runStart = async () => {
-    // the same gate the button enforces, checked again here. The confirm dialog
-    // also calls this, so the gate cannot live in the button's handler alone —
-    // and the 5s poll can move a verdict between a render and this click. The
-    // backend would refuse anyway (it re-checks the hash and re-runs the check);
-    // this is the 0-cost version of not sending a request we already know about.
-    if (!data || startState === 'starting' || blockReason !== null) return
+  const runStart = async (hash: string) => {
+    // the click already re-read and judged (onStartClick); the backend re-runs
+    // the verdict AND re-checks this hash once more, so a graph that moves in the
+    // second between our read and this request is still refused there (409).
+    if (startState === 'starting') return
     setStartState('starting')
     try {
-      await requirementWriteApi.startRequirement(projectId, page, data.graphHash)
+      await requirementWriteApi.startRequirement(projectId, page, hash)
       setStartState('requested')
       // the 开发 page listens for this (RFC §9.4 hands task splitting to another
       // work stream); dispatching is the point, opening that tab is not this
@@ -271,19 +296,25 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
               primary
               disabled={startDisabled}
               title={startTitle}
-              // B6's three readings, one click each: 「有缺口」 asks first so the
-              // owner says the gap risk out loud, 全齐 goes straight through.
-              // The gate is here and NOT inside runStart because the confirm
-              // dialog also calls runStart — gating the shared function would
-              // make the confirmed path ask again, forever.
-              onClick={() => {
-                if (data?.verdict === '可以开工但有已知缺口') setConfirmOpen(true)
-                else void runStart()
-              }}
+              onClick={() => void onStartClick()}
             >
-              {i18nT('apps.aiStudio.req_start')}
+              {startState === 'checking'
+                ? i18nT('apps.aiStudio.req_start_checking')
+                : i18nT('apps.aiStudio.req_start')}
             </Btn>
           )}
+          <span data-testid="req-updated-at" className="text-[11px] text-muted whitespace-nowrap">
+            {dataUpdatedAt
+              ? i18nT('apps.aiStudio.req_updated_at', { time: hhmmss(dataUpdatedAt) })
+              : ''}
+          </span>
+          <Btn
+            data-testid="req-reload-btn"
+            disabled={isFetching}
+            onClick={refresh}
+          >
+            {i18nT('apps.aiStudio.req_refresh')}
+          </Btn>
           <Btn
             data-testid="req-graph-toggle"
             aria-pressed={showGraph}
@@ -308,6 +339,20 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
           className="mb-3 rounded-lg border border-warn bg-warn-subtle px-3 py-2 text-[12px] font-semibold text-warn"
         >
           {i18nT('apps.aiStudio.req_start_refused')}
+        </div>
+      )}
+      {startState === 'blocked' && blockedBy && (
+        <div
+          data-testid="req-start-blocked"
+          className="mb-3 rounded-lg border border-warn bg-warn-subtle px-3 py-2 text-[12px] font-semibold text-warn"
+        >
+          {blockedBy === 'pending'
+            ? i18nT('apps.aiStudio.req_bar_pending')
+            : blockedBy === 'generating'
+              ? i18nT('apps.aiStudio.req_generating')
+              : i18nT('apps.aiStudio.req_start_blocked', {
+                gap: data ? [...data.errors, ...data.missing][0] ?? '' : '',
+              })}
         </div>
       )}
       {data?.changedAfterStart && (
@@ -434,7 +479,7 @@ export default function RequirementPage({ projectId, page, api = studioApi, onSt
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => {
             setConfirmOpen(false)
-            void runStart()
+            void runStart(data.graphHash)
           }}
         />
       )}

@@ -27,7 +27,7 @@ vi.mock('./studioApi', async () => {
   }
 })
 
-import RequirementPage from './RequirementPage'
+import RequirementPage, { REQ_REFRESH_MS } from './RequirementPage'
 import { StudioApiError, type StudioRequirementPage } from './studioApi'
 import { renderStudio } from './testUtils'
 
@@ -178,7 +178,7 @@ describe('RequirementPage', () => {
         }),
       )
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
+        await vi.advanceTimersByTimeAsync(REQ_REFRESH_MS)
       })
       await waitFor(
         () => expect(bar).toHaveTextContent('Incomplete — not buildable yet'),
@@ -200,7 +200,10 @@ describe('RequirementPage', () => {
     getRequirement.mockResolvedValue(pageData({ stale: true }))
     renderStudio(<RequirementPage projectId="p1" page="设备清单" />)
     expect(await screen.findByTestId('req-verdict-bar')).toHaveTextContent('Regenerating…')
-    expect(screen.getByTestId('req-start-btn')).toBeDisabled()
+    // ACP-2231: the button stays live; the click re-reads and, still stale, says so
+    await user.click(screen.getByTestId('req-start-btn'))
+    expect(await screen.findByTestId('req-start-blocked')).toHaveTextContent('Regenerating…')
+    expect(startRequirement).not.toHaveBeenCalled()
   })
 
   // ----------------------------------------------------------------- 直改 (B5)
@@ -271,7 +274,11 @@ describe('RequirementPage', () => {
     expect(await screen.findByTestId('req-verdict-bar')).toHaveTextContent(
       'Change awaiting the requirement',
     )
-    expect(screen.getByTestId('req-start-btn')).toBeDisabled()
+    await user.click(screen.getByTestId('req-start-btn'))
+    expect(await screen.findByTestId('req-start-blocked')).toHaveTextContent(
+      'Change awaiting the requirement',
+    )
+    expect(startRequirement).not.toHaveBeenCalled()
   })
 
   it('a refresh that lands while the owner has typed does not eat the typing', async () => {
@@ -287,7 +294,7 @@ describe('RequirementPage', () => {
         docHash: 'b'.repeat(16),
       }))
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
+        await vi.advanceTimersByTimeAsync(REQ_REFRESH_MS)
       })
       await waitFor(() => expect(getRequirement.mock.calls.length).toBeGreaterThan(1),
         { timeout: 3000 })
@@ -324,15 +331,41 @@ describe('RequirementPage', () => {
     verdict: '不齐', markdown: null, errors: ['goal 为空'], missing: ['缺验收'],
   } as const
 
-  it('不齐: 开始开发 is greyed and its title names the first gap', async () => {
+  it('不齐: the click re-checks, refuses on the spot and names the first gap (ACP-2231)', async () => {
     await mount(INCOMPLETE)
     expect(await screen.findByTestId('req-verdict-bar')).toHaveTextContent(
       'Incomplete — not buildable yet',
     )
     const start = screen.getByTestId('req-start-btn')
-    expect(start).toBeDisabled()
-    // 「还不能开发：<第一条缺口>」 — the reason is one hover away, not a mystery
-    expect(start).toHaveAttribute('title', 'Cannot start yet: goal 为空')
+    expect(start).toBeEnabled()
+    const before = getRequirement.mock.calls.length
+    await user.click(start)
+    expect(await screen.findByTestId('req-start-blocked')).toHaveTextContent(
+      'Cannot start yet: goal 为空',
+    )
+    expect(getRequirement.mock.calls.length).toBeGreaterThan(before)
+    expect(screen.getByTestId('req-gaps')).toHaveTextContent('缺验收')
+    expect(startRequirement).not.toHaveBeenCalled()
+  })
+
+  it('every click re-reads first: a page that turned 不齐 since the last refresh is refused (ACP-2231)', async () => {
+    await mount()
+    await screen.findByTestId('req-verdict-bar')
+    // the screen still says 全齐; the graph has moved since
+    getRequirement.mockResolvedValue(pageData(INCOMPLETE))
+    await user.click(screen.getByTestId('req-start-btn'))
+    expect(await screen.findByTestId('req-start-blocked')).toHaveTextContent('Cannot start yet')
+    expect(startRequirement).not.toHaveBeenCalled()
+  })
+
+  it('shows when it last refreshed, and 刷新 re-reads on demand (ACP-2231)', async () => {
+    await mount()
+    await screen.findByTestId('req-verdict-bar')
+    expect(screen.getByTestId('req-updated-at')).toHaveTextContent(/Updated \d{2}:\d{2}:\d{2}/)
+    const before = getRequirement.mock.calls.length
+    await user.click(screen.getByTestId('req-reload-btn'))
+    await waitFor(() => expect(getRequirement.mock.calls.length).toBeGreaterThan(before))
+    expect(REQ_REFRESH_MS).toBe(60_000)
   })
 
   it('有缺口: 开始开发 asks first, and 取消 sends nothing', async () => {
@@ -417,7 +450,7 @@ describe('RequirementPage', () => {
     // page says the start is void instead of pretending it never happened
     await mount({ changedAfterStart: true })
     expect(await screen.findByTestId('req-changed-after-start')).toHaveTextContent(
-      'The requirement changed — press Start development again',
+      'The requirement changed — press Confirm requirements & start again',
     )
     expect(screen.getByTestId('req-start-btn')).toBeEnabled()
   })
