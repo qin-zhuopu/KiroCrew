@@ -537,7 +537,7 @@
         "accept_run": "검수 실행",
         "accept_passed": "통과",
         "accept_failed": "실패 (검사 {{n}}건)",
-        "accept_fix": "어시스턴트에 수정 요청",
+        "accept_fix": "어시스턴트에게 수정 요청",
         "accept_fix_exhausted": "{{n}}번 수정한 뒤에도 여전히 실패합니다 — 직접 처리하세요",
         "advisory_title": "품질 검사 (참고용)",
         "advisory_title_strict": "품질 검사 (차단)",
