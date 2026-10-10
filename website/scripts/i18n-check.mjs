@@ -46,6 +46,13 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CI = !!process.env.GITHUB_ACTIONS
+
+// 多语种门禁暂停（需求方 2026-10-10 定案）：产品还没发布，多语种发布前再做。
+// 恢复：设 I18N_GATE=1（CI 里在 env 加一行即可）。中英两份照常维护。
+if (process.env.I18N_GATE !== '1') {
+  process.stdout.write('[i18n] 多语种门禁已暂停（发布前设 I18N_GATE=1 恢复）\n')
+  process.exit(0)
+}
 const BASE = process.env.I18N_BASE_REF || ''
 
 const out = line => process.stdout.write(`${line}\n`)

@@ -36,10 +36,16 @@ interface TrustDropdownProps {
       server proof that a standing grant can be recorded. Offering it there
       would name a decision the backend refuses (#5400, #5434, #5486). */
   showTrustAll?: boolean
+  /** ACP-2222: names the trust control so a caller's own test ids cover it. The
+   *  label here is translated and the control is a dropdown trigger OR a plain
+   *  button depending on how many tiers survive, so a script cannot name it
+   *  reliably from either. Only the approval card passes one (`approval-trust`);
+   *  other surfaces keep their existing handles. */
+  testId?: string
   onAction: (action: string, pattern?: string) => void
 }
 
-export default function TrustDropdown({ fullCommand, baseCommand, isShell, hasCommand = true, disabled, className, trustAllLabelKey, trustReadsLabelKey, showTrustAll = true, onAction }: TrustDropdownProps) {
+export default function TrustDropdown({ fullCommand, baseCommand, isShell, hasCommand = true, disabled, className, trustAllLabelKey, trustReadsLabelKey, showTrustAll = true, testId, onAction }: TrustDropdownProps) {
   const [open, setOpen] = useState(false)
 
   // Pattern shaping lives in utils/trustPatterns so every surface that offers
@@ -157,8 +163,10 @@ export default function TrustDropdown({ fullCommand, baseCommand, isShell, hasCo
     const only = tiers[0]
     return (
       <button
+        type="button"
         disabled={disabled}
         className={className}
+        data-testid={testId}
         onClick={only.fire}
       >
         {only.icon}
@@ -170,7 +178,7 @@ export default function TrustDropdown({ fullCommand, baseCommand, isShell, hasCo
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button disabled={disabled} className={className}>
+        <button type="button" disabled={disabled} className={className} data-testid={testId}>
           <Handshake size={12} className="shrink-0" />{i18nT('components.trustDropdown.trust')}<ChevronDown size={10} className="shrink-0 opacity-70" />
         </button>
       </DropdownMenuTrigger>

@@ -4,6 +4,7 @@
 这类监听键盘快捷键的进程读 stdin 拿到 EOF 就退出——正式网站 502、开发网站掉线，
 而后端（不读 stdin）还活着，状态文件照样写着 running。
 """
+
 from __future__ import annotations
 
 import subprocess

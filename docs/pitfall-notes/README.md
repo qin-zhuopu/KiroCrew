@@ -246,6 +246,35 @@
   refspec 会在远端建一个叫 `HEAD` 的分支。教训：**「推」在 git 里是按引用的**，凡是代码
   要给别人看的流程，收尾要验 `git ls-remote origin refs/heads/<分支>`，而不是验标签、
   更不是验命令退出码；替身 git 复现不了这个现象，用真 git + 临时 bare 仓
+- [20261010-034741-same-commit-redeploy-inflated-the-version.md](20261010-034741-same-commit-redeploy-inflated-the-version.md) —
+  同一份代码连点 5 次部署，v3~v7 五个标签五条台账，全程零报错。根因：版本号是
+  「台账条数 + 1」算出来的，所以「不升版」必须同时「不记台账」，而这两件事原本分在
+  入口与成功那步两处 —— 只在成功那步加判断会自相矛盾（号已按 +1 算完，标签上一轮已打）。
+  改成入口一次决定 `(版本号, 是否沿用)` 一路带到成功那步。顺带两条：沿用的旧号要验
+  `v<N>` 形状（台账是外部文件，`v1.0` 会让部署按钮 400 点不动）；HEAD 只读一次，别和
+  验收闸门各读一遍
+- [20261010-043759-static-testid-guard-cannot-see-data-driven-ids.md](20261010-043759-static-testid-guard-cannot-see-data-driven-ids.md) —
+  静态 testid 防退化测试第一次跑红 12 条，其中三条冤枉的是对的代码。两个独立原因：
+  派工单表里 `req-verdict` 这个精确 id 从来不存在（实际是 `req-verdict-bar` 和
+  `req-verdict-${page}` 两个，只能前缀匹配）；属性正则扫不到「id 写在对象字面量里 /
+  跨组件用 prop 传」两种写法。不能改成裸子串搜索（注释里的名字会替丢掉名字的控件撑绿），
+  改成给每种形式标 `via` + 各配一条「它真接到了 DOM」的断言（〔信任会话〕那条是 `toBe(2)`，
+  因为 TrustDropdown 有单档按钮和下拉触发器两种形态）。附带一个 id 挂两个名字时别挪到
+  外层容器：`DevDagPanel.test.tsx` 在老名字上断言 `aria-selected`
+- [20261010-043930-jc-stderr-polluted-json-and-a-write-looked-like-a-failure.md](20261010-043930-jc-stderr-polluted-json-and-a-write-looked-like-a-failure.md) —
+  `jc … 2>&1 | python3 -c json.load` 报 `Expecting value: line 1 column 2`，我当成「写失败」
+  把一条不幂等的 Jira 流转重跑了一遍，第二遍才看出来第一遍已经成功（可用流转里
+  「开始进行」已消失）。根因：`jc` 把人类提示走 stderr、JSON 走 stdout，`--force` 的护栏
+  提示污染了管道；而解析失败发生在写请求之后，≠ 没写成。修法：解析 JSON 的管道不带
+  `2>&1`；非幂等写失败后先跑一条只读的 `issue get` 看它到底成了没
+- [20261010-051500-untracked-requirements-invisible-to-dev-worktrees.md](20261010-051500-untracked-requirements-invisible-to-dev-worktrees.md) —
+  写需求助手把需求文件写在主目录**不提交**，并行副本从 HEAD 拉 → 副本里根本看不见，
+  助手自己再造一份，合回来时看板四个节点各挂一句「合并冲突」却没有一个字的名字，重试
+  照旧。根因第二层才挖到：这种现场 git **连合并都不开始**，`diff --diff-filter=U` 回
+  空，本模块原来那套「从 git 拿冲突文件名」的机制彻底失灵。修法是开工前做一次带路径
+  限制的「需求快照提交」+ 失败后自己算「未跟踪 ∩ 分支新建」的交集写进 advice。教训：
+  **合并失败是一大类，冲突只是其中一种**，别指望 `--diff-filter=U` 非空；顺带一条测试
+  纪律 —— autouse 替身会把它自己那条真函数测试吃掉，要真函数得在导入时抓引用
 - [20261010-045321-gates-already-red-on-the-branch.md](20261010-045321-gates-already-red-on-the-branch.md) —
   收尾跑门禁红两处（`tsc` 2 条 + `[manifest-sync]` 7 条），全在我没碰的文件/命名空间里。
   归属不靠「看着不像我的」：`git log -L <行>,<行>:<文件>` 指到上游提交；typecheck 造一次
