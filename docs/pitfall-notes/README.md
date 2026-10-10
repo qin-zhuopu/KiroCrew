@@ -454,3 +454,23 @@
   递归摊平 + 整份 JSON 解析放进推导式条件，O(n²) ≈ 4.5 亿次操作，**每个语种一个都跑不完**；
   两侧各摊平一次存 map 后，八个语种 **0.46 秒**。教训：安全网自己必须廉价——它挂住时会伪装成
   程序卡死；判断复杂度还是死锁，把规模砍到 1 个键跑一遍比加 print 快；`--dry` 是否廉价要量不要假设
+- [20261010-182233-invented-a-translation-gap-ruler.md](20261010-182233-invented-a-translation-gap-ruler.md) —
+  我用「值 == 英文原句」自造尺子量「还差多少没翻」，判出 **3724 个分支新增键里 575 个没翻**，
+  正准备照这个数派三个翻译会话；**仓自己的裁判 `passthroughFindings()` 对同一批报 0**。
+  根因是裁判不是字符串相等，而是两条带阈值的启发式（`MIN_LETTERS=4`/`MIN_TOKENS=2`/
+  `MIN_WORDS=6`/`MIN_EN_HITS=2`/`EN_MARGIN=3`，且先 `strippedProse` 剥占位符/URL/路径/dnt），
+  被判的全是**约定保留拉丁的技术术语**（`Diff` `Commit` `Version` `Docs`）——
+  「约定不翻」被我的尺子全判成「漏翻」。我复刻判据时只剥了 `{{}}`/URL/路径，
+  于是把 151 个必翻键**全部**误判成无天城文：**判据不在我手里，复刻判据就是复刻缺陷**。
+  规矩：判「翻没翻」只用 `scripts/lib/passthrough-checks.mjs` 那一个裁判，
+  自造门的**失败率**和通过率一样零信息量；「该不该保留拉丁」是 owner 裁决不是门的输出
+- [20261010-182416-nested-flat-object-entries-collapsed-keys.md](20261010-182416-nested-flat-object-entries-collapsed-keys.md) —
+  `flat()` 已返回键值对数组，我又在递归处套了 `Object.entries()`，枚举到的是**数组下标**，
+  **15061 个叶子静默塌成 6659 个键**，11 个语种 `absent` 全报 0——**而 `catalogParity.test.ts`
+  此刻正红着报 hi 缺 181**。我的审计报绿，我却先去给红门禁找「口径不同」的解释。
+  第二层：**英文是两个文件**，运行时是 `mergeCatalogs(en.json, en.manual.json)`
+  （manual 独占 6538 叶），只读 `en.json` 会把「英文侧没这个键」算成「谁都不缺」——
+  `i18n-shard.mjs` 头上就写着它当年修过同一个 bug，我没读那段注释。
+  修法：递归结果直接用；比对英文永远用合成后的 `CATALOGS`；**审计脚本加一条与主逻辑
+  不同源的自证**（摊平计数 == 结构化遍历计数，不等就 `exit 3`），把它变成会自己喊话的东西。
+  「全 0」是最危险的输出，它和「真的没问题」长得一模一样
