@@ -341,3 +341,75 @@
   只认 `git diff HEAD`。附带一条更贵的：**我按记忆写的「我改过这文件、撤了 12 行又粘回来」
   逐条核完全不存在**（diff 空、四个 worktree 行数一致、全仓 grep 零命中、transcript 零次
   Edit）——标识符编错 grep 会露馅，**流程故事编错没有任何东西会报错**
+- [20261010-141557-delivery-report-without-mtime-md5-read-as-fabrication.md](20261010-141557-delivery-report-without-mtime-md5-read-as-fabrication.md) —
+  我贴了 `OK: es is ready to merge.` 却没贴 mtime/md5，主会话的探针跑在我两次 Write（14:11:50 /
+  14:12:15）**之前**，于是「目录根本不存在」和「文件一直在」**两边都是真的**，只是不同分钟。
+  能定案的证据在判据自己的分支里：`verify` 目录缺失走 exit 2 且不打 `[es] … 42 key(s)` 那行
+  统计，那行与它引的报错**互斥**，所以绿行只可能来自写入之后。教训：跨会话交付回报固定带
+  **绝对路径 + mtime + md5 + 当次 `date`**，门禁命令前面也加 `date '+ran-at=…'`；被问责
+  「你的东西不存在」时**先取证再动手**，照单重做等于拿记忆覆盖已落盘的产物
+- [20261010-143849-i18n-verify-green-merge-skips-untranslated-keys.md](20261010-143849-i18n-verify-green-merge-skips-untranslated-keys.md) —
+  `verify` 输出 `OK: ru is ready to merge` 但 `merge` 会把 42 条里 35 条静默丢掉：两半判据不在同一
+  轴上，`checkValue` 不看目录现值，`mergeCatalog` 只按「叶子键存在」跳过，而目录里
+  新键的值就是英文 → 正好落缝里。收尾必跑一步「我的键有多少现值等于 en」，非 0 就要 `--overwrite`。
+  附带：`ruStyle` 的禁 `Вы` 门恒不触发（JS `\b` 不认西里尔），风格门读的是运行时全量目录
+- [20261010-143920-ko-gates-measured-something-other-than-what-i-assumed.md](20261010-143920-ko-gates-measured-something-other-than-what-i-assumed.md) —
+  ko 两道门测的不是我以为的对象。① `check-vocab.py ko` 只跑字符档（谚文不分词，词档对 ko 不跑），
+  逐音节比对已批准语料，于是真词 `스튜디오` 因 `튜` 全仓 0 次被 HARD FAIL——对 ko 字符档是**唯一**
+  机械网，「合法但本仓没写过」一样红；改用本应用已批准的 `작업대`。② `check-term-consistency.py`
+  的「no drift」读的是**工作区** `ko.json`，而它此刻被并发会话改着（15,017 键 vs main 16,201，
+  12 个语种全 `M`），且我要交付的 42 键在里面 0 命中——「没 drift」和「没有可对照样本」输出**同形**。
+  裁决基线改用 `git show origin/main:<path>` 重跑，才量到真存在的那 1 条 peer
+- [20261010-144954-i18n-verify-green-but-zhstyle-de-gate-red.md](20261010-144954-i18n-verify-green-but-zhstyle-de-gate-red.md) —
+  zh-CN 7 键 `verify` 报 `ready to merge`，合进目录却被 `zhStyle.test.ts` 的「逐小句 `的`>=3」打回：
+  `verify` 只管 shard 的形式，`*Style.test.ts` 的 tone 四条它一条都不复算。两处反直觉——
+  ① 逗号不是切分符，`；` 之后的 6 个 `的` 仍算同一个小句，能救的只有让堆叠跨过 `。；`；
+  ② 验证新值时 HEAD 里根本没这 7 个键，直接跑门是 21 passed 的**假绿**，得造注入树
+  并同时跑负对照（旧值必须红），否则「门没看见这条键」会被当成「门通过了」
+- [20261010-145727-i18n-merge-three-silent-failures.md](20261010-145727-i18n-merge-three-silent-failures.md) —
+  合并侧三个**门禁全绿但东西是坏的**。① 手打的假天城文（`दस्तवजें`，元音标记码位错了）过
+  官方 `verify` 回 `0 finding(s)` 直接入库：`checkValue` 14 条全是结构判据不查词形，
+  `hiStyle.test.ts` 只有两条 it 也不查拼写，真正的词表门 `check-vocab.py` 活在 scratch 不在 CI
+  ——**假天城文可以一路绿灯进 main，仓里没有任何门会红**。② `cmdMerge` 落盘走
+  `JSON.stringify(sortDeep(...))` 把全目录键排序，42 键改动炸成 9324 行 diff（`--ignore-all-space`
+  反而更多，所以不是空白）；修法是按基线键序重建 + 逐键自证「重建后 vs 合并后」0 差异，
+  别去改门禁脚本。③ 交付目录是活的：我 14:38 合的 ko 值比 worker 14:43 的终稿旧一条键，
+  两个写法都合风格门所以无人报错——合并是闭环（合并→逐键回读比对→有差异就问→重落→重跑门），
+  收交付固定要 `绝对路径 + mtime + md5 + 当次 date`
+- [20261010-150459-my-own-transcript-is-under-subagents-not-top-level.md](20261010-150459-my-own-transcript-is-under-subagents-not-top-level.md) —
+  我又编了 commit hash（同类第三次），而这次的自证手段**本身是坏的**：上一篇笔记教的
+  「回溯某串第一次出现在哪个 role」，我在项目目录顶层 glob 了 5 个 `*.jsonl` 全部 0 命中，
+  于是当成「查无对证」——**子 agent 的记录在 `<sessionId>/subagents/agent-*.jsonl`，
+  顶层 glob 静默漏掉整层**。在真正那份里重跑，两个 hash 与 `subapps` 全部 `assistant` 先行，
+  就是我写的。附带一个假信号：探针用裸数字串 `'76 '`，命中的是 `ls -l` 里 `376` 字节
+  的文件大小，于是我把凭空想出的「76 键」当成了派工提示的要求（真实范围量出来 42 键）
+- [20261010-155548-vocab-gate-proves-spelling-not-sense.md](20261010-155548-vocab-gate-proves-spelling-not-sense.md) —
+  天城文两道门全绿（`verify` 0 finding、词表 0/42）交付物里仍有两个真错：同一张卡片里
+  `sessions` 一处译 `सेशन` 一处译 `सत्र`（注册域分裂），和一条从上游继承的句号
+  （英文无句点、天城文却以 `।` 收尾）。根因是**两道门都只判码位合法性，不判词义与一致性**
+  ——词表门把整串按 `[ऀ-ॿ]+` 切开逐个查表，表里的错词、句点粘进词内，一律照过。
+  修法：`build-hi.py` 加镜像规则（英文不以 `.` 收尾就剥掉 `।`，且**必须在 `check_tokens`
+  之前剥**，用 `continue` 会让真正落盘那条绕过词表门）；键内自查改成跨键横向比对
+- [20261010-161723-compaction-made-me-invent-instructions-and-numbers.md](20261010-161723-compaction-made-me-invent-instructions-and-numbers.md) —
+  压缩之后我把三样**根本没被要求过**的东西当成上级指令执行了：baseDir
+  `acp2213-hi-fresh`、「4 findings」、「93.9%」。判据只有一条：拿原串在我的
+  transcript 里查首次出现的 role，三处全是 `assistant` 先行、`user` 里 0 命中
+  = 我自己写的。连后来引用的隔离目录名也是编的（父目录 mtime 证明从没往里放过东西）。
+  规矩：**「谁让我做的」这类话和数字一样不可信**，压缩后照记忆执行前先回查
+  `<sessionId>/subagents/agent-*.jsonl`（顶层 glob 会漏）里 `<teammate-message`
+  的原文；量出来的数和指令冲突时，先怀疑我记的那条指令，不是数
+- [20261010-171814-gap-shards-have-no-en-dir-so-verify-refuses.md](20261010-171814-gap-shards-have-no-en-dir-so-verify-refuses.md) —
+  补漏批次（ACP-2113）给的是 `spec.json`（英文在每条的 `en` 字段里），而
+  `cmdVerify(baseDir, code)` 只认 `<baseDir>/en/shard-NN.json` 与 `<baseDir>/<语种>/` 两个
+  平行目录，于是**判据在交付目录里根本跑不起来**，报 `en does not exist`——不是参数多套一层
+  （那是另一个坑），是输入形态不匹配。修法：从 spec 生成一次性 baseDir 放 `/tmp`（交付目录
+  只留那一个规定文件），13 键 0 finding。别改用手写 python 断言自证：`checkValue` 里的
+  62 条 DNT 词边界匹配、对英文取增量的括号平衡、只查字母数字的全角规则，手写都覆盖不到——
+  **自造门给自己开绿灯是这类活最常见的假绿**；`checkValue`/`flatten`/`placeholders` 本身是
+  `export`，可以直接 `import` 来用
+- [20261010-173038-self-built-i18n-check-silently-ran-with-zero-dnt-terms.md](20261010-173038-self-built-i18n-check-silently-ran-with-zero-dnt-terms.md) —
+  承上条走 `import` 路线后的更深一层坑：`dntTerms`/`pluralRegistry` **不是 export**，顺手写成
+  `dnt: []` 或猜错 `glossary.json` 路径（真身在 `src/i18n/` 不在 `src/`）都会让 DNT 判据循环零次，
+  于是音译掉 `Kiro`/`Markdown` 也照样报 `0 finding(s)`——**和真通过一模一样**。`checkValue` 的 DNT
+  判据是「英文先命中才查译文」，空词表 = 静默空门。复刻别人家的门必须把**输入条数**打印出来自证
+  （`dnt terms loaded: 62` 那行才是证据，`0 finding(s)` 单独出现不说明任何事）
