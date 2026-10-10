@@ -82,7 +82,7 @@ describe('ProdServerControl', () => {
     await mountShowing(view())
     expect(await screen.findByTestId('prod-server-dot-stopped')).toBeInTheDocument()
     expect(screen.getByTestId('prod-server-deploy')).toHaveTextContent(
-      'Deploy to production',
+      'Confirm release',
     )
     expect(screen.queryByTestId('prod-server-url')).not.toBeInTheDocument()
     expect(screen.queryByTestId('prod-server-stop')).not.toBeInTheDocument()
@@ -143,7 +143,7 @@ describe('ProdServerControl', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByTestId('prod-server-version')).toHaveTextContent('Version v3')
     expect(screen.getByTestId('prod-server-dot-running')).toBeInTheDocument()
-    expect(screen.getByTestId('prod-server-deploy')).toHaveTextContent('Redeploy')
+    expect(screen.getByTestId('prod-server-deploy')).toHaveTextContent('Release again')
 
     await user.click(screen.getByTestId('prod-server-stop'))
     expect(stopProdServer).toHaveBeenCalledWith('p1')

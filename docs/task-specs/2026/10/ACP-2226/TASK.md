@@ -46,7 +46,11 @@
   门禁名走 i18n key（`gate_ac_coverage` 等 4 个），未知 id 兜底显示原始 id；
   `missing` 数量走 `advisory_count` 的 `{{n}}` 插值；`skipped`（工作区没有 lint 脚本）
   用「·」而不是「✓」，免得看起来像"检查通过了"
-- 文案 7 个 key：`en.json` / `zh-CN.json` 手写，`en-XA.json` 跑 `npm run i18n:pseudo` 生成
+- 文案 7 个 key：只写 `en.json` / `zh-CN.json` 两份。
+  派工单原文（第 8 条）要求「中英 + en-XA」，我第一版照做、跑了 `npm run i18n:pseudo`；
+  之后 master 改口「多语种暂不做，门禁已暂停，新文案只写中英」，所以 `en-XA.json` 里
+  那 7 个键已按新规删掉（其余语种文件本来就没碰）。伪语种目录是命令产物，门禁恢复后
+  谁再跑一遍 `i18n:pseudo` 会重新生成，不必手工补
 - `DevDagPanel.test.tsx` 只加 1 个 describe / 4 条用例，**原有 33 条一条没改**：
   ① 4 行都在、标题是"仅提示"、能数出 2 项 ② strict 时标题变"拦截"
   ③ **advisory 全红，顶部状态仍是 Passed**（这张卡的核心契约）④ 老记录没 advisory → 区块不出现
@@ -101,7 +105,9 @@
   `settingsApi.ts` TS2322，来自 `39034a4377` / `0d87d040d8`，不是我引入的）；
   `npm run i18n:check` 另有 `[manifest-sync]` 7 处不一致（`apps.aiStudio.manifest`
   命名空间在 `origin/main` 和我的工作树里都不存在，属 main 侧与验收目录的既有欠账）。
-  两者都写进填坑笔记了，我没有去修别人的东西
+  两者都写进填坑笔记了，我没有去修别人的东西。
+  补充：master 随后暂停了 i18n 门禁（多语种暂不做），`npm run i18n:check` 这条收尾已不再跑，
+  上面那笔账只是当时测出来的现状，不需要我为它负责
 - `internal-content-scan` 只在 CI 跑（扫描器本体按设计不进本仓），本地没有等价物。
   人工核过：本次新增内容不含内部域名/主机/工单号/凭据路径；「Jira」「需求图谱」这两个词
   在已发布的 `src/kiro_crew/apps/builtins/ai_studio/backend/*.py` 里本来就有
