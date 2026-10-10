@@ -39,14 +39,17 @@ import type { WorkTab } from './WorkArea'
 
 type Tool = 'requirements' | 'docs' | 'commits' | 'releases' | 'graph' | 'dev' | 'deploy'
 
+// 存 **key** 而不是翻译好的字符串：模块作用域调 i18nT() 会在「用户还没选语言」时
+// 就求值一次并永久冻在启动语言上（`src/i18n/moduleLevel.test.ts` 就是钉这个的）。
+// 渲染处用 i18nT(TOOL_KEYS[t]) 现翻，参照 ChatSidebar 的 `labelKey` 写法。
 const TOOL_KEYS: Record<Tool, string> = {
-  requirements: i18nT('apps.aiStudio.tool_requirements'),
-  docs: i18nT('apps.aiStudio.tool_docs'),
-  commits: i18nT('apps.aiStudio.tool_commits'),
-  releases: i18nT('apps.aiStudio.tool_releases'),
-  graph: i18nT('apps.aiStudio.tool_graph'),
-  dev: i18nT('apps.aiStudio.tool_dev'),
-  deploy: i18nT('apps.aiStudio.tool_deploy'),
+  requirements: 'apps.aiStudio.tool_requirements',
+  docs: 'apps.aiStudio.tool_docs',
+  commits: 'apps.aiStudio.tool_commits',
+  releases: 'apps.aiStudio.tool_releases',
+  graph: 'apps.aiStudio.tool_graph',
+  dev: 'apps.aiStudio.tool_dev',
+  deploy: 'apps.aiStudio.tool_deploy',
 }
 
 /**
@@ -334,7 +337,7 @@ onOpenTab, docs, projectId, initialTool = 'requirements', changed, commits, publ
               tool === t ? 'text-accent border-accent font-semibold' : 'text-muted border-transparent hover:text-text'
             }`}
           >
-            {TOOL_KEYS[t]}
+            {i18nT(TOOL_KEYS[t])}
           </button>
         ))}
       </div>

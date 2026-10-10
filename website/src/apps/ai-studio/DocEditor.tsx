@@ -62,6 +62,14 @@ import './DocEditor.css'
  * keystroke still loses nothing. */
 const DRAFT_DEBOUNCE_MS = 2000
 
+// 完整字面量 key 再按 provenance 索引，不拼 `version_source_${v.source}`：拼出来的
+// key 源码里不存在，抽取器与死键工具都看不见（`src/i18n/dynamicKeys.test.ts`）。
+// 渲染处已用 `v.source &&` 挡掉 undefined，所以这里只覆盖两个真值。
+const VERSION_SOURCE_KEY: Record<NonNullable<StudioVersion['source']>, string> = {
+  manual: 'apps.aiStudio.version_source_manual',
+  regen: 'apps.aiStudio.version_source_regen',
+}
+
 /** One open diff dialog: two buffers plus the title; `restore` is present
  * only for draft-history diffs (the "restore to this version" action). */
 interface DiffModal {
@@ -506,7 +514,7 @@ function VersionsPopover({ open, onOpenChange, disabled, entries, onPick }: {
                           : 'bg-bg-hover text-muted'
                       }`}
                     >
-                      {i18nT(`apps.aiStudio.version_source_${v.source}`)}
+                      {i18nT(VERSION_SOURCE_KEY[v.source])}
                     </span>
                   )}
                 </span>

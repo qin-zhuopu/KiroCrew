@@ -24,6 +24,14 @@ import type { StudioDiffGroup, StudioRegeneration } from './studioApi'
 
 const SEGMENTS = ['user', 'structured', 'regen'] as const
 
+// 三段各自一个**完整字面量** key，按段名索引，不拼 `diff_group_${seg}`（拼出来的
+// key 在源码里不存在，抽取器/死键工具看不见 —— `src/i18n/dynamicKeys.test.ts`）。
+const SEGMENT_LABEL_KEY: Record<(typeof SEGMENTS)[number], string> = {
+  user: 'apps.aiStudio.diff_group_user',
+  structured: 'apps.aiStudio.diff_group_structured',
+  regen: 'apps.aiStudio.diff_group_regen',
+}
+
 /** The regenerated document, badged with the distillation that produced it
  * (the acceptance doc's step-10 annotation: generatedFrom, on screen). */
 export function RegenDocView({ regen }: { regen: StudioRegeneration }) {
@@ -79,7 +87,7 @@ export function RegenDiffPair({ groups }: { groups: StudioDiffGroup[] }) {
                   className="min-w-0 border-r border-border last:border-r-0"
                 >
                   <div className="px-2.5 py-1 text-[11px] font-semibold text-muted border-b border-border bg-card">
-                    {i18nT(`apps.aiStudio.diff_group_${seg}`)}
+                    {i18nT(SEGMENT_LABEL_KEY[seg])}
                   </div>
                   <div className="px-2.5 py-1.5 min-h-[44px]">
                     {seg === 'structured' ? (

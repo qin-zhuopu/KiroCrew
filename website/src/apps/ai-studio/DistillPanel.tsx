@@ -17,6 +17,14 @@ import type { StudioDistillation } from './studioApi'
 
 const GROUP_KINDS = ['add', 'modify', 'remove'] as const
 
+// 完整字面量 key 再索引，不拼串（见 dynamicKeys.test.ts）。写法参照
+// McpToolsPanel 的 `STATUS_LABEL_KEY`。
+const GROUP_KIND_KEY: Record<(typeof GROUP_KINDS)[number], string> = {
+  add: 'apps.aiStudio.distill_group_add',
+  modify: 'apps.aiStudio.distill_group_modify',
+  remove: 'apps.aiStudio.distill_group_remove',
+}
+
 export default function DistillPanel({ distillation }: { distillation: StudioDistillation }) {
   return (
     <div data-testid="distill-panel" data-distill-status={distillation.status} className="p-3 flex flex-col gap-2">
@@ -35,7 +43,7 @@ export default function DistillPanel({ distillation }: { distillation: StudioDis
           if (rows.length === 0) return null
           return (
             <div key={kind} className="flex flex-col gap-1">
-              <div className="text-[11px] font-semibold text-muted">{i18nT(`apps.aiStudio.distill_group_${kind}`)}</div>
+              <div className="text-[11px] font-semibold text-muted">{i18nT(GROUP_KIND_KEY[kind])}</div>
               {rows.map((c) => (
                 <div
                   key={c.id}

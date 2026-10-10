@@ -13,9 +13,33 @@
 import { Hammer, PlayCircle } from 'lucide-react'
 import { Btn } from '../../components/ui'
 import { i18nT } from '../../i18n/t'
-import type { StudioDevRun, StudioRunPreview } from './studioApi'
+import type { StudioDevArtifact, StudioDevPhase, StudioDevRun, StudioRunPreview } from './studioApi'
 
 const PHASE_KEYS = ['tasks', 'implement', 'test', 'build'] as const
+
+// 每个 key 都写成**完整字面量**再按枚举索引，不用 `apps.aiStudio.dev_phase_${x}` 拼：
+// 拼出来的 key 在源码里不存在，抽取器和死键工具都看不见，缺键时页面直接渲染原始
+// key（`src/i18n/dynamicKeys.test.ts` 钉的就是这个）。写法参照 McpToolsPanel 的
+// `STATUS_LABEL_KEY`。
+const PHASE_LABEL_KEY: Record<(typeof PHASE_KEYS)[number], string> = {
+  tasks: 'apps.aiStudio.dev_phase_tasks',
+  implement: 'apps.aiStudio.dev_phase_implement',
+  test: 'apps.aiStudio.dev_phase_test',
+  build: 'apps.aiStudio.dev_phase_build',
+}
+
+const PHASE_STATUS_KEY: Record<StudioDevPhase['status'], string> = {
+  pending: 'apps.aiStudio.dev_status_pending',
+  running: 'apps.aiStudio.dev_status_running',
+  done: 'apps.aiStudio.dev_status_done',
+  failed: 'apps.aiStudio.dev_status_failed',
+}
+
+const ARTIFACT_KIND_KEY: Record<StudioDevArtifact['kind'], string> = {
+  test: 'apps.aiStudio.dev_artifact_test',
+  build: 'apps.aiStudio.dev_artifact_build',
+  runtime: 'apps.aiStudio.dev_artifact_runtime',
+}
 
 export default function DevRunPanel({ run, onOpenRun }: {
   run: StudioDevRun
@@ -43,10 +67,10 @@ export default function DevRunPanel({ run, onOpenRun }: {
           >
             <div className="flex items-center gap-2 text-[12px] text-text">
               {PHASE_KEYS.includes(p.name as (typeof PHASE_KEYS)[number])
-                ? i18nT(`apps.aiStudio.dev_phase_${p.name}`)
+                ? i18nT(PHASE_LABEL_KEY[p.name as (typeof PHASE_KEYS)[number]])
                 : p.name}
               <span className="ml-auto text-[11px] text-muted" data-dev-phase-status-label>
-                {i18nT(`apps.aiStudio.dev_status_${p.status}`)}
+                {i18nT(PHASE_STATUS_KEY[p.status])}
               </span>
             </div>
             {p.summary && (
@@ -64,7 +88,7 @@ export default function DevRunPanel({ run, onOpenRun }: {
         <div className="flex flex-col gap-1" data-testid="dev-artifacts">
           {run.artifacts.map((a) => (
             <div key={a.path} data-testid={`dev-artifact-${a.kind}`} className="flex items-center gap-2 text-[11px] text-muted px-2">
-              <span className="font-semibold text-text">{i18nT(`apps.aiStudio.dev_artifact_${a.kind}`)}</span>
+              <span className="font-semibold text-text">{i18nT(ARTIFACT_KIND_KEY[a.kind])}</span>
               <span className="font-mono">{a.path}</span>
             </div>
           ))}

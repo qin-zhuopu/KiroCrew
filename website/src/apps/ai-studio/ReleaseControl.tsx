@@ -58,22 +58,27 @@ export default function ReleaseControl({ onRelease, phases, phaseMs = 600, disab
   // pending label falls back to the act's own "…ing" when it declares no
   // phase walk (distill/dev resolve straight into the snapshot's own
   // running frame; release passes three phase labels and walks them).
+  //
+  // 三个字段存的是**完整 key**（`apps.aiStudio.` 前缀写全），不是裸后缀：调用点原来
+  // 写 `i18nT(\`apps.aiStudio.${conf.key}\`)`，拼出来的 key 在源码里不存在，抽取器和
+  // 死键工具都看不见，缺键时按钮直接渲染原始 key（`src/i18n/dynamicKeys.test.ts`
+  // 钉这个）。写法参照 McpToolsPanel 的 `STATUS_LABEL_KEY`：字面量表 + 索引。
   const ACTS = {
-    release: { testid: 'release-btn', key: 'release', pending: 'releasing', hint: 'release_hint', Icon: Rocket },
-    distill: { testid: 'distill-btn', key: 'distill', pending: 'distill_running', hint: 'distill_hint', Icon: BrainCircuit },
+    release: { testid: 'release-btn', key: 'apps.aiStudio.release', pending: 'apps.aiStudio.releasing', hint: 'apps.aiStudio.release_hint', Icon: Rocket },
+    distill: { testid: 'distill-btn', key: 'apps.aiStudio.distill', pending: 'apps.aiStudio.distill_running', hint: 'apps.aiStudio.distill_hint', Icon: BrainCircuit },
     // the `dev` i18n key is taken by the sidebar's run label — the button
     // reads dev_start
-    dev: { testid: 'dev-btn', key: 'dev_start', pending: 'dev_running', hint: 'dev_hint', Icon: Hammer },
+    dev: { testid: 'dev-btn', key: 'apps.aiStudio.dev_start', pending: 'apps.aiStudio.dev_running', hint: 'apps.aiStudio.dev_hint', Icon: Hammer },
     // ACP-799's act is the 部署 tab's own: the same button, moved onto the tab
     // that performs it (动作按钮跟着页签走). Its words are SHIPPED catalogue
     // keys — 部署 is the tab's own name and 发布中 is what the product calls an
     // in-flight publish job — so this act adds no i18n key and no new word.
-    deploy: { testid: 'deploy-btn', key: 'tool_deploy', pending: 'release_job_status_running', hint: 'tool_deploy', Icon: Upload },
+    deploy: { testid: 'deploy-btn', key: 'apps.aiStudio.tool_deploy', pending: 'apps.aiStudio.release_job_status_running', hint: 'apps.aiStudio.tool_deploy', Icon: Upload },
   } as const
   const conf = ACTS[act]
   const label = pending
-    ? (phases?.[phase] ?? i18nT(`apps.aiStudio.${conf.pending}`))
-    : i18nT(`apps.aiStudio.${conf.key}`)
+    ? (phases?.[phase] ?? i18nT(conf.pending))
+    : i18nT(conf.key)
   const Icon = conf.Icon
 
   return (
@@ -82,7 +87,7 @@ export default function ReleaseControl({ onRelease, phases, phaseMs = 600, disab
       disabled={disabled || pending}
       data-testid={conf.testid}
       data-release-pending={pending ? 'true' : undefined}
-      title={i18nT(`apps.aiStudio.${conf.hint}`)}
+      title={i18nT(conf.hint)}
     >
       <Icon size={13} className="lucide-inline" />
       {label}

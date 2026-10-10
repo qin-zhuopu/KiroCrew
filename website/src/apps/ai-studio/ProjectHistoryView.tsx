@@ -28,6 +28,20 @@ const KIND_ICON: Record<StudioHistoryKind, typeof Pencil> = {
   run: PlayCircle,
 }
 
+// 同样是闭集表：每个 key 写**完整字面量**再按 kind 索引，不拼
+// `history_kind_${e.kind}` —— 拼出来的 key 源码里不存在，抽取器与死键工具都看不见，
+// 缺键时页面直接渲染原始 key（`src/i18n/dynamicKeys.test.ts` 钉这个）。新 kind 会
+// 在上面的 KIND_ICON 和这里同时报错，不会悄悄漏翻译。
+const KIND_LABEL_KEY: Record<StudioHistoryKind, string> = {
+  edit: 'apps.aiStudio.history_kind_edit',
+  commit: 'apps.aiStudio.history_kind_commit',
+  release: 'apps.aiStudio.history_kind_release',
+  distill: 'apps.aiStudio.history_kind_distill',
+  freeze: 'apps.aiStudio.history_kind_freeze',
+  dev: 'apps.aiStudio.history_kind_dev',
+  run: 'apps.aiStudio.history_kind_run',
+}
+
 export default function ProjectHistoryView({ history, onJump, onContinue }: {
   history: StudioProjectHistory
   /** presses an event's 回到当时画面 — the demo loads the event's `ref`
@@ -62,7 +76,7 @@ export default function ProjectHistoryView({ history, onJump, onContinue }: {
             >
               <div className="flex items-center gap-2 text-[12px] text-text">
                 <Icon size={13} className="text-accent shrink-0" />
-                <span className="font-semibold">{i18nT(`apps.aiStudio.history_kind_${e.kind}`)}</span>
+                <span className="font-semibold">{i18nT(KIND_LABEL_KEY[e.kind])}</span>
                 <span className="text-[11px] text-muted font-mono">
                   {new Date(e.at * 1000).toLocaleString()}
                 </span>
