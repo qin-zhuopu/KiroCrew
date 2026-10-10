@@ -31,11 +31,15 @@
  * That function is a NEAR-MISS detector, not a presence check. It matches each term
  * loosely (case-insensitively, with every separator optional) and then requires the
  * hit to be byte-exact, so it reports `Github`, `NodeJS`, `Node JS`, `YAml` — wrong
- * internal capitalisation or spacing, which is the class DNT protects against. Two
- * things it deliberately does NOT report, and both matter here:
+ * internal capitalisation or spacing, which is the class DNT protects against. Three
+ * things it deliberately does NOT report, and all three matter here:
  *
  *   - **An all-lowercase hit** is the command or package, not the product: `git push`,
  *     `npm i`, `python -m`. Prose about denied commands is full of them.
+ *   - **A hit inside a slash-separated path.** An app's slug and its display name
+ *     legitimately differ (`ai-studio` vs `AI Studio`), so quoting the directory
+ *     `website/src/apps/ai-studio/...` is quoting the filesystem. `passthrough-checks
+ *     .mjs` strips the same class before it judges a value's language.
  *   - **A term that is absent.** German genitive inflects (`Kiros eigenem Standard`),
  *     and a language that restructures the sentence may drop the addressee entirely
  *     (`Tell Kiro about you` -> `介绍一下你自己`). Both are correct translations, and a

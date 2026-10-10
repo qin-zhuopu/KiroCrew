@@ -7,7 +7,7 @@
  * separator optional — and then requires the hit to be byte-exact, so the finding is
  * the NEAR-MISS rather than the correct spelling.
  *
- * That shape makes its exemptions load-bearing, and both were learned from real
+ * That shape makes its exemptions load-bearing, and each was learned from real
  * catalogs rather than reasoned about:
  *
  *   - all-lowercase is the COMMAND, not the product (`git push`, `npm i`);
@@ -15,6 +15,9 @@
  *     correct spelling. Every one of the 9 shipped catalogs quotes env var names
  *     verbatim in settings copy, so without that exemption this gate opens with 18
  *     findings it must not have.
+ *   - a hit inside a slash-separated PATH is a directory or file name, whose spelling
+ *     is the filesystem's. `AI Studio` ships as the app id `ai-studio`, so without it
+ *     the one value quoting that path reports a finding in all 10 shipped locales.
  *
  * These tests exist because the exemptions are what stand between a useful gate and
  * one somebody suppresses wholesale.
@@ -24,7 +27,7 @@ import { describe, it, expect } from 'vitest'
 
 import { dntViolations } from '../../scripts/lib/render-scan.mjs'
 
-const TERMS = ['GitHub', 'Node.js', 'Git', 'Playwright', 'KiroCrew', 'YAML', 'npm']
+const TERMS = ['GitHub', 'Node.js', 'Git', 'Playwright', 'KiroCrew', 'YAML', 'npm', 'AI Studio']
 
 /** The respellings the detector exists to catch. */
 const found = (text: string) => dntViolations(text, TERMS).map(v => v.found)
@@ -73,6 +76,22 @@ describe('dntViolations exempts SCREAMING_SNAKE identifiers', () => {
     // Requiring BOTH the all-caps form and an adjacent `_` is what keeps this
     // reportable — the exemption is for identifiers, not for shouting.
     expect(found('PLAYWRIGHT is a browser tool')).toEqual(['PLAYWRIGHT'])
+  })
+})
+
+describe('dntViolations exempts a hit inside a slash-separated path', () => {
+  // The app id is `ai-studio` and the product is `AI Studio`, so the slug of a path
+  // is a near-miss of the display name by construction. Copy that points a reader at
+  // a directory is quoting the filesystem.
+  it('ignores a directory name that spells the slug', () => {
+    expect(found('Available scenarios are listed under website/src/apps/ai-studio/demo/steps/.')).toEqual([])
+    expect(found('可用剧本见 website/src/apps/ai-studio/demo/steps/ 目录。')).toEqual([])
+  })
+
+  it('still reports the respelling standing in prose', () => {
+    // The exemption needs a literal `/` in the token; without one this is exactly
+    // the wrong-spacing class the detector exists to catch.
+    expect(found('Open the AI-Studio panel')).toEqual(['AI-Studio'])
   })
 })
 

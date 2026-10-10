@@ -236,6 +236,27 @@ export function gradeRun(text, opts) {
 }
 
 /**
+ * Does this hit sit inside a slash-separated PATH token?
+ *
+ * A path is a machine identifier: `website/src/apps/ai-studio/demo/steps/` is a
+ * directory the reader is being pointed at, and its spelling belongs to the
+ * filesystem, not to the translator. Without this, a product name whose slug differs
+ * from its display name — `AI Studio` vs the `ai-studio` app id — reports one finding
+ * per shipped locale on the single value that quotes the path, which is a tax on
+ * naming a product rather than a translation defect. `passthrough-checks.mjs` strips
+ * the same class (`/(?:/[\w.-]+){2,}/`) before it judges a value's language, so both
+ * gates read one rule about what a path is. Requiring a literal `/` keeps `Github`
+ * standing in prose reportable.
+ */
+const insidePathToken = (text, from, to) => {
+  let a = from
+  while (a > 0 && !/\s/.test(text[a - 1])) a -= 1
+  let b = to
+  while (b < text.length && !/\s/.test(text[b])) b += 1
+  return text.slice(a, b).includes('/')
+}
+
+/**
  * DNT terms must survive translation byte-identical. Only meaningful in a REAL
  * locale — `en-XA` accents them by construction, so running this against the
  * pseudolocale would report all 19 as mangled.
@@ -270,7 +291,10 @@ export function dntViolations(text, terms) {
       // must not have. Requiring BOTH the all-caps form and an adjacent underscore
       // keeps a bare `PLAYWRIGHT` in prose reportable.
       const upperIdent = m[2] === term.toUpperCase() && (m[1] === '_' || m[3] === '_')
-      if (m[2] !== term && m[2] !== term.toLowerCase() && !upperIdent) {
+      // A hit inside a slash-separated path is a directory or file name, not the
+      // product — see `insidePathToken`.
+      const inPath = insidePathToken(text, m.index + m[1].length, m.index + m[1].length + m[2].length)
+      if (m[2] !== term && m[2] !== term.toLowerCase() && !upperIdent && !inPath) {
         out.push({ term, found: m[2] })
       }
       m = rx.exec(text)
