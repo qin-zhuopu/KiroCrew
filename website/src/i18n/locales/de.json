@@ -304,6 +304,15 @@
       }
     },
     "aiStudio": {
+      "manifest": {
+        "description": "Eine Workbench für das Coding-Studio: eine Projektliste, in der du mit Name und Beschreibung ein Projekt anlegst, und je Projekt eine Seite mit einer KI-Chat-Spalte, die mit deinen echten Kiro-Crew-Sitzungen verbunden ist, neben einem Arbeitsbereich mit Tabs (vorbefüllte Docs für Anforderungen, Workflows und UI-Spezifikationen, ausstehende Diffs, Commit-Verlauf) und einer Werkzeug-Seitenleiste, über die du sie öffnest.",
+        "display_name": "AI Studio",
+        "highlight_1": "Eingebetteter nativer Chat ohne Rahmen — echte Sitzungen, Streaming, Werkzeug-Karten",
+        "highlight_2": "Drei in der Größe anpassbare Spalten mit ein-/ausblendbaren Bereichen, deren Einstellung erhalten bleibt",
+        "highlight_3": "Docs, Diffs, Commits, Graph-Knoten und Bereitstellungsprotokolle als mittlere Tabs aus der Werkzeug-Seitenleiste öffnen",
+        "highlight_4": "Leichtgewichtiger Markdown-Editor mit Umschalter auf Roh-Markdown",
+        "page_label": "AI Studio"
+      },
       "demo_badge": "Demo",
       "demo_counter": "Schritt {{n}} / {{total}}",
       "demo_enter": "Demo",

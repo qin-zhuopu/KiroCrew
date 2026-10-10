@@ -308,6 +308,15 @@
       }
     },
     "aiStudio": {
+      "manifest": {
+        "description": "Un atelier complet pour concevoir du code : une liste de projets que tu crées à partir d’un nom et d’une description, et pour chaque projet une page avec une colonne de chat IA reliée à tes vraies sessions Kiro Crew, à côté d’un espace de travail à onglets (documents d’exigence, de workflow et de spécification d’interface, diffs en attente, historique des commits) et une barre latérale d’outils qui les ouvre.",
+        "display_name": "AI Studio",
+        "highlight_1": "Chat natif intégré sans cadre — vraies sessions, streaming, cartes d’outils",
+        "highlight_2": "Trois colonnes redimensionnables dont l’affichage de chaque panneau est mémorisé",
+        "highlight_3": "Ouvre documents, diffs, commits, nœuds du graphe et journaux de déploiement en onglets centraux depuis la barre latérale d’outils",
+        "highlight_4": "Éditeur Markdown léger avec bascule vers le Markdown brut",
+        "page_label": "AI Studio"
+      },
       "demo_badge": "Démo",
       "demo_counter": "Étape {{n}} / {{total}}",
       "demo_enter": "Démo",

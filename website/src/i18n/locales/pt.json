@@ -308,6 +308,15 @@
       }
     },
     "aiStudio": {
+      "manifest": {
+        "description": "Uma bancada de estúdio de código: uma lista de projetos que você cria a partir de um nome e uma descrição, e páginas por projeto com uma coluna de chat de IA conectada às suas sessões reais do Kiro Crew, ao lado de um workspace em abas (documentos iniciais de requisito, workflow e especificação de interface, diffs pendentes e histórico de commits) e uma barra lateral de ferramentas que abre cada um desses itens.",
+        "display_name": "AI Studio",
+        "highlight_1": "Chat nativo embutido sem moldura — sessões reais, streaming, cartões de ferramenta",
+        "highlight_2": "Três colunas redimensionáveis com mostrar/ocultar por painel, e a escolha persiste",
+        "highlight_3": "Abra docs, diffs, commits, nós do grafo e logs de deploy como abas centrais, a partir da barra lateral de ferramentas",
+        "highlight_4": "Editor de Markdown leve com alternância para o Markdown bruto",
+        "page_label": "AI Studio"
+      },
       "demo_badge": "Demo",
       "demo_counter": "Etapa {{n}} / {{total}}",
       "demo_enter": "Demo",

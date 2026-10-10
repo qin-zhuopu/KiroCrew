@@ -300,6 +300,15 @@
       }
     },
     "aiStudio": {
+      "manifest": {
+        "description": "编码工作室工作台：项目列表里新建项目只需名称和描述。每个项目有自己的页面，一侧是 AI 对话栏，直连你真实的 Kiro Crew 会话。旁边是按页签组织的工作区（预置需求、工作流、UI 规格文档、待提交变更差异、提交历史），再加一个工具边栏负责打开这些内容。",
+        "display_name": "AI Studio",
+        "highlight_1": "无边框内嵌对话 — 真实会话、流式输出、工具卡片",
+        "highlight_2": "三栏都能拖动改宽度，每栏的显示/隐藏各自记住",
+        "highlight_3": "从工具边栏把文档、变更差异、提交、图谱节点和部署日志打开成中间页签",
+        "highlight_4": "轻量 Markdown 编辑器，可切换到 Markdown 源码",
+        "page_label": "AI Studio"
+      },
       "demo_badge": "演示",
       "demo_counter": "第 {{n}} / {{total}} 步",
       "demo_enter": "演示",

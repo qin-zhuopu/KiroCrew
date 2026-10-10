@@ -80,6 +80,19 @@ export const APP_MANIFEST_KEY: Record<string, ManifestKeys> = {
     useCases: ['apps.agentWorlds.manifest.use_case_1'],
     configuration: ['apps.agentWorlds.manifest.configuration_1'],
   },
+  'ai-studio': {
+    displayName: 'apps.aiStudio.manifest.display_name',
+    description: 'apps.aiStudio.manifest.description',
+    pageLabel: 'apps.aiStudio.manifest.page_label',
+    highlights: [
+      'apps.aiStudio.manifest.highlight_1',
+      'apps.aiStudio.manifest.highlight_2',
+      'apps.aiStudio.manifest.highlight_3',
+      'apps.aiStudio.manifest.highlight_4',
+    ],
+    useCases: [],
+    configuration: [],
+  },
   'auto-improvement': {
     displayName: 'apps.autoImprovement.manifest.display_name',
     description: 'apps.autoImprovement.manifest.description',

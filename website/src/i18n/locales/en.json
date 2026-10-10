@@ -82,6 +82,15 @@
       }
     },
     "aiStudio": {
+      "manifest": {
+        "description": "A coding-studio workbench: a project list you can create from a name and a description, and per-project pages with an AI chat column wired to your real Kiro Crew sessions beside a tabbed workspace (seeded requirement, workflow and UI-spec docs, pending diffs, commit history) and a tool sidebar that opens them.",
+        "display_name": "AI Studio",
+        "highlight_1": "Native chat embedded frameless — real sessions, streaming, tool cards",
+        "highlight_2": "Three resizable columns with per-pane show/hide that persist",
+        "highlight_3": "Open docs, diffs, commits, graph nodes and deploy logs as center tabs from the tool sidebar",
+        "highlight_4": "Lightweight markdown editor with a raw-Markdown toggle",
+        "page_label": "AI Studio"
+      },
       "demo_badge": "Demo",
       "demo_counter": "Step {{n}} / {{total}}",
       "demo_enter": "Demo",

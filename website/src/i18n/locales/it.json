@@ -308,6 +308,15 @@
       }
     },
     "aiStudio": {
+      "manifest": {
+        "description": "Un banco di lavoro da studio di sviluppo: un elenco di progetti che puoi creare partendo da nome e descrizione, e pagine per singolo progetto con una colonna di chat IA collegata alle tue sessioni reali di Kiro Crew, accanto a un workspace a schede (documenti iniziali di requisiti, workflow e specifiche UI, diff in sospeso, cronologia dei commit) e a una barra laterale degli strumenti che li apre.",
+        "display_name": "AI Studio",
+        "highlight_1": "Chat nativa incorporata senza cornice: sessioni reali, streaming, schede degli strumenti",
+        "highlight_2": "Tre colonne ridimensionabili, con mostra/nascondi per singolo riquadro che resta salvato",
+        "highlight_3": "Apri documenti, diff, commit, nodi del grafico e log dei deploy come schede centrali dalla barra laterale degli strumenti",
+        "highlight_4": "Editor Markdown leggero, con interruttore per il Markdown grezzo",
+        "page_label": "AI Studio"
+      },
       "demo_badge": "Demo",
       "demo_counter": "Passaggio {{n}} / {{total}}",
       "demo_enter": "Demo",

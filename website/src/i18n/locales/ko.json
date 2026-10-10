@@ -300,6 +300,15 @@
       }
     },
     "aiStudio": {
+      "manifest": {
+        "description": "코딩 작업대입니다. 이름과 설명만으로 프로젝트를 만들 수 있는 목록과 프로젝트별 페이지를 제공합니다. 각 페이지에는 실제 Kiro Crew 세션에 연결된 AI 채팅 창, 탭형 워크스페이스(초기 요구사항·워크플로·UI 스펙 문서, 보류 중인 차이, 커밋 기록), 그리고 이 항목들을 여는 도구 사이드바가 함께 있습니다.",
+        "display_name": "AI Studio",
+        "highlight_1": "프레임 없이 내장된 네이티브 채팅 — 실제 세션, 스트리밍, 도구 카드",
+        "highlight_2": "크기를 조절할 수 있는 세 개의 창과 창별 표시·숨김 설정 유지",
+        "highlight_3": "문서, 차이, 커밋, 그래프 노드, 배포 로그를 도구 사이드바에서 가운데 탭으로 열기",
+        "highlight_4": "Markdown 원본 보기 전환을 갖춘 경량 Markdown 편집기",
+        "page_label": "AI Studio"
+      },
       "demo_badge": "데모",
       "demo_counter": "{{n}} / {{total}} 단계",
       "demo_enter": "데모",
