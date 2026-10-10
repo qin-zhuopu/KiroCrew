@@ -81,6 +81,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         "Extend it",
         (
             ("app", "Manage Kiro Crew apps"),
+            ("studio", "Cut, release and inspect AI Studio production versions"),
             ("agent", "Manage Kiro Crew agent definitions"),
             ("workspace", "Manage workspace definitions"),
         ),

@@ -1106,6 +1106,22 @@ async def _handle_prod_server_deploy(request: web.Request) -> web.StreamResponse
     return web.json_response(view, status=202)
 
 
+async def _handle_prod_server_version(request: web.Request) -> web.StreamResponse:
+    # POST /projects/{id}/prod-server/version (ACP-2231): 只升版不发布 —— 后台的细
+    # 颗粒度入口（命令行 ``kirocrew studio version`` 走的就是这一条）。前置与
+    # deploy 完全一样（404 / 403 / 400 / 409 同源），因为拒的理由是同一套；区别只在
+    # 它跑的是 ``cut_version``：不打进程的主意，所以它是**同步**跑完的（几条 git
+    # 加一次台账写，秒级），不像 deploy 那样要把七步交给后台线程。
+    target = await _prod_server_target(request)
+    if isinstance(target, web.Response):
+        return target
+    try:
+        result = await asyncio.to_thread(target.cut_version)
+    except prodserver.ProdServerError as exc:
+        return _error(str(exc), exc.code, exc.status)
+    return web.json_response(result)
+
+
 async def _handle_prod_server_stop(request: web.Request) -> web.StreamResponse:
     # POST /projects/{id}/prod-server/stop: kill the process groups, drop the
     # gateway conf (+reload), release the ports. Inline — bounded by the SIGTERM
@@ -1277,8 +1293,8 @@ def register_routes(app: web.Application) -> None:
     )
     # ACP-2085-S5: the production server. ``prod-server`` is a literal segment
     # distinct from ``dev-server`` (they differ at the 5th character), and
-    # ``prod-server/deploy`` / ``/stop`` / ``/log`` carry a further segment, so
-    # nothing here can be reached by another route.
+    # ``prod-server/deploy`` / ``/stop`` / ``/log`` / ``/version`` (ACP-2231) carry
+    # a further segment, so nothing here can be reached by another route.
     app.router.add_get(
         f"{_BASE}/projects/{{project_id}}/prod-server",
         _require_enabled(_handle_prod_server_get),
@@ -1286,6 +1302,10 @@ def register_routes(app: web.Application) -> None:
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/prod-server/deploy",
         _require_enabled(_handle_prod_server_deploy),
+    )
+    app.router.add_post(
+        f"{_BASE}/projects/{{project_id}}/prod-server/version",
+        _require_enabled(_handle_prod_server_version),
     )
     app.router.add_post(
         f"{_BASE}/projects/{{project_id}}/prod-server/stop",
