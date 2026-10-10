@@ -413,3 +413,26 @@
   于是音译掉 `Kiro`/`Markdown` 也照样报 `0 finding(s)`——**和真通过一模一样**。`checkValue` 的 DNT
   判据是「英文先命中才查译文」，空词表 = 静默空门。复刻别人家的门必须把**输入条数**打印出来自证
   （`dnt terms loaded: 62` 那行才是证据，`0 finding(s)` 单独出现不说明任何事）
+- [20261010-174016-latin-homoglyph-passes-every-non-latin-gate.md](20261010-174016-latin-homoglyph-passes-every-non-latin-gate.md) —
+  我手打的俄语里混进拉丁同形字（`Проверяem` 的 `e`=U+0065、`m`=U+006D），**字符档和仓里
+  `checkValue()` 双双全绿**。根因：`check-vocab.py` 只遍历 `RANGES["ru"]=Ѐ-ӿ` **区间内**的字符，
+  拉丁字母在区间外，**一次都不进循环**——那道门真正的判据是「是否落在西里尔区块内」，
+  不是「是否属于俄语」。对照组：换成跨区块的乌克兰语 `і` 立刻 HARD FAIL，跨文字的永远漏网。
+  那句 `character coverage: OK (no native script invented)` 字面为真、读起来却像「这文件俄语
+  没问题」——**成功文案的作用域比它读起来的作用域窄**。自查判据改用「ASCII 字母是否紧贴西里尔」
+  （`ru.json` 全量 0 命中，可当常规门）。附带另一半：我先给这个**真的**现象编了一条假成因
+  （「SendMessage 通道腐蚀西里尔」，实测那条消息整条不存在），教训是**「链路坏了」需要正反
+  两份样本当证据，「我找不到」永远推不出「传输丢了它」**
+- [20261010-174002-origin-main-baseline-blames-main-sOwn-Retranslation-On-Me.md](20261010-174002-origin-main-baseline-blames-main-sOwn-Retranslation-On-Me.md) —
+  `I18N_BASE_REF=origin/main` 报我 `[changed-passthrough]` 38 条「值还是英文」，逐条核到**三个 rev**
+  才发现：那 3 个键在**合并点**各语种的值本来就等于当时的英文，我一行没碰；是 **main 在分叉后改了
+  英文并重译**，我们还没合 main，于是「main 的译文 → 我的（=合并点）英文」被 diff 判据算成我的改动。
+  同一工作树三个基线给出 **0 / 0 / 38** 三种答案（合并点 0、HEAD 0、origin/main 38）。规矩：
+  长分支上量「我这一刀」基线用 `git merge-base HEAD origin/main`；`[changed-*]` 报红先问
+  **base 取在哪**再问值对不对；归属没核清不要「顺手补」，补了会把 main 已重写的键再改一遍
+- [20261010-174210-flatten-inside-a-comprehension-made-a-merge-hang.md](20261010-174210-flatten-inside-a-comprehension-made-a-merge-hang.md) —
+  自造合并脚本「跑不完、零输出、像死锁」，真凶是我那句**自查断言**：
+  `[k for k in before&after if flat(catalog)[k] != flat(json.loads(raw))[k]]` 把 1.5 万键的
+  递归摊平 + 整份 JSON 解析放进推导式条件，O(n²) ≈ 4.5 亿次操作，**每个语种一个都跑不完**；
+  两侧各摊平一次存 map 后，八个语种 **0.46 秒**。教训：安全网自己必须廉价——它挂住时会伪装成
+  程序卡死；判断复杂度还是死锁，把规模砍到 1 个键跑一遍比加 print 快；`--dry` 是否廉价要量不要假设
